@@ -243,8 +243,10 @@ ${rows.map((line) => `<tr>
 <p style="text-align:right;font-weight:600;margin-top:12px">Total ${money(subtotal)}</p>
 ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
 <script>window.print()</script></body></html>`;
-    const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
+    // Open a writable same-origin window first; sever opener after (noopener returns null).
+    const w = window.open("", "_blank", "width=900,height=700");
     if (!w) return;
+    try { w.opener = null; } catch { /* ignore */ }
     w.document.write(html);
     w.document.close();
   };

@@ -1319,3 +1319,48 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
     assert.equal(ok.data.lines[0].line_status, line_status);
   }
 });
+
+test('material order sync: no draft clone on New MO; void source clears draft lines', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('mo-sync-fix@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'MO sync fix', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'MO sync job', client_id: client.id });
+
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-SYNC',
+    status: 'draft',
+    lines: [{ description: 'Pipe', category: 'Plumbing', material_amount: 30 }],
+  });
+  let mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(mos.length, 1);
+  const firstDraft = mos[0];
+  assert.equal(firstDraft.lines.length, 1);
+  assert.equal(firstDraft.total, 30);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 30);
+
+  // New empty Material Order must not clone synced source lines (would double materials_cost)
+  const second = await create('MaterialOrder', {
+    job_id: job.id, number: 'MO-002', status: 'draft', lines: [],
+  });
+  assert.equal(second.lines?.length || 0, 0);
+  assert.equal(second.total ?? 0, 0);
+  mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  const stillFirst = mos.find((m) => m.id === firstDraft.id);
+  assert.equal(stillFirst.lines.length, 1);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 30);
+
+  // Voiding the estimate clears auto-synced lines from the draft MO
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/void`, {
+    method: 'POST', cookie: a.cookie, data: {},
+  })).status, 200);
+  const afterVoid = (await request(`/entities/MaterialOrder/${firstDraft.id}`, { cookie: a.cookie })).data;
+  assert.equal(afterVoid.lines.filter((l) => l.source_entity === 'Estimate').length, 0);
+  assert.equal(afterVoid.total ?? 0, 0);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 0);
+});

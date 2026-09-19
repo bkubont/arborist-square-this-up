@@ -12,6 +12,7 @@ import {
   collectJobMaterialLines,
   mergeMaterialOrderLines,
   materialOrderTotals,
+  materialOrderSourceKey,
 } from './mapping.js';
 
 const DRAFT_SYNC_STATUSES = new Set(['draft']);
@@ -24,6 +25,10 @@ function pickEstimate(estimates = []) {
 
 function pickWorkOrder(workOrders = []) {
   return workOrders.find((wo) => isNonVoid(wo)) || null;
+}
+
+function draftHasSyncedSourceLines(order) {
+  return (order?.lines || []).some((line) => materialOrderSourceKey(line));
 }
 
 /** Build incoming MO lines from live job documents. */
@@ -42,6 +47,8 @@ export async function collectMaterialLinesForJob(db, ownerId, jobId) {
 
 /**
  * Upsert synced lines onto a draft Material Order (or create one when materials exist).
+ * Only one draft holds auto-synced source lines at a time — preferId never clones them
+ * onto a second draft when another draft already has those source keys.
  * @param {{ preferId?: string, createIfMissing?: boolean }} [opts]
  * @returns {Promise<object|null>} updated/created draft MO, or null when nothing to do
  */
@@ -53,9 +60,20 @@ export async function syncDraftMaterialOrder(db, ownerId, jobId, opts = {}) {
     .filter((o) => DRAFT_SYNC_STATUSES.has(o.status))
     .sort((a, b) => String(a.created_date || '').localeCompare(String(b.created_date || '')));
 
-  let target = preferId
-    ? drafts.find((o) => o.id === preferId) || orders.find((o) => o.id === preferId && DRAFT_SYNC_STATUSES.has(o.status))
+  const otherDraftWithSynced = preferId
+    ? drafts.find((o) => o.id !== preferId && draftHasSyncedSourceLines(o))
     : null;
+
+  let target = null;
+  if (preferId) {
+    const preferred = drafts.find((o) => o.id === preferId)
+      || orders.find((o) => o.id === preferId && DRAFT_SYNC_STATUSES.has(o.status));
+    // Avoid cloning already-synced source lines into a second active draft MO
+    if (preferred && otherDraftWithSynced && incoming.length) {
+      return preferred;
+    }
+    target = preferred || null;
+  }
   if (!target) target = drafts[0] || null;
 
   if (!target) {

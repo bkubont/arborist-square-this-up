@@ -410,6 +410,10 @@ export async function createApp(db, env = process.env) {
     const entity = assertDocumentEntity(req.params.entity);
     const updated = await ownedTransaction(req.user.id, async tx => {
       const voided = await voidDocument(tx, req.user.id, entity, req.params.id);
+      // Drop voided Estimate / WO / CO materials from draft MOs + rollup
+      if (MATERIAL_SYNC_ENTITIES.has(entity) && voided.job_id) {
+        await maybeSyncMaterialOrder(tx, req.user.id, voided.job_id);
+      }
       if (['Invoice', 'Estimate', 'MaterialOrder'].includes(entity) && voided.job_id) {
         await refreshJobDocumentRollups(tx, req.user.id, voided.job_id, { saveRecord, sumActiveInvoiceTotals });
       }
