@@ -93,10 +93,16 @@ export function catalogItemToFormLine(item, fallbackRate = DEFAULT_LABOR_RATE) {
   const hours = item.hours_mid;
   const rate = item.labor_rate ?? fallbackRate;
   const labor = item.est_labor_cost ?? (hours != null ? hours * rate : "");
-  const noteParts = [item.notes, item.tools ? `Tools: ${item.tools}` : ""].filter(Boolean);
+  const materials = item.est_materials_cost;
+  const noteParts = [
+    item.notes,
+    item.materials_note,
+    item.materials_flag ? `Materials: ${item.materials_flag}` : "",
+    item.tools ? `Tools: ${item.tools}` : "",
+  ].filter(Boolean);
   return {
     description: item.task || "",
-    material_amount: "",
+    material_amount: materials != null && materials !== "" ? String(roundMoney(materials)) : "",
     labor_amount: labor === "" ? "" : String(roundMoney(labor)),
     equipment_amount: "",
     labor_hours: hours != null ? String(hours) : "",

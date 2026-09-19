@@ -269,6 +269,7 @@ test('catalog search and estimate line fill with recomputed totals', async t => 
   assert.ok(hit);
   assert.ok(hit.hours_mid > 0);
   assert.ok(hit.est_labor_cost > 0);
+  assert.ok(hit.est_materials_cost > 0);
 
   const byCategory = await request('/catalog?category=Plumbing&limit=20', { cookie: a.cookie });
   assert.ok(byCategory.data.items.every(item => /plumbing/i.test(item.category)));

@@ -94,7 +94,15 @@ export default function CatalogTypeahead({
                     {item.avg_time ? ` · ${item.avg_time}` : ""}
                   </div>
                 </div>
-                <span className="text-xs font-semibold text-slate-700 shrink-0">{money(item.est_labor_cost)}</span>
+                <div className="text-right shrink-0">
+                  <div className="text-xs font-semibold text-slate-700">{money(item.est_labor_cost)}</div>
+                  {item.est_materials_cost != null && (
+                    <div className="text-[10px] text-slate-500">
+                      +{money(item.est_materials_cost)} mat
+                      {item.materials_flag ? " *" : ""}
+                    </div>
+                  )}
+                </div>
               </div>
             </button>
           ))}
