@@ -441,6 +441,7 @@ export default function InvoiceEditorDialog({
                 value={form.status}
                 onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
                 statuses={DOCUMENT_STATUSES.Invoice}
+                entity="Invoice"
               />
             </div>
             <div>

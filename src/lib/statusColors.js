@@ -2,12 +2,11 @@
  * Global status → color system (Square This Up).
  *
  * ONE source of truth for jobs, documents, and any surface that shows a status.
- * Shared lifecycle words resolve to the same semantic color:
- *   sent ≈ waiting  ·  accepted ≈ approved  ·  declined ≈ rejected
- *   complete ≈ Completed  ·  paid ≈ Paid  ·  void ≈ declined (terminal cancel)
+ * Exact brand: Royal Blue #0504AA · Gold #E3AD36 · Black #000000
  *
- * Gold (`attention`) = waiting / blocked / needs action only.
- * Do not invent ad-hoc status colors elsewhere — import from here.
+ * Waiting family (gold base #E3AD36) with subtle shades for scanability —
+ * may collapse to identical later:
+ *   materials (#E3AD36) · approval (#EBC35A) · payment (#C9961F)
  */
 
 /** Semantic palettes used by chips, frames, columns, selects. */
@@ -39,6 +38,37 @@ export const STATUS_SEMANTICS = {
     swatch: "bg-blue-600",
     select: "text-blue-900",
   },
+  /** Base gold — Waiting on Materials */
+  "attention-materials": {
+    badge: "bg-attention-materials-muted text-attention-materials-foreground border-attention-materials-border",
+    border: "border-attention-materials-border",
+    ring: "ring-attention-materials/40",
+    column: "border-attention-materials-border/60",
+    columnHeader: "bg-attention-materials-muted border-attention-materials-border",
+    swatch: "bg-attention-materials",
+    select: "text-attention-materials-foreground",
+  },
+  /** Lighter gold — estimate/CO awaiting client approval */
+  "attention-approval": {
+    badge: "bg-attention-approval-muted text-attention-approval-foreground border-attention-approval-border",
+    border: "border-attention-approval-border",
+    ring: "ring-attention-approval/40",
+    column: "border-attention-approval-border/60",
+    columnHeader: "bg-attention-approval-muted border-attention-approval-border",
+    swatch: "bg-attention-approval",
+    select: "text-attention-approval-foreground",
+  },
+  /** Deeper gold — invoice awaiting payment */
+  "attention-payment": {
+    badge: "bg-attention-payment-muted text-attention-payment-foreground border-attention-payment-border",
+    border: "border-attention-payment-border",
+    ring: "ring-attention-payment/40",
+    column: "border-attention-payment-border/60",
+    columnHeader: "bg-attention-payment-muted border-attention-payment-border",
+    swatch: "bg-attention-payment",
+    select: "text-attention-payment-foreground",
+  },
+  /** Generic attention alias → materials (base gold) */
   attention: {
     badge: "bg-attention-muted text-attention-muted-foreground border-attention",
     border: "border-attention",
@@ -88,40 +118,37 @@ export const STATUS_SEMANTICS = {
 
 /**
  * Canonical status string → semantic key.
- * Keys are matched case-insensitively after trim.
- * Job statuses keep their Title Case labels; document statuses are lowercase.
+ * Invoice `sent`/`partial` → payment shade; Estimate/CO `sent` → approval shade.
+ * Use statusColors(status, { entity }) when entity is known.
  */
 export const STATUS_SEMANTIC_MAP = {
-  // —— Jobs ——
   Estimate: "brand",
   Scheduled: "sky",
   "In Progress": "blue",
-  "Waiting on Materials": "attention",
+  "Waiting on Materials": "attention-materials",
   Completed: "success",
   Paid: "closed",
 
-  // —— Shared document lifecycle ——
   draft: "neutral",
-  sent: "attention", // awaiting client / approval
+  sent: "attention-approval", // default: awaiting client (Estimate/CO)
   accepted: "success",
-  approved: "success", // same as accepted
+  approved: "success",
   declined: "danger",
-  rejected: "danger", // same as declined
+  rejected: "danger",
   void: "danger",
-  partial: "sky", // progress billing in flight
-  paid: "closed", // same as job Paid
-  issued: "sky", // WO released (aligned with Scheduled)
-  complete: "success", // WO done (aligned with Completed)
+  partial: "attention-payment", // invoice progress / unpaid
+  paid: "closed",
+  issued: "sky",
+  complete: "success",
 };
 
-/** @deprecated Prefer STATUS_SEMANTIC_MAP + statusColors(); kept for callers expecting a flat map. */
+/** @deprecated Prefer statusColors(); kept for flat-map callers. */
 export const STATUS_COLORS = Object.fromEntries(
   Object.entries(STATUS_SEMANTIC_MAP).map(([status, semantic]) => [status, STATUS_SEMANTICS[semantic]])
 );
 
 const FALLBACK = STATUS_SEMANTICS.neutral;
 
-/** Normalize lookup key (trim; try exact then lowercase). */
 export function normalizeStatusKey(status) {
   if (status == null || status === "") return "";
   const raw = String(status).trim();
@@ -131,22 +158,31 @@ export function normalizeStatusKey(status) {
   return found || raw;
 }
 
-export function statusSemantic(status) {
+/**
+ * @param {string} status
+ * @param {{ entity?: string }} [opts] when entity is Invoice, `sent` maps to payment gold
+ */
+export function statusSemantic(status, opts = {}) {
   const key = normalizeStatusKey(status);
+  const entity = opts.entity;
+  if (entity === "Invoice" && (key === "sent" || key === "partial")) {
+    return "attention-payment";
+  }
+  if ((entity === "Estimate" || entity === "ChangeOrder") && key === "sent") {
+    return "attention-approval";
+  }
   return STATUS_SEMANTIC_MAP[key] || "neutral";
 }
 
-export function statusColors(status) {
-  return STATUS_SEMANTICS[statusSemantic(status)] || FALLBACK;
+export function statusColors(status, opts = {}) {
+  return STATUS_SEMANTICS[statusSemantic(status, opts)] || FALLBACK;
 }
 
-/** Card/container frame: left accent + matching border. */
-export function statusCardClass(status) {
-  const c = statusColors(status);
+export function statusCardClass(status, opts = {}) {
+  const c = statusColors(status, opts);
   return `border-l-4 ${c.border}`;
 }
 
-/** Whether this status is treated as high-attention (gold). */
-export function isAttentionStatus(status) {
-  return statusSemantic(status) === "attention";
+export function isAttentionStatus(status, opts = {}) {
+  return String(statusSemantic(status, opts)).startsWith("attention");
 }

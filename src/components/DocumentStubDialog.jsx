@@ -134,7 +134,7 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
             </div>
             <div>
               <Label>Status</Label>
-              <StatusSelect value={form.status} onValueChange={(v) => set("status", v)} statuses={statuses} />
+              <StatusSelect value={form.status} onValueChange={(v) => set("status", v)} statuses={statuses} entity={entity} />
             </div>
           </div>
 

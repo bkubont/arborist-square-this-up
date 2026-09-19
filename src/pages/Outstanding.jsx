@@ -14,6 +14,7 @@ export default function Outstanding() {
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,39 +22,61 @@ export default function Outstanding() {
       api.entities.Job.list("-updated_date", 300),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
+      api.entities.Invoice.list("-updated_date", 300),
     ])
-      .then(([j, e, c]) => {
+      .then(([j, e, c, inv]) => {
         setJobs(j);
         setEstimates(e);
         setChangeOrders(c);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const buckets = useMemo(() => moneySummary(jobs, estimates, changeOrders), [jobs, estimates, changeOrders]);
+  const buckets = useMemo(
+    () => moneySummary(jobs, estimates, changeOrders, invoices),
+    [jobs, estimates, changeOrders, invoices]
+  );
   const unpaid = useMemo(() => jobs.filter(hasOutstandingBalance), [jobs]);
-  const waitingDocs = useMemo(() => {
-    const est = estimates.filter((e) => e.status === "sent").map((e) => ({ ...e, kind: "Estimate" }));
-    const cos = changeOrders.filter((c) => c.status === "sent").map((c) => ({ ...c, kind: "Change order" }));
+  const waitingApprovalDocs = useMemo(() => {
+    const est = estimates.filter((e) => e.status === "sent").map((e) => ({ ...e, kind: "Estimate", entity: "Estimate" }));
+    const cos = changeOrders.filter((c) => c.status === "sent").map((c) => ({ ...c, kind: "Change order", entity: "ChangeOrder" }));
     return [...est, ...cos];
   }, [estimates, changeOrders]);
+  const waitingPaymentDocs = useMemo(
+    () =>
+      invoices
+        .filter((inv) => inv.status === "sent" || inv.status === "partial")
+        .map((inv) => ({ ...inv, kind: "Invoice", entity: "Invoice" })),
+    [invoices]
+  );
 
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground">Money</h1>
-        <p className="text-sm text-muted-foreground">Invoiced, received, outstanding, and docs waiting on approval</p>
+        <p className="text-sm text-muted-foreground">
+          Invoiced, received, outstanding, waiting for approval, and waiting on payment
+        </p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
         <SummaryCard label="Invoiced" value={loading ? "…" : money(buckets.invoiced)} />
         <SummaryCard label="Received" value={loading ? "…" : money(buckets.received)} />
         <SummaryCard label="Outstanding" value={loading ? "…" : money(buckets.outstanding)} attention />
         <SummaryCard
-          label="Waiting approval"
+          label="Waiting for approval"
           value={loading ? "…" : money(buckets.waitingApproval)}
-          hint={loading ? undefined : `${buckets.waitingDocCount} doc${buckets.waitingDocCount === 1 ? "" : "s"}`}
+          hint={loading ? undefined : `${buckets.waitingDocCount} estimate/CO`}
           attention={buckets.waitingDocCount > 0}
+          tone="approval"
+        />
+        <SummaryCard
+          label="Waiting on payment"
+          value={loading ? "…" : money(buckets.waitingPayment)}
+          hint={loading ? undefined : `${buckets.waitingPaymentCount} invoice${buckets.waitingPaymentCount === 1 ? "" : "s"}`}
+          attention={buckets.waitingPaymentCount > 0}
+          tone="payment"
         />
       </div>
 
@@ -84,7 +107,7 @@ export default function Outstanding() {
                     <div className="text-sm text-muted-foreground truncate">{j.client_name || "—"}</div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-sm font-semibold text-attention">{money(balance)}</div>
+                    <div className="text-sm font-semibold text-attention-payment">{money(balance)}</div>
                     <div className="mt-1 flex justify-end">
                       <StatusBadge status={j.status} />
                     </div>
@@ -96,49 +119,76 @@ export default function Outstanding() {
         )}
       </section>
 
-      <section>
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-          Waiting for approval
-        </h2>
-        {loading ? (
-          <p className="text-muted-foreground">Loading…</p>
-        ) : waitingDocs.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">No estimates or change orders awaiting client sign.</p>
-        ) : (
-          <div className="space-y-2">
-            {waitingDocs.map((d) => (
-              <Link
-                key={`${d.kind}-${d.id}`}
-                to={`/jobs/${d.job_id}`}
-                className={cn(
-                  "flex items-center gap-3 bg-card rounded-xl border p-4 hover:shadow-sm transition-colors",
-                  statusCardClass(d.status)
-                )}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{d.kind}</span>
-                    <StatusBadge status={d.status} />
-                  </div>
-                  <div className="font-semibold text-foreground truncate">{d.number || d.title || d.id}</div>
-                </div>
-                <div className="text-sm font-semibold text-attention tabular-nums">
-                  {money(d.total ?? d.net_change ?? 0)}
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+      <DocSection
+        title="Waiting for approval"
+        subtitle="Estimates & change orders awaiting client sign"
+        loading={loading}
+        docs={waitingApprovalDocs}
+        empty="No estimates or change orders awaiting client sign."
+      />
+
+      <DocSection
+        title="Waiting on payment"
+        subtitle="Invoices sent or partial"
+        loading={loading}
+        docs={waitingPaymentDocs}
+        empty="No invoices awaiting payment."
+      />
     </div>
   );
 }
 
-function SummaryCard({ label, value, hint = undefined, attention = false }) {
+function DocSection({ title, subtitle, loading, docs, empty }) {
+  return (
+    <section className="mb-8">
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">{title}</h2>
+      <p className="text-xs text-muted-foreground mb-2">{subtitle}</p>
+      {loading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : docs.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4">{empty}</p>
+      ) : (
+        <div className="space-y-2">
+          {docs.map((d) => (
+            <Link
+              key={`${d.entity}-${d.id}`}
+              to={`/jobs/${d.job_id}`}
+              className={cn(
+                "flex items-center gap-3 bg-card rounded-xl border p-4 hover:shadow-sm transition-colors",
+                statusCardClass(d.status, { entity: d.entity })
+              )}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{d.kind}</span>
+                  <StatusBadge status={d.status} entity={d.entity} />
+                </div>
+                <div className="font-semibold text-foreground truncate">{d.number || d.title || d.id}</div>
+              </div>
+              <div className="text-sm font-semibold tabular-nums text-attention">
+                {money(d.total ?? d.net_change ?? 0)}
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SummaryCard({ label, value, hint = undefined, attention = false, tone = "base" }) {
+  const valueClass =
+    tone === "approval"
+      ? "text-attention-approval"
+      : tone === "payment"
+        ? "text-attention-payment"
+        : attention
+          ? "text-attention"
+          : "text-foreground";
   return (
     <div className="bg-card rounded-xl border border-border p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`text-lg font-bold tabular-nums ${attention ? "text-attention" : "text-foreground"}`}>{value}</div>
+      <div className={`text-lg font-bold tabular-nums ${valueClass}`}>{value}</div>
       {hint && <div className="text-[11px] text-muted-foreground mt-0.5">{hint}</div>}
     </div>
   );

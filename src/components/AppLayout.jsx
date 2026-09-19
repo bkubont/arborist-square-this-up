@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { Square, LogOut, Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { PRODUCT_NAME } from "@/lib/brand";
+import { BRAND_ASSETS, PRODUCT_NAME } from "@/lib/brand";
 import { NAV_ICONS } from "@/lib/navIcons";
 
 /** Expanded side menu — Dashboard destinations + Kanban + core hubs. */
@@ -63,15 +63,21 @@ export default function AppLayout() {
         )}
       >
         <div className="px-5 py-5 flex items-center justify-between">
-          <Link to="/" onClick={() => setOpen(false)} className="flex items-center gap-2 min-w-0">
-            <div
-              className="w-9 h-9 rounded-lg bg-sidebar-primary flex items-center justify-center shrink-0"
-              aria-hidden="true"
-            >
-              <Square className="w-5 h-5 text-sidebar-primary-foreground" strokeWidth={2.25} fill="currentColor" fillOpacity={0.2} />
-            </div>
+          <Link to="/" onClick={() => setOpen(false)} className="flex items-center gap-2.5 min-w-0">
+            <img
+              src={BRAND_ASSETS.markLight}
+              alt=""
+              className="w-10 h-10 rounded-lg object-contain shrink-0 bg-black"
+              width={40}
+              height={40}
+            />
             <div className="min-w-0">
-              <div className="text-sidebar-accent-foreground font-bold leading-tight truncate">{PRODUCT_NAME}</div>
+              <div className="text-white font-bold leading-tight truncate text-sm tracking-wide uppercase">
+                Square
+              </div>
+              <div className="text-attention font-semibold leading-tight truncate text-[11px] tracking-wider uppercase">
+                This Up
+              </div>
             </div>
           </Link>
           <button type="button" className="lg:hidden text-sidebar-muted shrink-0" onClick={() => setOpen(false)} aria-label="Close menu">
@@ -123,8 +129,9 @@ export default function AppLayout() {
           <button type="button" className="text-sidebar-accent-foreground" onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu className="w-6 h-6" />
           </button>
-          <Link to="/" className="text-sidebar-accent-foreground font-bold truncate px-2">
-            {PRODUCT_NAME}
+          <Link to="/" className="flex items-center gap-2 min-w-0 px-2">
+            <img src={BRAND_ASSETS.markLight} alt="" className="w-8 h-8 rounded-md object-contain bg-black shrink-0" width={32} height={32} />
+            <span className="text-white font-bold truncate text-sm">{PRODUCT_NAME}</span>
           </Link>
           <div className="w-6" />
         </header>

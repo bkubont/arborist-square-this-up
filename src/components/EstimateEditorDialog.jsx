@@ -243,6 +243,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
                 value={form.status}
                 onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
                 statuses={DOCUMENT_STATUSES.Estimate}
+                entity="Estimate"
               />
             </div>
             <div>

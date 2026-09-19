@@ -37,7 +37,19 @@ module.exports = {
   				foreground: 'hsl(var(--attention-foreground))',
   				muted: 'hsl(var(--attention-muted))',
   				'muted-foreground': 'hsl(var(--attention-muted-foreground))',
-  				border: 'hsl(var(--attention-border))'
+  				border: 'hsl(var(--attention-border))',
+  				materials: 'hsl(var(--attention-materials))',
+  				'materials-muted': 'hsl(var(--attention-materials-muted))',
+  				'materials-foreground': 'hsl(var(--attention-materials-foreground))',
+  				'materials-border': 'hsl(var(--attention-materials-border))',
+  				approval: 'hsl(var(--attention-approval))',
+  				'approval-muted': 'hsl(var(--attention-approval-muted))',
+  				'approval-foreground': 'hsl(var(--attention-approval-foreground))',
+  				'approval-border': 'hsl(var(--attention-approval-border))',
+  				payment: 'hsl(var(--attention-payment))',
+  				'payment-muted': 'hsl(var(--attention-payment-muted))',
+  				'payment-foreground': 'hsl(var(--attention-payment-foreground))',
+  				'payment-border': 'hsl(var(--attention-payment-border))'
   			},
   			surface: {
   				DEFAULT: 'hsl(var(--surface))',

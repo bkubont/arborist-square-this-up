@@ -164,6 +164,7 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
                 value={form.status}
                 onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
                 statuses={DOCUMENT_STATUSES.WorkOrder}
+                entity="WorkOrder"
               />
             </div>
             <div>

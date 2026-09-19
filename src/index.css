@@ -4,59 +4,80 @@
 
 @layer base {
   :root {
-    /* Square This Up — royal blue primary; gold for attention only */
+    /*
+     * Square This Up — exact brand hex → HSL
+     * Royal Blue #0504AA · Gold #E3AD36 · Black #000000
+     */
     --background: 220 33% 97%;
-    --foreground: 222 47% 11%;
+    --foreground: 0 0% 0%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 0 0% 0%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 0 0% 0%;
 
-    --brand: 225 73% 47%;
+    /* #0504AA */
+    --brand: 240 95% 34%;
     --brand-foreground: 0 0% 100%;
-    --brand-muted: 225 45% 94%;
-    --brand-muted-foreground: 225 55% 32%;
-    --brand-border: 225 35% 82%;
+    --brand-muted: 240 55% 94%;
+    --brand-muted-foreground: 240 80% 28%;
+    --brand-border: 240 45% 78%;
 
-    --attention: 43 74% 42%;
+    /* #E3AD36 base gold — attention */
+    --attention: 41 76% 55%;
     --attention-foreground: 36 50% 12%;
-    --attention-muted: 43 70% 94%;
+    --attention-muted: 41 70% 92%;
     --attention-muted-foreground: 36 55% 28%;
-    --attention-border: 43 55% 70%;
+    --attention-border: 41 55% 68%;
 
-    /* Global status semantics (mirror src/lib/statusColors.js) */
-    --status-brand: 225 73% 47%;
-    --status-sky: 199 89% 48%;
-    --status-blue: 221 83% 53%;
-    --status-attention: 43 74% 42%;
+    /* Waiting gold shades (same family; may collapse later) */
+    /* materials = base #E3AD36 */
+    --attention-materials: 41 76% 55%;
+    --attention-materials-muted: 41 70% 92%;
+    --attention-materials-foreground: 36 55% 26%;
+    --attention-materials-border: 41 55% 68%;
+    /* approval = #EBC35A lighter */
+    --attention-approval: 43 78% 64%;
+    --attention-approval-muted: 43 72% 93%;
+    --attention-approval-foreground: 38 50% 26%;
+    --attention-approval-border: 43 60% 72%;
+    /* payment = #C9961F deeper */
+    --attention-payment: 42 73% 46%;
+    --attention-payment-muted: 42 65% 91%;
+    --attention-payment-foreground: 38 60% 24%;
+    --attention-payment-border: 42 55% 58%;
+
+    --status-brand: 240 95% 34%;
+    --status-sky: 199 89% 42%;
+    --status-blue: 221 83% 45%;
+    --status-attention: 41 76% 55%;
     --status-success: 160 84% 30%;
-    --status-closed: 215 16% 47%;
+    --status-closed: 215 16% 35%;
     --status-neutral: 220 12% 42%;
     --status-danger: 0 72% 51%;
 
-    --primary: 225 73% 47%;
+    --primary: 240 95% 34%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 25% 93%;
-    --secondary-foreground: 222 40% 20%;
+    --secondary-foreground: 0 0% 0%;
     --muted: 220 20% 94%;
-    --muted-foreground: 220 12% 42%;
-    --accent: 225 45% 94%;
-    --accent-foreground: 225 55% 28%;
+    --muted-foreground: 220 12% 38%;
+    --accent: 240 55% 94%;
+    --accent-foreground: 240 80% 28%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 20% 88%;
     --input: 220 20% 88%;
-    --ring: 225 73% 47%;
+    --ring: 240 95% 34%;
 
     --surface: 0 0% 100%;
     --surface-muted: 220 28% 95%;
     --page: 220 33% 97%;
 
-    --chart-1: 225 73% 47%;
-    --chart-2: 43 74% 42%;
+    --chart-1: 240 95% 34%;
+    --chart-2: 41 76% 55%;
     --chart-3: 200 55% 40%;
     --chart-4: 160 45% 38%;
-    --chart-5: 222 20% 45%;
+    --chart-5: 0 0% 20%;
 
     --radius: 0.5rem;
     --font-heading: ui-sans-serif, system-ui, sans-serif;
@@ -64,69 +85,77 @@
     --font-display: ui-sans-serif, system-ui, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
-    --sidebar-background: 222 42% 12%;
-    --sidebar-foreground: 220 20% 88%;
-    --sidebar-primary: 225 73% 52%;
+    /* Near-black sidebar (brand black) */
+    --sidebar-background: 0 0% 4%;
+    --sidebar-foreground: 220 20% 90%;
+    --sidebar-primary: 240 95% 40%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 35% 18%;
+    --sidebar-accent: 0 0% 12%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 222 30% 20%;
-    --sidebar-ring: 225 73% 52%;
-    --sidebar-muted: 220 15% 55%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 240 95% 40%;
+    --sidebar-muted: 220 10% 55%;
   }
 
   .dark {
-    --background: 222 40% 8%;
-    --foreground: 220 20% 96%;
-    --card: 222 35% 11%;
-    --card-foreground: 220 20% 96%;
-    --popover: 222 35% 11%;
-    --popover-foreground: 220 20% 96%;
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 98%;
 
-    --brand: 225 73% 55%;
+    --brand: 240 95% 42%;
     --brand-foreground: 0 0% 100%;
-    --brand-muted: 225 35% 18%;
-    --brand-muted-foreground: 225 55% 80%;
-    --brand-border: 225 30% 28%;
+    --brand-muted: 240 40% 16%;
+    --brand-muted-foreground: 240 55% 82%;
+    --brand-border: 240 35% 28%;
 
-    --attention: 43 80% 48%;
+    --attention: 41 76% 55%;
     --attention-foreground: 36 40% 10%;
-    --attention-muted: 43 40% 16%;
-    --attention-muted-foreground: 43 70% 75%;
-    --attention-border: 43 45% 35%;
+    --attention-muted: 41 40% 16%;
+    --attention-muted-foreground: 41 70% 75%;
+    --attention-border: 41 45% 35%;
 
-    --primary: 225 73% 55%;
+    --attention-materials: 41 76% 55%;
+    --attention-materials-muted: 41 40% 16%;
+    --attention-materials-foreground: 41 70% 75%;
+    --attention-materials-border: 41 45% 35%;
+    --attention-approval: 43 78% 64%;
+    --attention-approval-muted: 43 35% 18%;
+    --attention-approval-foreground: 43 70% 78%;
+    --attention-approval-border: 43 40% 38%;
+    --attention-payment: 42 73% 46%;
+    --attention-payment-muted: 42 35% 16%;
+    --attention-payment-foreground: 42 65% 72%;
+    --attention-payment-border: 42 40% 34%;
+
+    --primary: 240 95% 42%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 222 25% 16%;
-    --secondary-foreground: 220 20% 92%;
-    --muted: 222 25% 16%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 14%;
     --muted-foreground: 220 12% 65%;
-    --accent: 225 35% 18%;
-    --accent-foreground: 225 55% 85%;
+    --accent: 240 40% 16%;
+    --accent-foreground: 240 55% 85%;
     --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 222 25% 20%;
-    --input: 222 25% 20%;
-    --ring: 225 73% 55%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 240 95% 42%;
 
-    --surface: 222 35% 11%;
-    --surface-muted: 222 30% 14%;
-    --page: 222 40% 8%;
+    --surface: 0 0% 8%;
+    --surface-muted: 0 0% 12%;
+    --page: 0 0% 4%;
 
-    --chart-1: 225 73% 55%;
-    --chart-2: 43 80% 48%;
-    --chart-3: 200 55% 50%;
-    --chart-4: 160 45% 45%;
-    --chart-5: 222 20% 60%;
-
-    --sidebar-background: 222 45% 8%;
+    --sidebar-background: 0 0% 0%;
     --sidebar-foreground: 220 20% 90%;
-    --sidebar-primary: 225 73% 55%;
+    --sidebar-primary: 240 95% 42%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 35% 15%;
+    --sidebar-accent: 0 0% 12%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 222 30% 16%;
-    --sidebar-ring: 225 73% 55%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 240 95% 42%;
     --sidebar-muted: 220 12% 50%;
   }
 }

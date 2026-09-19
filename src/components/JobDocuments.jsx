@@ -135,7 +135,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
                 onClick={() => setOpenDoc({ entity: doc.entity, document: doc })}
                 className={cn(
                   "w-full flex items-center gap-3 py-3 text-left hover:bg-muted/60 rounded-lg px-2 -mx-1 transition-colors border bg-card",
-                  statusCardClass(doc.status)
+                  statusCardClass(doc.status, { entity: doc.entity })
                 )}
               >
                 <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
@@ -145,7 +145,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-slate-900">{documentTypeLabel(doc.entity)}</span>
                     {doc.number && <span className="text-xs text-slate-500">{doc.number}</span>}
-                    <StatusBadge status={doc.status} />
+                    <StatusBadge status={doc.status} entity={doc.entity} />
                   </div>
                   <div className="text-xs text-slate-400 mt-0.5">
                     {doc.date || doc.created_date ? shortDate(doc.date || doc.created_date) : "—"}

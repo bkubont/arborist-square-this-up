@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,11 +28,13 @@ export default function Dashboard() {
       api.entities.Job.list("-created_date", 300),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
+      api.entities.Invoice.list("-updated_date", 300),
     ])
-      .then(([j, e, c]) => {
+      .then(([j, e, c, inv]) => {
         setJobs(j);
         setEstimates(e);
         setChangeOrders(c);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -40,7 +43,10 @@ export default function Dashboard() {
   const active = useMemo(() => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)), [jobs]);
   const todayJobs = useMemo(() => jobs.filter((j) => j.start_date === today), [jobs, today]);
   const statusCounts = useMemo(() => countByStatus(jobs), [jobs]);
-  const moneyBuckets = useMemo(() => moneySummary(jobs, estimates, changeOrders), [jobs, estimates, changeOrders]);
+  const moneyBuckets = useMemo(
+    () => moneySummary(jobs, estimates, changeOrders, invoices),
+    [jobs, estimates, changeOrders, invoices]
+  );
   const actionItems = useMemo(
     () => collectActionItems(jobs, estimates, changeOrders),
     [jobs, estimates, changeOrders]
@@ -124,6 +130,19 @@ function MoneyTile({ loading, buckets }) {
                 : money(0)
           }
           attention={buckets.waitingDocCount > 0}
+          attentionClass="text-attention-approval"
+        />
+        <BucketRow
+          label="Waiting on payment"
+          value={
+            loading
+              ? "…"
+              : buckets.waitingPaymentCount
+                ? `${money(buckets.waitingPayment)} · ${buckets.waitingPaymentCount}`
+                : money(0)
+          }
+          attention={buckets.waitingPaymentCount > 0}
+          attentionClass="text-attention-payment"
         />
       </dl>
     </Link>
@@ -196,11 +215,11 @@ function ActionItemsTile({ loading, count, items }) {
   );
 }
 
-function BucketRow({ label, value, attention = false, compact = false }) {
+function BucketRow({ label, value, attention = false, compact = false, attentionClass = "text-attention" }) {
   return (
     <div className={cn("flex items-baseline justify-between gap-2", compact && "gap-1")}>
       <dt className={cn("text-muted-foreground truncate", compact ? "text-xs" : "text-xs")}>{label}</dt>
-      <dd className={cn("font-semibold tabular-nums shrink-0", attention ? "text-attention" : "text-foreground", compact && "text-xs")}>
+      <dd className={cn("font-semibold tabular-nums shrink-0", attention ? attentionClass : "text-foreground", compact && "text-xs")}>
         {value}
       </dd>
     </div>

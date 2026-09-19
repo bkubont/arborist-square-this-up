@@ -155,6 +155,7 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
               value={form.status}
               onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
               statuses={DOCUMENT_STATUSES.ChangeOrder}
+              entity="ChangeOrder"
             />
           </div>
         </div>

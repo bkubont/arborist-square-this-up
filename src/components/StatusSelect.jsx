@@ -11,10 +11,12 @@ export default function StatusSelect({
   value,
   onValueChange,
   statuses = JOB_STATUSES,
+  entity = undefined,
   className = undefined,
   triggerClassName = undefined,
 }) {
-  const current = statusColors(value);
+  const opts = entity ? { entity } : {};
+  const current = statusColors(value, opts);
   return (
     <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger
@@ -30,7 +32,7 @@ export default function StatusSelect({
       </SelectTrigger>
       <SelectContent>
         {statuses.map((s) => {
-          const c = statusColors(s);
+          const c = statusColors(s, opts);
           return (
             <SelectItem key={s} value={s} className={cn("font-medium", c.select)}>
               <span className="inline-flex items-center gap-2">

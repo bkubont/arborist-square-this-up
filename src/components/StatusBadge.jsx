@@ -2,8 +2,8 @@ import React from "react";
 import { cn } from "@/lib/utils";
 import { statusColors } from "@/lib/statusColors";
 
-export default function StatusBadge({ status, className = "" }) {
-  const colors = statusColors(status);
+export default function StatusBadge({ status, entity = undefined, className = "" }) {
+  const colors = statusColors(status, entity ? { entity } : {});
   return (
     <span
       className={cn(

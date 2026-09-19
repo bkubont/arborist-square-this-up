@@ -53,9 +53,11 @@ export function docMoneyAmount(doc) {
 }
 
 /**
- * Money buckets for Dashboard Money tile (job fields + sent docs).
+ * Money buckets for Dashboard Money tile.
+ * waitingApproval = Estimate/CO status `sent`
+ * waitingPayment = Invoice status `sent` or `partial`
  */
-export function moneySummary(jobs, estimates = [], changeOrders = []) {
+export function moneySummary(jobs, estimates = [], changeOrders = [], invoices = []) {
   let invoiced = 0;
   let received = 0;
   let outstanding = 0;
@@ -65,15 +67,20 @@ export function moneySummary(jobs, estimates = [], changeOrders = []) {
     outstanding += jobBalance(job);
   }
 
-  const waitingDocs = [...estimates, ...changeOrders].filter(isAwaitingApproval);
-  const waitingApproval = waitingDocs.reduce((sum, d) => sum + docMoneyAmount(d), 0);
+  const waitingApprovalDocs = [...estimates, ...changeOrders].filter(isAwaitingApproval);
+  const waitingApproval = waitingApprovalDocs.reduce((sum, d) => sum + docMoneyAmount(d), 0);
+
+  const waitingPaymentDocs = invoices.filter((inv) => inv?.status === "sent" || inv?.status === "partial");
+  const waitingPayment = waitingPaymentDocs.reduce((sum, d) => sum + docMoneyAmount(d), 0);
 
   return {
     invoiced,
     received,
     outstanding,
     waitingApproval,
-    waitingDocCount: waitingDocs.length,
+    waitingDocCount: waitingApprovalDocs.length,
+    waitingPayment,
+    waitingPaymentCount: waitingPaymentDocs.length,
   };
 }
 
