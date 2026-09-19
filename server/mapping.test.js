@@ -17,6 +17,8 @@ import {
   collectJobMaterialLines,
   mergeMaterialOrderLines,
   materialOrderTotals,
+  selectChangeOrdersForMaterials,
+  filterIncomingNotClaimedElsewhere,
 } from './mapping.js';
 
 test('estimate lines map to WO labor/material/equipment rows', () => {
@@ -263,4 +265,50 @@ test('collectJobMaterialLines prefers WO materials over estimate; merge preserve
   assert.ok(withManual.some((l) => l.description === 'Extra bag'));
 
   assert.equal(materialOrderTotals([{ qty: 2, unit_price: 10.5 }]).total, 21);
+});
+
+test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claimed filter skips purchased', () => {
+  const incoming = [{
+    description: 'Pipe', qty: 1, unit_price: 30,
+    source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+  }];
+  const merged = mergeMaterialOrderLines(
+    [{ description: 'Pipe', qty: 1, unit_price: 30, supplier: 'Home Depot' }],
+    incoming,
+  );
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].source_entity, 'Estimate');
+  assert.equal(merged[0].supplier, 'Home Depot');
+
+  const cos = selectChangeOrdersForMaterials([
+    { id: 'co1', number: 'CO-001', status: 'sent', lines: [{ description: 'Tile', amount: 50 }] },
+    { id: 'co2', number: 'CO-001-R2', status: 'draft', lines: [{ description: 'Tile', amount: 50 }] },
+    { id: 'co3', number: 'CO-002', status: 'approved', lines: [{ description: 'Paint', amount: 20 }] },
+  ]);
+  assert.equal(cos.length, 2);
+  assert.ok(cos.some((c) => c.id === 'co2'));
+  assert.ok(cos.some((c) => c.id === 'co3'));
+  assert.ok(!cos.some((c) => c.id === 'co1'));
+
+  const collected = collectJobMaterialLines({
+    estimate: null,
+    workOrder: null,
+    changeOrders: [
+      { id: 'co1', number: 'CO-001', status: 'sent', lines: [{ description: 'Tile', amount: 50 }] },
+      { id: 'co2', number: 'CO-001-R2', status: 'draft', lines: [{ description: 'Tile', amount: 55 }] },
+    ],
+  });
+  assert.equal(collected.length, 1);
+  assert.equal(collected[0].source_id, 'co2');
+  assert.equal(collected[0].unit_price, 55);
+
+  const filtered = filterIncomingNotClaimedElsewhere(incoming, [
+    { status: 'purchased', lines: [{ description: 'Pipe', qty: 1, unit_price: 30 }] },
+  ]);
+  assert.equal(filtered.length, 0);
+
+  const filteredKeyed = filterIncomingNotClaimedElsewhere(incoming, [
+    { status: 'quote', lines: [{ ...incoming[0] }] },
+  ]);
+  assert.equal(filteredKeyed.length, 0);
 });

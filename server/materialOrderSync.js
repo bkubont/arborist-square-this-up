@@ -13,6 +13,7 @@ import {
   mergeMaterialOrderLines,
   materialOrderTotals,
   materialOrderSourceKey,
+  filterIncomingNotClaimedElsewhere,
 } from './mapping.js';
 
 const DRAFT_SYNC_STATUSES = new Set(['draft']);
@@ -47,14 +48,13 @@ export async function collectMaterialLinesForJob(db, ownerId, jobId) {
 
 /**
  * Upsert synced lines onto a draft Material Order (or create one when materials exist).
- * Only one draft holds auto-synced source lines at a time — preferId never clones them
- * onto a second draft when another draft already has those source keys.
+ * Never clones source lines already present on another non-void MO (draft or purchased/etc.).
  * @param {{ preferId?: string, createIfMissing?: boolean }} [opts]
  * @returns {Promise<object|null>} updated/created draft MO, or null when nothing to do
  */
 export async function syncDraftMaterialOrder(db, ownerId, jobId, opts = {}) {
   const { preferId, createIfMissing = true } = opts;
-  const incoming = await collectMaterialLinesForJob(db, ownerId, jobId);
+  const rawIncoming = await collectMaterialLinesForJob(db, ownerId, jobId);
   const orders = await listJobDocuments(db, ownerId, 'MaterialOrder', jobId);
   const drafts = orders
     .filter((o) => DRAFT_SYNC_STATUSES.has(o.status))
@@ -69,12 +69,15 @@ export async function syncDraftMaterialOrder(db, ownerId, jobId, opts = {}) {
     const preferred = drafts.find((o) => o.id === preferId)
       || orders.find((o) => o.id === preferId && DRAFT_SYNC_STATUSES.has(o.status));
     // Avoid cloning already-synced source lines into a second active draft MO
-    if (preferred && otherDraftWithSynced && incoming.length) {
+    if (preferred && otherDraftWithSynced && rawIncoming.length) {
       return preferred;
     }
     target = preferred || null;
   }
   if (!target) target = drafts[0] || null;
+
+  const otherOrders = orders.filter((o) => !target || o.id !== target.id);
+  const incoming = filterIncomingNotClaimedElsewhere(rawIncoming, otherOrders);
 
   if (!target) {
     if (!createIfMissing || !incoming.length) return null;

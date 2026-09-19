@@ -1267,12 +1267,17 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
     assert.equal(mo.status, status);
   }
 
-  // Accept estimate + WO: draft MO (if any) gets WO Line#; sync prefers WO materials
-  // Create a fresh draft for sync after voiding purchased
+  // Void purchased so its materials no longer claim the source fingerprint —
+  // then a draft can receive WO Line# sync without doubling materials_cost.
+  assert.equal((await request(`/documents/MaterialOrder/${mos[0].id}/void`, {
+    method: 'POST', cookie: a.cookie, data: {},
+  })).status, 200);
+
   const draftMo = await create('MaterialOrder', {
     job_id: job.id, number: 'MO-DRAFT-SYNC', status: 'draft', lines: [],
   });
-  // Re-patch estimate materials while accepted path: first accept via snapshot
+  assert.ok((draftMo.lines || []).length >= 1, 'empty draft fills from estimate after purchased voided');
+
   await request(`/entities/Estimate/${estimate.id}`, {
     method: 'PATCH', cookie: a.cookie,
     data: {
@@ -1290,8 +1295,6 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
   })).data;
   assert.ok(wo.lines.some((l) => l.kind === 'material'));
 
-  const synced = (await request(`/entities/MaterialOrder/${draftMo.id}`, { cookie: a.cookie })).data;
-  // Sync may have updated oldest draft; find a draft with WO-sourced lines
   mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
   const draftWithWo = mos.find((m) => m.status === 'draft' && m.lines?.some((l) => l.source_entity === 'WorkOrder'));
   assert.ok(draftWithWo, 'expected a draft MO synced from Work Order');
@@ -1299,13 +1302,8 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
   assert.ok(woLine.wo_line_number >= 1);
   assert.equal(woLine.unit_price, 48);
 
-  // Purchased MO is not overwritten by sync
-  const purchased = mos.find((m) => m.status === 'purchased');
-  assert.ok(purchased);
-  assert.equal(purchased.lines[0].supplier, 'Home Depot');
-
   // Line status enum validation
-  assert.equal((await request(`/entities/MaterialOrder/${synced.id}`, {
+  assert.equal((await request(`/entities/MaterialOrder/${draftMo.id}`, {
     method: 'PATCH', cookie: a.cookie,
     data: { lines: [{ description: 'x', line_status: 'not-a-status' }] },
   })).status, 400);
@@ -1363,4 +1361,56 @@ test('material order sync: no draft clone on New MO; void source clears draft li
   assert.equal(afterVoid.lines.filter((l) => l.source_entity === 'Estimate').length, 0);
   assert.equal(afterVoid.total ?? 0, 0);
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 0);
+});
+
+test('material order sync: purchased MO claims sources; no draft recreate', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('mo-purchased-claim@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'MO claim', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'MO claim job', client_id: client.id });
+
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-CLAIM',
+    status: 'draft',
+    lines: [{ description: 'Lumber', category: 'Carpentry', material_amount: 40 }],
+  });
+  let mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(mos.length, 1);
+  const draftId = mos[0].id;
+
+  // Promote draft → purchased (still holds the materials)
+  assert.equal((await request(`/entities/MaterialOrder/${draftId}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: { status: 'purchased', lines: mos[0].lines, total: 40 },
+  })).status, 200);
+
+  // Accept estimate + create WO — must not spawn another draft with the same materials
+  await request(`/entities/Estimate/${estimate.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'accepted',
+      total: 40,
+      accepted_snapshot: { number: 'EST-CLAIM', total: 40, lines: estimate.lines },
+    },
+  });
+  await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  });
+
+  mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  const live = mos.filter((m) => m.status !== 'void');
+  assert.equal(live.length, 1);
+  assert.equal(live[0].status, 'purchased');
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 40);
+
+  // Empty New MO stays empty (purchased already claims the source fingerprint)
+  const empty = await create('MaterialOrder', { job_id: job.id, number: 'MO-EMPTY', status: 'draft', lines: [] });
+  assert.equal(empty.lines?.length || 0, 0);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 40);
 });

@@ -434,7 +434,7 @@ export function materialLinesFromChangeOrder(changeOrder) {
 /**
  * Collect job materials for MO autofill.
  * Prefer active WO materials when present; otherwise estimate materials.
- * Always include non-void / non-rejected CO lines.
+ * Change orders: latest revision per number stem only (avoids original + revise draft dupes).
  * @param {{ estimate?: object|null, workOrder?: object|null, changeOrders?: object[] }} [args]
  */
 export function collectJobMaterialLines({ estimate = null, workOrder = null, changeOrders = [] } = {}) {
@@ -446,37 +446,111 @@ export function collectJobMaterialLines({ estimate = null, workOrder = null, cha
   } else if (estimate && estimate.status !== 'void') {
     out.push(...materialLinesFromEstimate(estimate));
   }
-  for (const co of changeOrders) {
-    if (!co || co.status === 'void' || co.status === 'rejected') continue;
+  for (const co of selectChangeOrdersForMaterials(changeOrders)) {
     out.push(...materialLinesFromChangeOrder(co));
   }
   return out;
 }
 
+/** Latest non-void / non-rejected CO per number stem (CO-001 vs CO-001-R2 → R2 only). */
+export function selectChangeOrdersForMaterials(changeOrders = []) {
+  const live = (changeOrders || []).filter((co) => co && co.status !== 'void' && co.status !== 'rejected');
+  const byStem = new Map();
+  for (const co of live) {
+    const number = String(co.number || co.id || '');
+    const match = /^(.*?)(?:-R(\d+))?$/.exec(number);
+    const stem = match?.[1] || number || co.id;
+    const rev = match?.[2] ? Number(match[2]) : 1;
+    const prev = byStem.get(stem);
+    if (!prev || rev > prev.rev) byStem.set(stem, { co, rev });
+  }
+  return [...byStem.values()].map((row) => row.co);
+}
+
+/** Fingerprint for matching legacy unkeyed MO lines to incoming autofill. */
+export function materialOrderLineFingerprint(line = {}) {
+  let desc = String(line.description || '').trim().toLowerCase();
+  desc = desc.replace(/\s*\((materials|equipment)\)\s*$/i, '');
+  if (!desc) return null;
+  const qty = num(line.qty);
+  const price = num(line.unit_price);
+  return `${desc}|${qty ?? ''}|${price ?? ''}`;
+}
+
 /**
  * Merge incoming source lines into an MO line list.
- * Preserves manual rows and user fields (supplier, on_hand, line_status, notes).
+ * Adopts matching legacy unkeyed rows instead of appending duplicates.
  */
 export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) {
-  const manual = existingLines.filter((line) => !materialOrderSourceKey(line));
-  const prevByKey = new Map();
-  for (const line of existingLines) {
-    const key = materialOrderSourceKey(line);
-    if (key) prevByKey.set(key, line);
-  }
-  const synced = incomingLines.map((incoming) => {
+  const remaining = existingLines.map((line, index) => ({ line, index }));
+  const synced = [];
+
+  for (const incoming of incomingLines) {
     const key = materialOrderSourceKey(incoming);
-    const prev = key ? prevByKey.get(key) : null;
-    if (!prev) return { ...incoming, on_hand: incoming.on_hand ?? false };
-    return {
-      ...incoming,
-      supplier: prev.supplier || incoming.supplier,
-      on_hand: prev.on_hand ?? false,
-      line_status: prev.line_status || incoming.line_status,
-      notes: prev.notes || incoming.notes,
-    };
-  });
+    let matchIdx = -1;
+    if (key) {
+      matchIdx = remaining.findIndex(({ line }) => materialOrderSourceKey(line) === key);
+    }
+    if (matchIdx < 0) {
+      const fp = materialOrderLineFingerprint(incoming);
+      if (fp) {
+        matchIdx = remaining.findIndex(({ line }) => (
+          !materialOrderSourceKey(line) && materialOrderLineFingerprint(line) === fp
+        ));
+      }
+    }
+    if (matchIdx < 0) {
+      const desc = String(incoming.description || '').trim().toLowerCase();
+      if (desc) {
+        matchIdx = remaining.findIndex(({ line }) => (
+          !materialOrderSourceKey(line)
+          && String(line.description || '').trim().toLowerCase() === desc
+        ));
+      }
+    }
+
+    if (matchIdx >= 0) {
+      const [{ line: prev }] = remaining.splice(matchIdx, 1);
+      synced.push({
+        ...incoming,
+        supplier: prev.supplier || incoming.supplier,
+        on_hand: prev.on_hand ?? false,
+        line_status: prev.line_status || incoming.line_status,
+        notes: prev.notes || incoming.notes,
+      });
+    } else {
+      synced.push({ ...incoming, on_hand: incoming.on_hand ?? false });
+    }
+  }
+
+  const manual = remaining
+    .filter(({ line }) => !materialOrderSourceKey(line))
+    .map(({ line }) => line);
   return [...synced, ...manual];
+}
+
+/**
+ * Drop incoming autofill rows already present on other non-void Material Orders.
+ */
+export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
+  const claimedKeys = new Set();
+  const claimedFingerprints = new Set();
+  for (const order of otherOrders) {
+    if (!order || order.status === 'void') continue;
+    for (const line of order.lines || []) {
+      const key = materialOrderSourceKey(line);
+      if (key) claimedKeys.add(key);
+      const fp = materialOrderLineFingerprint(line);
+      if (fp) claimedFingerprints.add(fp);
+    }
+  }
+  return incomingLines.filter((line) => {
+    const key = materialOrderSourceKey(line);
+    if (key && claimedKeys.has(key)) return false;
+    const fp = materialOrderLineFingerprint(line);
+    if (fp && claimedFingerprints.has(fp)) return false;
+    return true;
+  });
 }
 
 export function materialOrderLineAmount(line = {}) {
