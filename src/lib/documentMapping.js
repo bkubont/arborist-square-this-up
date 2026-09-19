@@ -358,3 +358,129 @@ export function buildInvoiceAutofill({
     over_authorized: prior_invoiced + totals.total > billing_ceiling + 0.009,
   };
 }
+
+/** Stable key for MO lines synced from Estimate / WO / CO. */
+export function materialOrderSourceKey(line = {}) {
+  if (!line.source_entity || line.source_id == null || line.source_line_index == null) return null;
+  return `${line.source_entity}:${line.source_id}:${line.source_line_index}`;
+}
+
+/** Estimate material $ → MO lines (qty 1 × unit_price). Does not invent prices. */
+export function materialLinesFromEstimate(estimate) {
+  if (!estimate?.id) return [];
+  const source = estimate.accepted_snapshot || estimate;
+  const lines = source.lines || [];
+  return lines.flatMap((line, index) => {
+    const material = num(line.material_amount);
+    if (material == null || material <= 0) return [];
+    return [{
+      description: line.description || 'Materials',
+      qty: 1,
+      unit_price: material,
+      category: line.category || undefined,
+      notes: line.notes || undefined,
+      source_entity: 'Estimate',
+      source_id: estimate.id,
+      source_line_index: index,
+      on_hand: false,
+    }];
+  });
+}
+
+/** WO material lines → MO lines; Line# = 1-based WO line index. */
+export function materialLinesFromWorkOrder(workOrder) {
+  if (!workOrder?.id) return [];
+  return (workOrder.lines || []).flatMap((line, index) => {
+    if (line.kind !== 'material') return [];
+    const qty = num(line.qty);
+    const unit_price = num(line.unit_price);
+    if (!line.description && qty == null && unit_price == null) return [];
+    return [{
+      description: line.description || 'Materials',
+      qty,
+      unit_price,
+      category: line.work_category || undefined,
+      notes: line.notes || undefined,
+      wo_line_number: index + 1,
+      source_entity: 'WorkOrder',
+      source_id: workOrder.id,
+      source_line_index: index,
+      on_hand: false,
+    }];
+  });
+}
+
+/** Change Order amount lines → MO materials (credits skipped). */
+export function materialLinesFromChangeOrder(changeOrder) {
+  if (!changeOrder?.id) return [];
+  return (changeOrder.lines || []).flatMap((line, index) => {
+    const amount = num(line.amount);
+    if (amount != null && amount < 0) return [];
+    if (!line.description && (amount == null || amount === 0)) return [];
+    return [{
+      description: line.description || 'Change order materials',
+      qty: 1,
+      unit_price: amount != null && amount > 0 ? amount : undefined,
+      source_entity: 'ChangeOrder',
+      source_id: changeOrder.id,
+      source_line_index: index,
+      on_hand: false,
+    }];
+  });
+}
+
+/**
+ * Collect job materials for MO autofill.
+ * Prefer active WO materials when present; otherwise estimate materials.
+ * Always include non-void / non-rejected CO lines.
+ */
+export function collectJobMaterialLines({ estimate, workOrder, changeOrders = [] } = {}) {
+  const out = [];
+  const woActive = workOrder && workOrder.status !== 'void';
+  const woMaterials = woActive ? materialLinesFromWorkOrder(workOrder) : [];
+  if (woMaterials.length) {
+    out.push(...woMaterials);
+  } else if (estimate && estimate.status !== 'void') {
+    out.push(...materialLinesFromEstimate(estimate));
+  }
+  for (const co of changeOrders) {
+    if (!co || co.status === 'void' || co.status === 'rejected') continue;
+    out.push(...materialLinesFromChangeOrder(co));
+  }
+  return out;
+}
+
+/**
+ * Merge incoming source lines into an MO line list.
+ * Preserves manual rows and user fields (supplier, on_hand, line_status, notes).
+ */
+export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) {
+  const manual = existingLines.filter((line) => !materialOrderSourceKey(line));
+  const prevByKey = new Map();
+  for (const line of existingLines) {
+    const key = materialOrderSourceKey(line);
+    if (key) prevByKey.set(key, line);
+  }
+  const synced = incomingLines.map((incoming) => {
+    const key = materialOrderSourceKey(incoming);
+    const prev = key ? prevByKey.get(key) : null;
+    if (!prev) return { ...incoming, on_hand: incoming.on_hand ?? false };
+    return {
+      ...incoming,
+      supplier: prev.supplier || incoming.supplier,
+      on_hand: prev.on_hand ?? false,
+      line_status: prev.line_status || incoming.line_status,
+      notes: prev.notes || incoming.notes,
+    };
+  });
+  return [...synced, ...manual];
+}
+
+export function materialOrderLineAmount(line = {}) {
+  return round2((num(line.qty) || 0) * (num(line.unit_price) || 0));
+}
+
+export function materialOrderTotals(lines = []) {
+  const subtotal = round2(lines.reduce((sum, line) => sum + materialOrderLineAmount(line), 0));
+  return { subtotal, total: subtotal };
+}

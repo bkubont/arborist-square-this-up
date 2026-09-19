@@ -1134,3 +1134,113 @@ test('document rules: void estimates excluded, deposits sum, freeze snapshot, jo
   })).status, 409);
   assert.equal(woB.id != null, true);
 });
+
+test('material order redesign: statuses, line fields, autofill from estimate/WO', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('mo-redesign@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'MO redesign', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'MO job', client_id: client.id });
+
+  // Saving estimate materials creates/updates a draft Material Order (no invented prices)
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-MO',
+    status: 'draft',
+    lines: [
+      { description: 'Replace faucet', category: 'Plumbing', material_amount: 48, labor_amount: 110, labor_hours: 2, labor_rate: 55 },
+    ],
+  });
+  let mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(mos.length, 1);
+  assert.equal(mos[0].status, 'draft');
+  assert.equal(mos[0].lines.length, 1);
+  assert.equal(mos[0].lines[0].unit_price, 48);
+  assert.equal(mos[0].lines[0].source_entity, 'Estimate');
+  assert.equal(mos[0].lines[0].wo_line_number, undefined);
+
+  // Legacy ordered → purchased; new line fields persist
+  const patched = await request(`/entities/MaterialOrder/${mos[0].id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'ordered',
+      lines: [{
+        ...mos[0].lines[0],
+        supplier: 'Home Depot',
+        on_hand: true,
+        line_status: 'pricing',
+        notes: 'chrome finish',
+      }],
+      total: 48,
+    },
+  });
+  assert.equal(patched.status, 200, patched.data?.message);
+  assert.equal(patched.data.status, 'purchased');
+  assert.equal(patched.data.lines[0].supplier, 'Home Depot');
+  assert.equal(patched.data.lines[0].on_hand, true);
+  assert.equal(patched.data.lines[0].line_status, 'pricing');
+
+  // New statuses accepted
+  for (const status of ['quote', 'partial', 'received', 'void']) {
+    const mo = await create('MaterialOrder', {
+      job_id: job.id, number: `MO-${status}`, status, lines: [], total: 0,
+    });
+    assert.equal(mo.status, status);
+  }
+
+  // Accept estimate + WO: draft MO (if any) gets WO Line#; sync prefers WO materials
+  // Create a fresh draft for sync after voiding purchased
+  const draftMo = await create('MaterialOrder', {
+    job_id: job.id, number: 'MO-DRAFT-SYNC', status: 'draft', lines: [],
+  });
+  // Re-patch estimate materials while accepted path: first accept via snapshot
+  await request(`/entities/Estimate/${estimate.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'accepted',
+      total: 158,
+      accepted_snapshot: {
+        number: 'EST-MO',
+        total: 158,
+        lines: estimate.lines,
+      },
+    },
+  });
+  const wo = (await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  })).data;
+  assert.ok(wo.lines.some((l) => l.kind === 'material'));
+
+  const synced = (await request(`/entities/MaterialOrder/${draftMo.id}`, { cookie: a.cookie })).data;
+  // Sync may have updated oldest draft; find a draft with WO-sourced lines
+  mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  const draftWithWo = mos.find((m) => m.status === 'draft' && m.lines?.some((l) => l.source_entity === 'WorkOrder'));
+  assert.ok(draftWithWo, 'expected a draft MO synced from Work Order');
+  const woLine = draftWithWo.lines.find((l) => l.source_entity === 'WorkOrder');
+  assert.ok(woLine.wo_line_number >= 1);
+  assert.equal(woLine.unit_price, 48);
+
+  // Purchased MO is not overwritten by sync
+  const purchased = mos.find((m) => m.status === 'purchased');
+  assert.ok(purchased);
+  assert.equal(purchased.lines[0].supplier, 'Home Depot');
+
+  // Line status enum validation
+  assert.equal((await request(`/entities/MaterialOrder/${synced.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: { lines: [{ description: 'x', line_status: 'not-a-status' }] },
+  })).status, 400);
+
+  for (const line_status of ['backorder', 'unavailable', 'canceled', 'rebuild']) {
+    const ok = await request(`/entities/MaterialOrder/${draftMo.id}`, {
+      method: 'PATCH', cookie: a.cookie,
+      data: { status: 'draft', lines: [{ description: 'part', qty: 1, unit_price: 1, line_status }] },
+    });
+    assert.equal(ok.status, 200, line_status);
+    assert.equal(ok.data.lines[0].line_status, line_status);
+  }
+});

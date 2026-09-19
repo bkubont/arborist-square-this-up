@@ -11,6 +11,12 @@ import {
   isOverAuthorized,
   deriveInvoiceStatus,
   sumActiveInvoiceTotals,
+  materialLinesFromEstimate,
+  materialLinesFromWorkOrder,
+  materialLinesFromChangeOrder,
+  collectJobMaterialLines,
+  mergeMaterialOrderLines,
+  materialOrderTotals,
 } from './mapping.js';
 
 test('estimate lines map to WO labor/material/equipment rows', () => {
@@ -175,4 +181,85 @@ test('deriveInvoiceStatus supports partial and paid without promoting drafts', (
   assert.equal(deriveInvoiceStatus({ status: 'sent', balance_due: 100, payments_applied: 50, deposits_applied: 0 }), 'partial');
   assert.equal(deriveInvoiceStatus({ status: 'sent', balance_due: 0, payments_applied: 100 }), 'paid');
   assert.equal(deriveInvoiceStatus({ status: 'void', balance_due: 0 }), 'void');
+});
+
+test('material order lines from estimate / WO / CO; WO Line# is 1-based', () => {
+  const est = materialLinesFromEstimate({
+    id: 'est-1',
+    status: 'draft',
+    lines: [
+      { description: 'Faucet', category: 'Plumbing', material_amount: 45, notes: 'chrome' },
+      { description: 'Labor only', labor_amount: 100 },
+    ],
+  });
+  assert.equal(est.length, 1);
+  assert.equal(est[0].unit_price, 45);
+  assert.equal(est[0].qty, 1);
+  assert.equal(est[0].source_entity, 'Estimate');
+  assert.equal(est[0].source_line_index, 0);
+  assert.equal(est[0].wo_line_number, undefined);
+
+  const wo = materialLinesFromWorkOrder({
+    id: 'wo-1',
+    status: 'draft',
+    lines: [
+      { kind: 'labor', description: 'Labor', hours: 2, rate: 55 },
+      { kind: 'material', description: 'Cartridge', qty: 2, unit_price: 12, work_category: 'Plumbing' },
+    ],
+  });
+  assert.equal(wo.length, 1);
+  assert.equal(wo[0].wo_line_number, 2);
+  assert.equal(wo[0].qty, 2);
+  assert.equal(wo[0].unit_price, 12);
+
+  const co = materialLinesFromChangeOrder({
+    id: 'co-1',
+    status: 'draft',
+    lines: [
+      { description: 'Extra tile', amount: 80 },
+      { description: 'Credit', amount: -20 },
+    ],
+  });
+  assert.equal(co.length, 1);
+  assert.equal(co[0].unit_price, 80);
+});
+
+test('collectJobMaterialLines prefers WO materials over estimate; merge preserves user fields', () => {
+  const estimate = {
+    id: 'est-1', status: 'accepted',
+    lines: [{ description: 'From est', material_amount: 10 }],
+  };
+  const workOrder = {
+    id: 'wo-1', status: 'draft',
+    lines: [
+      { kind: 'material', description: 'From WO', qty: 1, unit_price: 22 },
+    ],
+  };
+  const collected = collectJobMaterialLines({ estimate, workOrder, changeOrders: [] });
+  assert.equal(collected.length, 1);
+  assert.equal(collected[0].description, 'From WO');
+  assert.equal(collected[0].wo_line_number, 1);
+
+  const withoutWo = collectJobMaterialLines({ estimate, workOrder: null, changeOrders: [] });
+  assert.equal(withoutWo[0].description, 'From est');
+
+  const merged = mergeMaterialOrderLines(
+    [{ ...collected[0], supplier: 'Home Depot', on_hand: true, line_status: 'backorder', notes: 'mine' }],
+    [{ ...collected[0], description: 'From WO updated', notes: 'from source' }],
+  );
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].description, 'From WO updated');
+  assert.equal(merged[0].supplier, 'Home Depot');
+  assert.equal(merged[0].on_hand, true);
+  assert.equal(merged[0].line_status, 'backorder');
+  assert.equal(merged[0].notes, 'mine');
+
+  const withManual = mergeMaterialOrderLines(
+    [{ description: 'Extra bag', qty: 1, unit_price: 5 }],
+    collected,
+  );
+  assert.equal(withManual.length, 2);
+  assert.ok(withManual.some((l) => l.description === 'Extra bag'));
+
+  assert.equal(materialOrderTotals([{ qty: 2, unit_price: 10.5 }]).total, 21);
 });

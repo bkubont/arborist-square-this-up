@@ -140,7 +140,9 @@ export const STATUS_SEMANTIC_MAP = {
   paid: "closed",
   issued: "sky",
   complete: "success",
-  ordered: "attention-materials",
+  ordered: "attention-materials", // legacy Material Order → treat like purchased
+  quote: "attention-approval",
+  purchased: "attention-materials",
   received: "success",
 };
 

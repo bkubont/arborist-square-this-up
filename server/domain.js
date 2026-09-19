@@ -128,13 +128,26 @@ export const schemas = {
     notes: text.optional(),
     related_estimate_id: id.optional(),
     related_work_order_id: id.optional(),
-    status: z.enum(['draft', 'ordered', 'received', 'void']).default('draft'),
+    /** Legacy `ordered` maps to `purchased` on parse. */
+    status: z.preprocess(
+      (v) => (v === 'ordered' ? 'purchased' : v),
+      z.enum(['draft', 'quote', 'purchased', 'partial', 'received', 'void']).default('draft'),
+    ),
     lines: z.array(z.object({
       description: text.default(''),
       qty: money.optional(),
       unit_price: money.optional(),
       supplier: text.optional(),
       notes: text.optional(),
+      /** Work Order line number (1-based) when synced from a WO line. */
+      wo_line_number: z.number().int().min(0).max(10000).optional(),
+      category: text.optional(),
+      on_hand: z.boolean().optional(),
+      /** Optional procurement difficulty. */
+      line_status: z.enum(['pricing', 'backorder', 'unavailable', 'canceled', 'rebuild']).optional(),
+      source_entity: z.enum(['Estimate', 'WorkOrder', 'ChangeOrder']).optional(),
+      source_id: id.optional(),
+      source_line_index: z.number().int().min(0).max(10000).optional(),
     })).max(2000).default([]),
     subtotal: money.optional(),
     total: money.optional(),
