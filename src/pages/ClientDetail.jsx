@@ -23,15 +23,18 @@ export default function ClientDetail() {
   const [jobDialog, setJobDialog] = useState(false);
 
   const load = async () => {
-    const [c, allJobs, tl] = await Promise.all([
-      api.entities.Client.get(id),
-      api.entities.Job.list("-created_date", 200),
-      api.entities.TimelineEntry.list("-created_date", 1000),
-    ]);
-    setClient(c);
-    setJobs(allJobs.filter((j) => j.client_id === id));
-    setTimeline(tl);
-    setLoading(false);
+    try {
+      const [c, allJobs, tl] = await Promise.all([
+        api.entities.Client.get(id),
+        api.entities.Job.list("-created_date", 200),
+        api.entities.TimelineEntry.list("-created_date", 1000),
+      ]);
+      setClient(c);
+      setJobs(allJobs.filter((j) => j.client_id === id));
+      setTimeline(tl);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);

@@ -21,11 +21,12 @@ export default function JobBoard() {
     return Promise.all([
       api.entities.Job.list("-updated_date", 400),
       api.entities.TimelineEntry.list("-created_date", 1000),
-    ]).then(([j, tl]) => {
-      setJobs(j);
-      setTimeline(tl);
-      setLoading(false);
-    });
+    ])
+      .then(([j, tl]) => {
+        setJobs(j);
+        setTimeline(tl);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
