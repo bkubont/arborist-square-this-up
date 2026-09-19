@@ -474,11 +474,8 @@ export default function InvoiceEditorDialog({
         {/* Body tables */}
         <div className="grid md:grid-cols-2 gap-4 mt-4">
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2">
               <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Materials</div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setMaterials((r) => [...r, emptyMaterial()])}>
-                <Plus className="w-3.5 h-3.5 mr-1" /> Row
-              </Button>
             </div>
             <div className="space-y-2">
               <div className="hidden sm:grid grid-cols-[4rem_1fr_5rem_5rem_2rem] gap-1 text-[10px] uppercase text-slate-400 px-0.5">
@@ -498,6 +495,11 @@ export default function InvoiceEditorDialog({
                 </div>
               ))}
             </div>
+            <div className="mt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setMaterials((r) => [...r, emptyMaterial()])}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Row
+              </Button>
+            </div>
             <div className="flex justify-between border-t-2 border-b-2 border-slate-900 mt-2 py-1.5 text-xs font-bold uppercase">
               <span>Materials</span>
               <span>{money(totals.materials_total)}</span>
@@ -506,11 +508,8 @@ export default function InvoiceEditorDialog({
 
           <div className="space-y-4">
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-2">
                 <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Labor</div>
-                <Button type="button" variant="outline" size="sm" onClick={() => setLabor((r) => [...r, emptyLabor()])}>
-                  <Plus className="w-3.5 h-3.5 mr-1" /> Row
-                </Button>
               </div>
               <div className="space-y-2">
                 <div className="hidden sm:grid grid-cols-[1fr_4rem_5rem_5rem_2rem] gap-1 text-[10px] uppercase text-slate-400 px-0.5">
@@ -530,6 +529,11 @@ export default function InvoiceEditorDialog({
                   </div>
                 ))}
               </div>
+              <div className="mt-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setLabor((r) => [...r, emptyLabor()])}>
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Row
+                </Button>
+              </div>
               <div className="flex justify-between border-t-2 border-b-2 border-slate-900 mt-2 py-1.5 text-xs font-bold uppercase">
                 <span>Labor</span>
                 <span>{money(totals.labor_total)}</span>
@@ -537,11 +541,8 @@ export default function InvoiceEditorDialog({
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-2">
                 <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Miscellaneous</div>
-                <Button type="button" variant="outline" size="sm" onClick={() => setMisc((r) => [...r, emptyMisc()])}>
-                  <Plus className="w-3.5 h-3.5 mr-1" /> Row
-                </Button>
               </div>
               <div className="space-y-2">
                 {misc.map((row, i) => (
@@ -553,6 +554,11 @@ export default function InvoiceEditorDialog({
                     </Button>
                   </div>
                 ))}
+              </div>
+              <div className="mt-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setMisc((r) => [...r, emptyMisc()])}>
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Row
+                </Button>
               </div>
               <div className="flex justify-between border-t-2 border-b-2 border-slate-900 mt-2 py-1.5 text-xs font-bold uppercase">
                 <span>Miscellaneous</span>

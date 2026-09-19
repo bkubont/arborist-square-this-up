@@ -194,19 +194,8 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
           </div>
 
           <div className="mt-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2">
               <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Lines</div>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => { setCatalogTarget(lines.length); setLines((r) => [...r, emptyLine("labor")]); setCatalogOpen(true); }}>
-                  <Search className="w-3.5 h-3.5 mr-1" /> Catalog
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine("labor")])}>
-                  <Plus className="w-3.5 h-3.5 mr-1" /> Labor
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine("material")])}>
-                  <Plus className="w-3.5 h-3.5 mr-1" /> Material
-                </Button>
-              </div>
             </div>
 
             <div className="space-y-3">
@@ -269,6 +258,17 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
                   <div className="text-xs text-slate-500 text-right">Line {money(workOrderLineAmount(serializeLine(line)))}</div>
                 </div>
               ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => { setCatalogTarget(lines.length); setLines((r) => [...r, emptyLine("labor")]); setCatalogOpen(true); }}>
+                <Search className="w-3.5 h-3.5 mr-1" /> Catalog
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine("labor")])}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Labor
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine("material")])}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Material
+              </Button>
             </div>
           </div>
 
