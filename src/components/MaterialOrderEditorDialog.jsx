@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import StatusSelect from "@/components/StatusSelect";
@@ -298,9 +297,11 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
                   </div>
                   <div className="sm:col-span-3 flex flex-wrap items-center gap-3 pb-1">
                     <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                      <Checkbox
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
                         checked={!!line.on_hand}
-                        onCheckedChange={(v) => setLine(index, { on_hand: !!v })}
+                        onChange={(e) => setLine(index, { on_hand: e.target.checked })}
                         disabled={readOnly}
                       />
                       On hand

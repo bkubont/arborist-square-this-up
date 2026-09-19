@@ -6,13 +6,14 @@ import { cn } from "@/lib/utils";
 /**
  * Supplier typeahead from curated seed / catalog labels only.
  * Free text always allowed — no organic history learning.
+ * @param {{ value: string, onChange: (v: string) => void, placeholder?: string, className?: string, inputClassName?: string, disabled?: boolean }} props
  */
 export default function SupplierTypeahead({
   value,
   onChange,
   placeholder = "Supplier",
-  className,
-  inputClassName,
+  className = undefined,
+  inputClassName = undefined,
   disabled = false,
 }) {
   const [open, setOpen] = useState(false);

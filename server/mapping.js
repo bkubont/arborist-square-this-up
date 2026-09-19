@@ -433,8 +433,9 @@ export function materialLinesFromChangeOrder(changeOrder) {
  * Collect job materials for MO autofill.
  * Prefer active WO materials when present; otherwise estimate materials.
  * Always include non-void / non-rejected CO lines.
+ * @param {{ estimate?: object|null, workOrder?: object|null, changeOrders?: object[] }} [args]
  */
-export function collectJobMaterialLines({ estimate, workOrder, changeOrders = [] } = {}) {
+export function collectJobMaterialLines({ estimate = null, workOrder = null, changeOrders = [] } = {}) {
   const out = [];
   const woActive = workOrder && workOrder.status !== 'void';
   const woMaterials = woActive ? materialLinesFromWorkOrder(workOrder) : [];
