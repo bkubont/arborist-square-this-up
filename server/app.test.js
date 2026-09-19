@@ -12,7 +12,9 @@ async function fixture(t) {
   const app = await createApp(db, { APP_ORIGIN: 'http://localhost:5173' });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { await new Promise(resolve => server.close(resolve)); await db.close(); });
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const addr = server.address();
+  const port = addr && typeof addr === 'object' ? addr.port : 0;
+  const base = `http://127.0.0.1:${port}`;
   const request = async (path, { method = 'GET', data, cookie, origin = 'http://localhost:5173', form } = {}) => {
     const response = await fetch(base + '/api' + path, { method, headers: { origin, ...(cookie ? { cookie } : {}), ...(!form ? { 'content-type': 'application/json' } : {}) }, body: form || (data ? JSON.stringify(data) : undefined) });
     return { status: response.status, cookie: response.headers.get('set-cookie')?.split(';')[0], response,
@@ -733,4 +735,128 @@ test('invoice from job autofills estimate + approved COs, balance due, job rollu
   assert.equal((await request(`/invoices/${inv.id}/send-sign`, {
     method: 'POST', cookie: a.cookie, data: { channel: 'link' },
   })).status, 404);
+});
+
+test('export backup includes form entities and company profile', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('export-forms@example.com');
+  const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'Forms Client' } })).data;
+  const job = (await request('/entities/Job', { method: 'POST', cookie: a.cookie, data: { title: 'Forms Job', client_id: client.id } })).data;
+  await request('/entities/CompanyProfile', { method: 'POST', cookie: a.cookie, data: { name: 'Acme Handyman', default_tax_rate: 10 } });
+  await request('/entities/Estimate', { method: 'POST', cookie: a.cookie, data: {
+    job_id: job.id, number: 'EST-EX', status: 'draft', lines: [{ description: 'Labor', labor_amount: 100 }], total: 100,
+  }});
+  await request('/entities/Invoice', { method: 'POST', cookie: a.cookie, data: {
+    job_id: job.id, number: 'INV-EX', status: 'draft', material_lines: [], labor_lines: [], misc_lines: [], total: 50,
+  }});
+
+  const exported = (await request('/export', { cookie: a.cookie })).data;
+  const entities = new Set(exported.records.map(r => r.entity));
+  for (const name of ['Client', 'Job', 'CompanyProfile', 'Estimate', 'Invoice']) {
+    assert.ok(entities.has(name), `export missing ${name}`);
+  }
+  assert.ok(exported.records.some(r => r.entity === 'Estimate' && r.number === 'EST-EX'));
+  assert.ok(exported.records.some(r => r.entity === 'Invoice' && r.number === 'INV-EX'));
+});
+
+test('void and revise document rules; partial invoice status; ownership', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('void-revise@example.com');
+  const b = await register('void-other@example.com');
+  const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'VR Client' } })).data;
+  const job = (await request('/entities/Job', {
+    method: 'POST', cookie: a.cookie,
+    data: { title: 'VR Job', client_id: client.id, deposit_amount: 0 },
+  })).data;
+
+  const estimate = (await request('/entities/Estimate', { method: 'POST', cookie: a.cookie, data: {
+    job_id: job.id,
+    number: 'EST-VR',
+    status: 'accepted',
+    tax_rate: 0,
+    lines: [{ description: 'Labor', labor_amount: 500, labor_hours: 10, labor_rate: 50 }],
+    total: 500,
+    accepted_snapshot: {
+      number: 'EST-VR', tax_rate: 0, total: 500,
+      lines: [{ description: 'Labor', labor_amount: 500, labor_hours: 10, labor_rate: 50 }],
+    },
+  }})).data;
+
+  // Cannot re-sign accepted — revise instead
+  assert.equal((await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  })).status, 400);
+
+  const revision = await request(`/documents/Estimate/${estimate.id}/revise`, {
+    method: 'POST', cookie: a.cookie, data: {},
+  });
+  assert.equal(revision.status, 201, revision.data?.message);
+  assert.equal(revision.data.status, 'draft');
+  assert.match(revision.data.number, /EST-VR-R/);
+  assert.equal(revision.data.accepted_snapshot, undefined);
+  assert.equal(revision.data.total, 500);
+
+  // Ownership on revise/void
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/revise`, {
+    method: 'POST', cookie: b.cookie, data: {},
+  })).status, 404);
+
+  const voided = await request(`/documents/Estimate/${revision.data.id}/void`, {
+    method: 'POST', cookie: a.cookie, data: {},
+  });
+  assert.equal(voided.status, 200);
+  assert.equal(voided.data.status, 'void');
+  assert.equal((await request(`/estimates/${revision.data.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  })).status, 400);
+
+  const inv = await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
+  });
+  assert.equal(inv.status, 201, inv.data?.message);
+  assert.equal(inv.data.prior_invoiced, 0);
+  assert.equal(inv.data.over_authorized, false);
+
+  // Mark sent with partial payment → partial
+  const partial = await request(`/entities/Invoice/${inv.data.id}`, {
+    method: 'PATCH',
+    cookie: a.cookie,
+    data: {
+      status: 'sent',
+      payments_applied: 100,
+      balance_due: 400,
+      total: 500,
+      deposits_applied: 0,
+      labor_lines: inv.data.labor_lines,
+      material_lines: inv.data.material_lines,
+      misc_lines: inv.data.misc_lines,
+    },
+  });
+  assert.equal(partial.status, 200);
+  assert.equal(partial.data.status, 'partial');
+
+  // Second invoice reports prior_invoiced
+  const inv2 = await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
+  });
+  assert.equal(inv2.status, 201);
+  assert.equal(inv2.data.prior_invoiced, 500);
+  assert.equal(inv2.data.over_authorized, true);
+
+  // Void first invoice → rollup drops
+  const voidInv = await request(`/documents/Invoice/${inv.data.id}/void`, {
+    method: 'POST', cookie: a.cookie, data: {},
+  });
+  assert.equal(voidInv.status, 200);
+  const jobAfter = (await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(jobAfter.invoice_amount, inv2.data.total);
+
+  // Paid invoice cannot be voided
+  const paid = (await request('/entities/Invoice', { method: 'POST', cookie: a.cookie, data: {
+    job_id: job.id, number: 'INV-PAID', status: 'paid', total: 10,
+    material_lines: [], labor_lines: [], misc_lines: [],
+  }})).data;
+  assert.equal((await request(`/documents/Invoice/${paid.id}/void`, {
+    method: 'POST', cookie: a.cookie, data: {},
+  })).status, 400);
 });

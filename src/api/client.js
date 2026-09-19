@@ -66,6 +66,10 @@ export const api = {
   invoices: {
     fromJob(jobId) { return post('/invoices/from-job', { job_id: jobId }); },
   },
+  documents: {
+    void(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/void`, {}); },
+    revise(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/revise`, {}); },
+  },
   jobs: {
     authorizedTotal(id) { return request(`/jobs/${encodeURIComponent(id)}/authorized-total`); },
   },

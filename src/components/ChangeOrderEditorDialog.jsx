@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
 import { changeOrderNet } from "@/lib/documentMapping";
+import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 
 /** Change Order editor + client e-sign (Phase 4). */
-export default function ChangeOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved }) {
+export default function ChangeOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved, onRevised }) {
   const [form, setForm] = useState({
     number: "", status: "draft", reason: "", description: "", notes: "",
     added_cost: "", credit: "", net_change: "", added_days: "", revised_contract_total: "",
@@ -246,9 +247,18 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
           </div>
         )}
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button className="bg-slate-900 hover:bg-slate-800" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save change order"}</Button>
+        <DialogFooter className="flex-col sm:flex-row gap-2 sm:justify-between">
+          <DocumentLifecycleActions
+            entity="ChangeOrder"
+            document={document}
+            disabled={saving}
+            onSaved={() => { onSaved?.(); onOpenChange(false); }}
+            onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <Button className="bg-slate-900 hover:bg-slate-800" onClick={save} disabled={saving || form.status === "void"}>{saving ? "Saving…" : "Save change order"}</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

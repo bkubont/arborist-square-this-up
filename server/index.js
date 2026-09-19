@@ -8,8 +8,11 @@ async function start() {
   try {
     await migrate(db);
     const app = await createApp(db);
-    const server = app.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => {
-      console.log(`Jobsite Notebook server is ready on port ${server.address().port}`);
+    const configuredPort = Number(process.env.PORT || 3000);
+    const server = app.listen(configuredPort, '0.0.0.0', () => {
+      const addr = server.address();
+      const port = addr && typeof addr === 'object' ? addr.port : configuredPort;
+      console.log(`Jobsite Notebook server is ready on port ${port}`);
     });
     server.on('error', async error => {
       console.error('Server failed to listen:', error.code || error.name);

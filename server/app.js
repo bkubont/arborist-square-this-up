@@ -9,7 +9,8 @@ import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
 import { searchCatalog } from './catalog.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
-import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill } from './mapping.js';
+import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
+import { voidDocument, reviseDocument, assertDocumentEntity } from './documents.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 
 export async function createApp(db, env = process.env) {
@@ -289,7 +290,8 @@ export async function createApp(db, env = process.env) {
     let company = null;
     const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [req.user.id, 'CompanyProfile']);
     if (profiles[0]) company = decode(profiles[0]);
-    const existing = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', jobId]);
+    const existingRows = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', jobId])).map(decode);
+    const activeInvoices = existingRows.filter(inv => inv.status !== 'void');
     const built = buildInvoiceAutofill({
       job,
       estimate,
@@ -297,19 +299,60 @@ export async function createApp(db, env = process.env) {
       company,
       deposits_applied,
       payments_applied,
-      number: `INV-${String(existing.length + 1).padStart(3, '0')}`,
+      number: `INV-${String(existingRows.length + 1).padStart(3, '0')}`,
+      existingInvoices: activeInvoices,
     });
     const created = await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Invoice', built.invoice));
-    // Roll up job invoice_amount to the latest invoice total
-    await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: created.total }, job.id));
+    // Roll up job invoice_amount to sum of active (non-void) invoice totals
+    const invoicedRollup = sumActiveInvoiceTotals([...activeInvoices, created]);
+    await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: invoicedRollup }, job.id));
     res.status(201).json({
       ...created,
       authorized_total: built.authorized_total,
+      billing_ceiling: built.billing_ceiling,
+      prior_invoiced: built.prior_invoiced,
       over_authorized: built.over_authorized,
     });
   });
+  app.post('/api/documents/:entity/:id/void', async (req, res) => {
+    const entity = assertDocumentEntity(req.params.entity);
+    const updated = await ownedTransaction(req.user.id, tx => voidDocument(tx, req.user.id, entity, req.params.id));
+    if (entity === 'Invoice') {
+      const jobId = updated.job_id;
+      const invoices = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', jobId])).map(decode);
+      await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: sumActiveInvoiceTotals(invoices) }, jobId));
+    }
+    res.json(updated);
+  });
+  app.post('/api/documents/:entity/:id/revise', async (req, res) => {
+    const entity = assertDocumentEntity(req.params.entity);
+    const created = await ownedTransaction(req.user.id, tx => reviseDocument(tx, req.user.id, entity, req.params.id));
+    res.status(201).json(created);
+  });
   app.post('/api/entities/:entity', async (req, res) => res.status(201).json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body))));
-  app.patch('/api/entities/:entity/:id', async (req, res) => res.json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body, req.params.id))));
+  app.patch('/api/entities/:entity/:id', async (req, res) => {
+    const entity = req.params.entity;
+    let body = req.body;
+    if (entity === 'Invoice' && body && typeof body === 'object') {
+      const previous = await getRecord(db, req.user.id, 'Invoice', req.params.id);
+      const merged = { ...previous, ...body };
+      body = {
+        ...body,
+        status: deriveInvoiceStatus({
+          balance_due: merged.balance_due,
+          payments_applied: merged.payments_applied,
+          deposits_applied: merged.deposits_applied,
+          status: body.status ?? previous.status,
+        }),
+      };
+    }
+    const updated = await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, entity, body, req.params.id));
+    if (entity === 'Invoice' && updated.job_id) {
+      const invoices = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', updated.job_id])).map(decode);
+      await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: sumActiveInvoiceTotals(invoices) }, updated.job_id));
+    }
+    res.json(updated);
+  });
   app.delete('/api/entities/:entity/:id', async (req, res) => {
     await ownedTransaction(req.user.id, async tx => {
       const record = await getRecord(tx, req.user.id, req.params.entity, req.params.id);

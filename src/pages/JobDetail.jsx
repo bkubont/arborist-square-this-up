@@ -231,7 +231,13 @@ export default function JobDetail() {
         <div className="space-y-4">
           <div>
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Financials</div>
-            <FinancialPanel job={job} onUpdate={updateJob} onLogPayment={logPayment} />
+            <FinancialPanel
+              job={job}
+              documents={documents}
+              timeline={entries}
+              onUpdate={updateJob}
+              onLogPayment={logPayment}
+            />
           </div>
           {job.notes && (
             <div className="bg-white rounded-xl border border-slate-200 p-4">
