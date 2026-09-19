@@ -462,6 +462,104 @@ test('change order e-sign updates authorized total; draft CO excluded', async t 
   assert.equal(edited.data.status, 'approved');
 });
 
+test('credit change order can sign when revised total goes below baseline', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('credit-co@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Credit client' });
+  const job = await create('Job', { title: 'Credit job', client_id: client.id });
+  await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-CR',
+    status: 'accepted',
+    total: 500,
+    accepted_snapshot: { total: 500, lines: [], number: 'EST-CR' },
+  });
+  const co = await create('ChangeOrder', {
+    job_id: job.id,
+    number: 'CO-CREDIT',
+    status: 'draft',
+    credit: 600,
+    added_cost: 0,
+    net_change: -600,
+    lines: [{ description: 'Remove vanity', amount: -600 }],
+  });
+  const sent = await request(`/change-orders/${co.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  });
+  assert.equal(sent.status, 201, sent.data?.message);
+  const token = sent.data.sign_url.split('/').pop();
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const signed = await request(`/sign/${token}`, {
+    method: 'POST', data: { signer_name: 'Credit Client', signature_data_url: png },
+  });
+  assert.equal(signed.status, 200, signed.data?.message);
+  const after = (await request(`/entities/ChangeOrder/${co.id}`, { cookie: a.cookie })).data;
+  assert.equal(after.status, 'approved');
+  assert.equal(after.revised_contract_total, -100);
+  assert.equal(after.accepted_snapshot.revised_contract_total, -100);
+  assert.equal(after.accepted_snapshot.lines[0].amount, -600);
+});
+
+test('second unused sign link cannot overwrite accepted snapshot', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('double-sign@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Double client' });
+  const job = await create('Job', { title: 'Double job', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-DBL',
+    status: 'draft',
+    total: 300,
+    lines: [{ description: 'Labor', labor_amount: 300 }],
+    subtotal: 300,
+    tax_amount: 0,
+  });
+  const first = await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  });
+  assert.equal(first.status, 201);
+  const second = await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  });
+  assert.equal(second.status, 201);
+  const token1 = first.data.sign_url.split('/').pop();
+  const token2 = second.data.sign_url.split('/').pop();
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  const signed = await request(`/sign/${token1}`, {
+    method: 'POST', data: { signer_name: 'First Signer', signature_data_url: png },
+  });
+  assert.equal(signed.status, 200, signed.data?.message);
+  const afterFirst = (await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data;
+  assert.equal(afterFirst.status, 'accepted');
+  assert.equal(afterFirst.signer_name, 'First Signer');
+  assert.equal(afterFirst.accepted_snapshot.total, 300);
+
+  // Leftover unused link must not overwrite the frozen snapshot
+  assert.equal((await request(`/sign/${token2}`, {
+    method: 'POST', data: { signer_name: 'Second Signer', signature_data_url: png },
+  })).status, 400);
+
+  const afterSecond = (await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data;
+  assert.equal(afterSecond.signer_name, 'First Signer');
+  assert.equal(afterSecond.accepted_snapshot.total, 300);
+
+  // New send-sign blocked while accepted
+  assert.equal((await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  })).status, 400);
+});
+
 test('invoice from job autofills estimate + approved COs, balance due, job rollup', async t => {
   const { request, register } = await fixture(t);
   const a = await register('inv@example.com');

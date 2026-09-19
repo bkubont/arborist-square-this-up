@@ -195,6 +195,9 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
 
     const record = await getRecord(tx, link.owner_id, link.entity, link.record_id);
     if (record.status === 'void' || record.status === 'rejected') throw fail(400, 'This document can no longer be signed');
+    if (record.status === 'accepted' || record.status === 'approved') {
+      throw fail(400, 'This document was already signed');
+    }
 
     const [usage] = await tx.all('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE owner_id = ?', [link.owner_id]);
     if (Number(usage.total) + png.length > Number(env.ACCOUNT_STORAGE_MB || 100) * 1024 * 1024) {
@@ -270,7 +273,13 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
       });
     }
 
+    // Consume this token and invalidate any other unused links for the same document
+    // so a leftover/resent URL cannot overwrite the frozen accepted_snapshot.
     await tx.run('UPDATE sign_links SET used_at = ? WHERE token_hash = ?', [signedAt, link.token_hash]);
+    await tx.run(
+      'UPDATE sign_links SET used_at = ? WHERE owner_id = ? AND entity = ? AND record_id = ? AND used_at IS NULL AND token_hash != ?',
+      [signedAt, link.owner_id, link.entity, link.record_id, link.token_hash],
+    );
     return updated;
   });
 }

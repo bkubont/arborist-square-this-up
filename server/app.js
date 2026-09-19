@@ -196,6 +196,7 @@ export async function createApp(db, env = process.env) {
     if (channel === 'sms' && !recipient) throw fail(400, 'Enter a phone number');
     const estimate = await getRecord(db, req.user.id, 'Estimate', req.params.id);
     if (estimate.status === 'void') throw fail(400, 'Cannot send a void estimate');
+    if (estimate.status === 'accepted') throw fail(400, 'Estimate is already accepted; void it before sending a new sign link');
     const result = await createSignLink(db, {
       ownerId: req.user.id,
       entity: 'Estimate',
@@ -225,6 +226,7 @@ export async function createApp(db, env = process.env) {
     if (channel === 'sms' && !recipient) throw fail(400, 'Enter a phone number');
     const changeOrder = await getRecord(db, req.user.id, 'ChangeOrder', req.params.id);
     if (changeOrder.status === 'void' || changeOrder.status === 'rejected') throw fail(400, 'Cannot send this change order');
+    if (changeOrder.status === 'approved') throw fail(400, 'Change order is already approved; void it before sending a new sign link');
     const result = await createSignLink(db, {
       ownerId: req.user.id,
       entity: 'ChangeOrder',

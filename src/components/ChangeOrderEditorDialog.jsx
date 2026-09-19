@@ -90,6 +90,9 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
     setSignBusy(true);
     setSignResult(null);
     try {
+      const serializedLines = lines
+        .map((l) => ({ description: l.description || "", amount: l.amount === "" ? undefined : Number(l.amount) }))
+        .filter((l) => l.description || l.amount != null);
       await api.entities.ChangeOrder.update(document.id, {
         number: form.number || undefined,
         reason: form.reason,
@@ -100,6 +103,7 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
         net_change: computedNet,
         added_days: form.added_days === "" ? undefined : Number(form.added_days),
         revised_contract_total: previewRevised ?? undefined,
+        lines: serializedLines,
       });
       const result = await api.changeOrders.sendSign(document.id, {
         channel: signChannel,
