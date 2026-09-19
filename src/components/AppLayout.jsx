@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, Wrench, Plus, LogOut, Menu, X } from "lucide-react";
+import { LayoutDashboard, Users, Wrench, Plus, LogOut, Menu, X, Building2 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/jobs", label: "All Jobs", icon: Wrench },
+  { to: "/settings", label: "Company", icon: Building2 },
 ];
 
 export default function AppLayout() {

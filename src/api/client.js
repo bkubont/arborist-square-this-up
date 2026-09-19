@@ -35,7 +35,44 @@ const entity = name => ({
   delete(id) { return request(`/entities/${name}/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
 });
 export const api = {
-  entities: { Client: entity('Client'), Job: entity('Job'), TimelineEntry: entity('TimelineEntry') },
+  entities: {
+    Client: entity('Client'),
+    Job: entity('Job'),
+    TimelineEntry: entity('TimelineEntry'),
+    CompanyProfile: entity('CompanyProfile'),
+    Estimate: entity('Estimate'),
+    WorkOrder: entity('WorkOrder'),
+    ChangeOrder: entity('ChangeOrder'),
+    Invoice: entity('Invoice'),
+  },
+  catalog: {
+    search(filters = {}) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) {
+        if (value != null && value !== '' && value !== 'all') params.set(key, String(value));
+      }
+      return request(`/catalog?${params}`);
+    },
+  },
+  estimates: {
+    sendSign(id, data) { return post(`/estimates/${encodeURIComponent(id)}/send-sign`, data); },
+  },
+  changeOrders: {
+    sendSign(id, data) { return post(`/change-orders/${encodeURIComponent(id)}/send-sign`, data); },
+  },
+  workOrders: {
+    fromEstimate(estimateId) { return post('/work-orders/from-estimate', { estimate_id: estimateId }); },
+  },
+  invoices: {
+    fromJob(jobId) { return post('/invoices/from-job', { job_id: jobId }); },
+  },
+  jobs: {
+    authorizedTotal(id) { return request(`/jobs/${encodeURIComponent(id)}/authorized-total`); },
+  },
+  sign: {
+    get(token) { return request(`/sign/${encodeURIComponent(token)}`); },
+    submit(token, data) { return post(`/sign/${encodeURIComponent(token)}`, data); },
+  },
   auth: {
     me: () => request('/auth/me'),
     loginViaEmailPassword: (email, password) => post('/auth/login', { email, password }),

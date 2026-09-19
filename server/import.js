@@ -4,11 +4,13 @@ import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { openDatabase, migrate } from './db.js';
 import { emailSchema } from './security.js';
-import { saveRecord, schemas } from './domain.js';
+import { saveRecord, schemas, JOB_DOCUMENT_ENTITIES } from './domain.js';
 
 // Offline import only: never fetch arbitrary URLs from an uploaded export.
 // Base44 exports can be normalized to { Client: [], Job: [], TimelineEntry: [], files: [] }.
 // Files use { id, mime, content: base64, source_url? }; source_url maps old photo URLs.
+const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', ...JOB_DOCUMENT_ENTITIES, 'TimelineEntry'];
+
 export async function importData(db, email, input) {
   const [user] = await db.all('SELECT id FROM users WHERE email = ?', [emailSchema.parse(email)]);
   if (!user) throw new Error('Create the destination account before importing');
@@ -33,7 +35,7 @@ export async function importData(db, email, input) {
       if (file.source_url) fileMap.set(file.source_url, `/api/files/${id}`);
     }
     const ids = new Map();
-    for (const entity of ['Client','Job','TimelineEntry']) {
+    for (const entity of IMPORT_ORDER) {
       for (const record of records.filter(row => row.entity === entity)) {
         if (typeof record.id !== 'string' || ids.has(`${entity}:${record.id}`)) throw new Error('Missing or duplicate source ID');
         const data = { ...record };
@@ -41,13 +43,25 @@ export async function importData(db, email, input) {
           data.client_id = ids.get(`Client:${record.client_id}`);
           if (!data.client_id) throw new Error('Job references a missing client');
         }
-        if (entity === 'TimelineEntry') {
+        if (entity === 'TimelineEntry' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
           data.job_id = ids.get(`Job:${record.job_id}`);
-          if (!data.job_id) throw new Error('Timeline entry references a missing job');
+          if (!data.job_id) throw new Error(`${entity} references a missing job`);
         }
-        if (data.photo_url) {
-          data.photo_url = fileMap.get(record.photo_url);
-          if (!data.photo_url) throw new Error('A photo is missing. Add its bytes and source_url to the files collection before importing.');
+        if (record.related_estimate_id) {
+          data.related_estimate_id = ids.get(`Estimate:${record.related_estimate_id}`);
+          if (!data.related_estimate_id) throw new Error(`${entity} references a missing estimate`);
+        }
+        if (Array.isArray(record.billed_change_order_ids)) {
+          data.billed_change_order_ids = record.billed_change_order_ids.map(sourceId => {
+            const mapped = ids.get(`ChangeOrder:${sourceId}`);
+            if (!mapped) throw new Error('Invoice references a missing change order');
+            return mapped;
+          });
+        }
+        for (const field of ['photo_url', 'signature_file_url', 'logo_url']) {
+          if (!data[field]) continue;
+          data[field] = fileMap.get(record[field]);
+          if (!data[field]) throw new Error('A photo is missing. Add its bytes and source_url to the files collection before importing.');
         }
         const saved = await saveRecord(tx, user.id, entity, data);
         ids.set(`${entity}:${record.id}`, saved.id);

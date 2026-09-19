@@ -14,6 +14,8 @@ import Clients from '@/pages/Clients';
 import ClientDetail from '@/pages/ClientDetail';
 import JobDetail from '@/pages/JobDetail';
 import AllJobs from '@/pages/AllJobs';
+import CompanySettings from '@/pages/CompanySettings';
+import SignEstimate from '@/pages/SignEstimate';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -38,6 +40,7 @@ const AuthenticatedApp = () => {
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/sign/:token" element={<SignEstimate />} />
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route element={<AppLayout />}>
           <Route path="/" element={<Dashboard />} />
@@ -45,6 +48,7 @@ const AuthenticatedApp = () => {
           <Route path="/clients/:id" element={<ClientDetail />} />
           <Route path="/jobs" element={<AllJobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
+          <Route path="/settings" element={<CompanySettings />} />
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />
