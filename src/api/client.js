@@ -45,6 +45,7 @@ export const api = {
     TimelineEntry: entity('TimelineEntry'),
     CompanyProfile: entity('CompanyProfile'),
     Estimate: entity('Estimate'),
+    MaterialOrder: entity('MaterialOrder'),
     WorkOrder: entity('WorkOrder'),
     ChangeOrder: entity('ChangeOrder'),
     Invoice: entity('Invoice'),

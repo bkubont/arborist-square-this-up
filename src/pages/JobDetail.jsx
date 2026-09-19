@@ -2,7 +2,7 @@ import ClientAddress from "@/components/ClientAddress";
 import React, { useEffect, useState, useCallback } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
-import { ArrowLeft, Pencil, StickyNote, Send, CheckCircle2, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, StickyNote, CheckCircle2, Trash2, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,7 +17,7 @@ import JobDocuments from "@/components/JobDocuments";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-const DOC_ENTITIES = ["Estimate", "WorkOrder", "ChangeOrder", "Invoice"];
+const DOC_ENTITIES = ["Estimate", "MaterialOrder", "WorkOrder", "ChangeOrder", "Invoice"];
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -150,15 +150,16 @@ export default function JobDetail() {
       <div className="grid lg:grid-cols-3 gap-4">
         {/* Left: timeline */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Quick actions */}
+          {/* Quick actions — deposit / paid only; estimate & invoice sent are logged from document editors */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Actions</div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <QuickBtn label="Estimate Sent" icon={Send} onClick={() => quickAction("estimate_sent", "Estimate sent to client")} tint="bg-brand-muted text-brand-muted-foreground border-brand" />
-              <QuickBtn label="Deposit" icon={CheckCircle2} onClick={() => quickAction("deposit_received", "Deposit received")} tint="bg-emerald-50 text-emerald-700 border-emerald-200" />
-              <QuickBtn label="Invoice Sent" icon={Send} onClick={() => quickAction("invoice_sent", "Invoice sent to client")} tint="bg-brand-muted text-brand-muted-foreground border-brand" />
+            <div className="grid grid-cols-2 gap-2">
+              <QuickBtn label="Deposit" icon={DollarSign} onClick={() => quickAction("deposit_received", "Deposit received")} tint="bg-emerald-50 text-emerald-700 border-emerald-200" />
               <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-secondary text-secondary-foreground border-border" />
             </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              Estimate sent / signed and Work Order created appear automatically on the timeline.
+            </p>
           </div>
 
           <JobDocuments jobId={id} jobTitle={job.title} client={client} documents={documents} onChanged={load} />

@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Plus, Search, Trash2, Printer, Send } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Trash2, Printer, Send, Camera, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,21 +7,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import CatalogPickerDialog from "@/components/CatalogPickerDialog";
+import CatalogTypeahead from "@/components/CatalogTypeahead";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import StatusSelect from "@/components/StatusSelect";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
+import { WORK_CATEGORIES } from "@/lib/documentMapping";
 import { money, shortDate } from "@/lib/format";
 import {
+  addDaysIso,
   catalogItemToFormLine,
+  DEFAULT_LABOR_RATE,
   emptyEstimateLine,
+  ESTIMATE_VALID_DAYS,
   estimateTotals,
+  laborAmountFromHours,
   lineTotal,
   serializeEstimateLine,
+  todayIso,
 } from "@/lib/estimateMath";
 
 /**
- * Estimate editor: dual line model + catalog search→fill + client e-sign send.
+ * Estimate editor: simplified lines + catalog typeahead + client e-sign + job photo capture.
+ * Hours × default/catalog rate → Est. Labor under the hood; hours kept for WO mapping.
  */
 export default function EstimateEditorDialog({ open, onOpenChange, document, jobId, jobTitle, onSaved, onRevised }) {
   const [form, setForm] = useState({
@@ -34,21 +41,24 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   });
   const [lines, setLines] = useState([emptyEstimateLine()]);
   const [saving, setSaving] = useState(false);
-  const [catalogOpen, setCatalogOpen] = useState(false);
-  const [catalogTarget, setCatalogTarget] = useState(null);
+  const [defaultLaborRate, setDefaultLaborRate] = useState(DEFAULT_LABOR_RATE);
   const [signChannel, setSignChannel] = useState("link");
   const [signRecipient, setSignRecipient] = useState("");
   const [signBusy, setSignBusy] = useState(false);
   const [signResult, setSignResult] = useState(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const cameraRef = useRef(null);
 
   useEffect(() => {
     if (!open || !document) return;
     setSignResult(null);
+    const date = document.date || todayIso();
+    const valid_till = document.valid_till || addDaysIso(date, ESTIMATE_VALID_DAYS);
     setForm({
       number: document.number || "",
       status: document.status || "draft",
-      date: document.date || "",
-      valid_till: document.valid_till || "",
+      date,
+      valid_till,
       notes: document.notes || "",
       tax_rate: document.tax_rate ?? "",
     });
@@ -68,6 +78,10 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       : [emptyEstimateLine()];
     setLines(existing);
 
+    api.catalog.search({ limit: 1 }).then((data) => {
+      if (data?.default_labor_rate != null) setDefaultLaborRate(Number(data.default_labor_rate) || DEFAULT_LABOR_RATE);
+    }).catch(() => {});
+
     if (document.tax_rate == null || document.tax_rate === "") {
       api.entities.CompanyProfile.list("-created_date", 1).then((rows) => {
         const profile = rows[0];
@@ -86,17 +100,49 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     setLines((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
+  const setHours = (index, hoursValue) => {
+    setLines((rows) => rows.map((row, i) => {
+      if (i !== index) return row;
+      const rate = row.labor_rate || defaultLaborRate;
+      const labor = laborAmountFromHours(hoursValue, rate, defaultLaborRate);
+      return {
+        ...row,
+        labor_hours: hoursValue,
+        labor_rate: row.labor_rate || String(defaultLaborRate),
+        labor_amount: labor === "" ? row.labor_amount : labor,
+      };
+    }));
+  };
+
   const addLine = () => setLines((rows) => [...rows, emptyEstimateLine()]);
   const removeLine = (index) => setLines((rows) => (rows.length <= 1 ? [emptyEstimateLine()] : rows.filter((_, i) => i !== index)));
 
-  const openCatalog = (index) => {
-    setCatalogTarget(index);
-    setCatalogOpen(true);
+  const onCatalogPick = (index, item) => {
+    setLine(index, catalogItemToFormLine(item, defaultLaborRate));
   };
 
-  const onCatalogPick = (item) => {
-    if (catalogTarget == null) return;
-    setLine(catalogTarget, catalogItemToFormLine(item));
+  const captureJobPhoto = async (files) => {
+    if (!files?.length || !jobId) return;
+    setPhotoBusy(true);
+    try {
+      for (const file of files) {
+        const { file_url } = await api.uploadFile({ file });
+        await api.entities.TimelineEntry.create({
+          job_id: jobId,
+          type: "photo",
+          text: file.name || "Job photo from estimate",
+          photo_url: file_url,
+          category: "before",
+        });
+      }
+      onSaved?.();
+    } catch (e) {
+      console.error(e);
+      alert("Photo upload failed. Try again.");
+    } finally {
+      setPhotoBusy(false);
+      if (cameraRef.current) cameraRef.current.value = "";
+    }
   };
 
   const save = async ({ markSent = false } = {}) => {
@@ -180,10 +226,11 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     if (!w) return;
     const rows = serialized.map((line) => `
       <tr>
+        <td>${escapeHtml(line.category || "")}</td>
         <td>${escapeHtml(line.description || "")}</td>
+        <td class="num">${line.labor_hours != null ? escapeHtml(String(line.labor_hours)) : "—"}</td>
         <td class="num">${fmt(line.material_amount)}</td>
         <td class="num">${fmt(line.labor_amount)}</td>
-        <td class="num">${fmt(line.equipment_amount)}</td>
         <td class="num">${fmt(lineTotal(line))}</td>
       </tr>`).join("");
     w.document.write(`<!doctype html><html><head><title>Estimate ${escapeHtml(form.number || "")}</title>
@@ -202,9 +249,9 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       </style></head><body>
       <h1>Construction Estimate</h1>
       <div class="meta">${escapeHtml(jobTitle || "Job")} · ${escapeHtml(form.number || "Draft")}
-        ${form.date ? ` · ${escapeHtml(form.date)}` : ""}${form.valid_till ? ` · Valid till ${escapeHtml(form.valid_till)}` : ""}</div>
-      <table><thead><tr><th>Description</th><th class="num">Material</th><th class="num">Labor</th><th class="num">Equipment</th><th class="num">Total</th></tr></thead>
-      <tbody>${rows || "<tr><td colspan=5>No lines</td></tr>"}</tbody></table>
+        ${form.date ? ` · ${escapeHtml(form.date)}` : ""}${form.valid_till ? ` · Valid until ${escapeHtml(form.valid_till)}` : ""}</div>
+      <table><thead><tr><th>Category</th><th>Description</th><th class="num">Hrs</th><th class="num">Material</th><th class="num">Labor</th><th class="num">Total</th></tr></thead>
+      <tbody>${rows || "<tr><td colspan=6>No lines</td></tr>"}</tbody></table>
       <div class="totals">
         <div><span>Subtotal</span><span>${fmt(t.subtotal)}</span></div>
         <div><span>Tax (${escapeHtml(String(form.tax_rate || 0))}%)</span><span>${fmt(t.tax_amount)}</span></div>
@@ -217,196 +264,240 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   };
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-start justify-between gap-2 pr-8">
             <DialogTitle>Estimate{form.number ? ` · ${form.number}` : ""}</DialogTitle>
-          </DialogHeader>
-
-          {document.status === "accepted" && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-              Signed by <strong>{document.signer_name || "client"}</strong>
-              {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.
-              Fields stay editable. Accepted snapshot ({money(document.accepted_snapshot?.total ?? document.total)}) is kept for Work Order / Invoice carryover.
-            </div>
-          )}
-
-          <div className="grid sm:grid-cols-4 gap-3">
-            <div>
-              <Label>Number</Label>
-              <Input value={form.number} onChange={(e) => setForm((f) => ({ ...f, number: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Status</Label>
-              <StatusSelect
-                value={form.status}
-                onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
-                statuses={DOCUMENT_STATUSES.Estimate}
-                entity="Estimate"
-              />
-            </div>
-            <div>
-              <Label>Date</Label>
-              <Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Valid till</Label>
-              <Input type="date" value={form.valid_till} onChange={(e) => setForm((f) => ({ ...f, valid_till: e.target.value }))} />
-            </div>
+            {jobId && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={photoBusy}
+                  title="Add photo to job gallery"
+                  onClick={() => cameraRef.current?.click()}
+                >
+                  {photoBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                  <span className="ml-1.5 hidden sm:inline">Photo</span>
+                </Button>
+                <input
+                  ref={cameraRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => captureJobPhoto(Array.from(e.target.files || []))}
+                />
+              </>
+            )}
           </div>
+        </DialogHeader>
 
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Line items</div>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => { setCatalogTarget(lines.length); setLines((r) => [...r, emptyEstimateLine()]); setCatalogOpen(true); }}>
-                  <Search className="w-3.5 h-3.5 mr-1" /> From catalog
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={addLine}>
-                  <Plus className="w-3.5 h-3.5 mr-1" /> Line
-                </Button>
-              </div>
-            </div>
+        {document.status === "accepted" && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Signed by <strong>{document.signer_name || "client"}</strong>
+            {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.
+            Fields stay editable. Accepted snapshot ({money(document.accepted_snapshot?.total ?? document.total)}) is kept for Work Order / Invoice carryover.
+          </div>
+        )}
 
-            <div className="space-y-3">
-              {lines.map((line, index) => (
-                <div key={index} className="rounded-lg border border-slate-200 p-3 bg-slate-50/50">
-                  <div className="flex gap-2 mb-2">
+        <div className="grid sm:grid-cols-4 gap-3">
+          <div>
+            <Label>Number</Label>
+            <Input value={form.number} onChange={(e) => setForm((f) => ({ ...f, number: e.target.value }))} />
+          </div>
+          <div>
+            <Label>Status</Label>
+            <StatusSelect
+              value={form.status}
+              onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
+              statuses={DOCUMENT_STATUSES.Estimate}
+              entity="Estimate"
+            />
+          </div>
+          <div>
+            <Label>Date</Label>
+            <Input
+              type="date"
+              value={form.date}
+              onChange={(e) => {
+                const date = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  date,
+                  // Keep auto +10 when user had not customized beyond the previous auto default
+                  valid_till: !f.valid_till || f.valid_till === addDaysIso(f.date, ESTIMATE_VALID_DAYS)
+                    ? addDaysIso(date, ESTIMATE_VALID_DAYS)
+                    : f.valid_till,
+                }));
+              }}
+            />
+          </div>
+          <div>
+            <Label>Valid until</Label>
+            <Input type="date" value={form.valid_till} onChange={(e) => setForm((f) => ({ ...f, valid_till: e.target.value }))} />
+            <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+              Defaults to {ESTIMATE_VALID_DAYS} days from the estimate date — how long the customer has to decide. You can still edit.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Line items</div>
+            <Button type="button" variant="outline" size="sm" onClick={addLine}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Line
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500 mb-2">
+            Type in Description to pick from the catalog. Hrs × rate fills Est. Labor (rate stored for Work Order mapping).
+          </p>
+
+          <div className="space-y-3">
+            {lines.map((line, index) => (
+              <div key={index} className="rounded-lg border border-slate-200 p-3 bg-slate-50/50 space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-[minmax(7rem,9rem)_1fr_4.5rem_auto] gap-2 items-end">
+                  <div>
+                    <Label className="text-xs">Category</Label>
                     <Input
-                      className="flex-1 bg-white"
-                      placeholder="Description"
-                      value={line.description}
-                      onChange={(e) => setLine(index, { description: e.target.value })}
+                      className="bg-white"
+                      list={`est-cat-${index}`}
+                      value={line.category}
+                      onChange={(e) => setLine(index, { category: e.target.value })}
+                      placeholder="e.g. Plumbing"
                     />
-                    <Button type="button" variant="outline" size="icon" className="shrink-0" title="Fill from catalog" onClick={() => openCatalog(index)}>
-                      <Search className="w-4 h-4" />
-                    </Button>
-                    <Button type="button" variant="outline" size="icon" className="shrink-0 text-red-600" onClick={() => removeLine(index)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <datalist id={`est-cat-${index}`}>
+                      {WORK_CATEGORIES.map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    <div>
-                      <Label className="text-xs">Material $</Label>
-                      <Input type="number" className="bg-white" value={line.material_amount} onChange={(e) => setLine(index, { material_amount: e.target.value })} placeholder="0" />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Labor $</Label>
-                      <Input type="number" className="bg-white" value={line.labor_amount} onChange={(e) => setLine(index, { labor_amount: e.target.value })} placeholder="0" />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Equipment $</Label>
-                      <Input type="number" className="bg-white" value={line.equipment_amount} onChange={(e) => setLine(index, { equipment_amount: e.target.value })} placeholder="0" />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Hours</Label>
-                      <Input type="number" className="bg-white" value={line.labor_hours} onChange={(e) => setLine(index, { labor_hours: e.target.value })} placeholder="—" />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Rate $/hr</Label>
-                      <Input type="number" className="bg-white" value={line.labor_rate} onChange={(e) => setLine(index, { labor_rate: e.target.value })} placeholder="—" />
-                    </div>
+                  <div>
+                    <Label className="text-xs">Description</Label>
+                    <CatalogTypeahead
+                      value={line.description}
+                      onChange={(description) => setLine(index, { description, catalog_id: "" })}
+                      onPick={(item) => onCatalogPick(index, item)}
+                    />
                   </div>
-                  <div className="grid sm:grid-cols-3 gap-2 mt-2">
-                    <div>
-                      <Label className="text-xs">Category</Label>
-                      <Input className="bg-white" value={line.category} onChange={(e) => setLine(index, { category: e.target.value })} />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label className="text-xs">Notes</Label>
-                      <Input className="bg-white" value={line.notes} onChange={(e) => setLine(index, { notes: e.target.value })} />
-                    </div>
+                  <div>
+                    <Label className="text-xs">Hrs.</Label>
+                    <Input
+                      type="number"
+                      className="bg-white"
+                      value={line.labor_hours}
+                      onChange={(e) => setHours(index, e.target.value)}
+                      placeholder="—"
+                    />
                   </div>
-                  <div className="text-xs text-slate-500 mt-2 text-right">Row total {money(lineTotal(serializeEstimateLine(line)))}</div>
+                  <Button type="button" variant="outline" size="icon" className="shrink-0 text-red-600 mb-0.5" onClick={() => removeLine(index)}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
-              ))}
-            </div>
+                <div className="grid sm:grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-xs">Notes</Label>
+                    <Input className="bg-white" value={line.notes} onChange={(e) => setLine(index, { notes: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Est. Material $</Label>
+                    <Input type="number" className="bg-white" value={line.material_amount} onChange={(e) => setLine(index, { material_amount: e.target.value })} placeholder="0" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Est. Labor $</Label>
+                    <Input type="number" className="bg-white" value={line.labor_amount} onChange={(e) => setLine(index, { labor_amount: e.target.value })} placeholder="0" />
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500 text-right">Row total {money(lineTotal(serializeEstimateLine(line)))}</div>
+              </div>
+            ))}
           </div>
+        </div>
 
-          <div className="grid sm:grid-cols-2 gap-4 mt-4">
+        <div className="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <Label>Notes</Label>
+            <Textarea rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
             <div>
-              <Label>Notes</Label>
-              <Textarea rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+              <Label>Tax %</Label>
+              <Input type="number" value={form.tax_rate} onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))} placeholder="Company default" />
             </div>
-            <div className="space-y-2">
-              <div>
-                <Label>Tax %</Label>
-                <Input type="number" value={form.tax_rate} onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))} placeholder="Company default" />
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm space-y-1">
-                <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{money(totals.subtotal)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Tax</span><span>{money(totals.tax_amount)}</span></div>
-                <div className="flex justify-between font-semibold text-slate-900 border-t border-slate-100 pt-1"><span>Total</span><span>{money(totals.total)}</span></div>
-              </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{money(totals.subtotal)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Tax</span><span>{money(totals.tax_amount)}</span></div>
+              <div className="flex justify-between font-semibold text-slate-900 border-t border-slate-100 pt-1"><span>Total</span><span>{money(totals.total)}</span></div>
             </div>
           </div>
+        </div>
 
-          {form.status !== "void" && (
-            <div className="mt-4 rounded-lg border border-slate-200 p-3 space-y-2">
-              <div className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-                <Send className="w-4 h-4" /> Send client sign link
-              </div>
-              <div className="grid sm:grid-cols-3 gap-2">
-                <Select value={signChannel} onValueChange={setSignChannel}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="link">Copy link</SelectItem>
-                    <SelectItem value="email">Email</SelectItem>
-                    <SelectItem value="sms">Text (SMS)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {signChannel !== "link" && (
-                  <Input
-                    className="sm:col-span-2"
-                    value={signRecipient}
-                    onChange={(e) => setSignRecipient(e.target.value)}
-                    placeholder={signChannel === "email" ? "client@example.com" : "Phone number"}
-                  />
+        {form.status !== "void" && (
+          <div className="mt-4 rounded-lg border border-slate-200 p-3 space-y-2">
+            <div className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+              <Send className="w-4 h-4" /> Send client sign link
+            </div>
+            <div className="grid sm:grid-cols-3 gap-2">
+              <Select value={signChannel} onValueChange={setSignChannel}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="link">Copy link</SelectItem>
+                  <SelectItem value="email">Email</SelectItem>
+                  <SelectItem value="sms">Text (SMS)</SelectItem>
+                </SelectContent>
+              </Select>
+              {signChannel !== "link" && (
+                <Input
+                  className="sm:col-span-2"
+                  value={signRecipient}
+                  onChange={(e) => setSignRecipient(e.target.value)}
+                  placeholder={signChannel === "email" ? "client@example.com" : "Phone number"}
+                />
+              )}
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={sendSignLink} disabled={signBusy}>
+              {signBusy ? "Creating…" : "Create / send sign link"}
+            </Button>
+            {signResult && (
+              <div className={`text-xs rounded-md px-2 py-1.5 ${signResult.delivery === "error" ? "bg-red-50 text-red-700" : "bg-slate-50 text-slate-700"}`}>
+                <div>{signResult.message}</div>
+                {signResult.sign_url && (
+                  <a href={signResult.sign_url} target="_blank" rel="noreferrer" className="underline break-all">
+                    {signResult.sign_url}
+                  </a>
                 )}
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={sendSignLink} disabled={signBusy}>
-                {signBusy ? "Creating…" : "Create / send sign link"}
-              </Button>
-              {signResult && (
-                <div className={`text-xs rounded-md px-2 py-1.5 ${signResult.delivery === "error" ? "bg-red-50 text-red-700" : "bg-slate-50 text-slate-700"}`}>
-                  <div>{signResult.message}</div>
-                  {signResult.sign_url && (
-                    <a href={signResult.sign_url} target="_blank" rel="noreferrer" className="underline break-all">
-                      {signResult.sign_url}
-                    </a>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2 sm:justify-between">
-            <DocumentLifecycleActions
-              entity="Estimate"
-              document={document}
-              disabled={saving}
-              onSaved={() => { onSaved?.(); onOpenChange(false); }}
-              onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-              <Button variant="outline" onClick={printEstimate} disabled={saving}>
-                <Printer className="w-4 h-4 mr-1" /> Print
-              </Button>
-              {form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
-                <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
-              )}
-              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
-                {saving ? "Saving…" : "Save estimate"}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <CatalogPickerDialog open={catalogOpen} onOpenChange={setCatalogOpen} onPick={onCatalogPick} />
-    </>
+        <DialogFooter className="flex-col sm:flex-row gap-2 mt-2 sm:justify-between">
+          <DocumentLifecycleActions
+            entity="Estimate"
+            document={document}
+            disabled={saving}
+            onSaved={() => { onSaved?.(); onOpenChange(false); }}
+            onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <Button variant="outline" onClick={printEstimate} disabled={saving}>
+              <Printer className="w-4 h-4 mr-1" /> Print
+            </Button>
+            {form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
+              <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
+            )}
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
+              {saving ? "Saving…" : "Save estimate"}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,5 +1,44 @@
 /** Estimate line totals (dual model: material + labor + equipment per row). */
 
+/** Catalog / fallback labor rate when company profile has none. */
+export const DEFAULT_LABOR_RATE = 55;
+
+/** Valid-until default: creation (or estimate) date + N days. */
+export const ESTIMATE_VALID_DAYS = 10;
+
+/** @param {string} isoDate YYYY-MM-DD @param {number} days */
+export function addDaysIso(isoDate, days = ESTIMATE_VALID_DAYS) {
+  const base = String(isoDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return "";
+  const d = new Date(`${base}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + Number(days));
+  return d.toISOString().slice(0, 10);
+}
+
+export function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Round money to cents. */
+export function roundMoney(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Est. Labor from hrs × rate (catalog / default). Keeps hours for WO mapping.
+ * @param {string|number} hours
+ * @param {string|number} [rate]
+ * @param {number} [fallbackRate]
+ */
+export function laborAmountFromHours(hours, rate, fallbackRate = DEFAULT_LABOR_RATE) {
+  const h = Number(hours);
+  if (!Number.isFinite(h) || hours === "" || hours == null) return "";
+  const r = Number(rate);
+  const useRate = Number.isFinite(r) && r > 0 ? r : fallbackRate;
+  return String(roundMoney(h * useRate));
+}
+
 export function lineTotal(line = {}) {
   return Number(line.material_amount || 0) + Number(line.labor_amount || 0) + Number(line.equipment_amount || 0);
 }
@@ -50,15 +89,15 @@ export function serializeEstimateLine(line) {
   };
 }
 
-export function catalogItemToFormLine(item) {
+export function catalogItemToFormLine(item, fallbackRate = DEFAULT_LABOR_RATE) {
   const hours = item.hours_mid;
-  const rate = item.labor_rate ?? 55;
+  const rate = item.labor_rate ?? fallbackRate;
   const labor = item.est_labor_cost ?? (hours != null ? hours * rate : "");
   const noteParts = [item.notes, item.tools ? `Tools: ${item.tools}` : ""].filter(Boolean);
   return {
     description: item.task || "",
     material_amount: "",
-    labor_amount: labor === "" ? "" : String(Math.round(Number(labor) * 100) / 100),
+    labor_amount: labor === "" ? "" : String(roundMoney(labor)),
     equipment_amount: "",
     labor_hours: hours != null ? String(hours) : "",
     labor_rate: rate != null ? String(rate) : "",

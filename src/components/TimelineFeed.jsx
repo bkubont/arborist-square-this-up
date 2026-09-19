@@ -1,5 +1,5 @@
 import React from "react";
-import { Image as ImageIcon, Receipt, FileText, DollarSign, StickyNote, CheckSquare, RefreshCw } from "lucide-react";
+import { Image as ImageIcon, Receipt, FileText, DollarSign, StickyNote, CheckSquare, RefreshCw, PenLine, Wrench, Send } from "lucide-react";
 import { Image } from "@/components/ui/image";
 import { timeAgo } from "@/lib/format";
 import { money } from "@/lib/format";
@@ -10,12 +10,15 @@ const ICONS = {
   photo: ImageIcon,
   receipt: Receipt,
   document: FileText,
-  estimate_sent: FileText,
+  estimate_sent: Send,
+  estimate_signed: PenLine,
   deposit_received: DollarSign,
-  invoice_sent: FileText,
+  invoice_sent: Send,
   payment_received: DollarSign,
   status_change: RefreshCw,
   checklist: CheckSquare,
+  work_order_created: Wrench,
+  change_order_sent: Send,
 };
 
 const TINT = {
@@ -23,12 +26,31 @@ const TINT = {
   photo: "bg-brand-muted text-brand-muted-foreground",
   receipt: "bg-attention-muted text-attention-muted-foreground",
   document: "bg-brand-muted text-brand-muted-foreground",
-  estimate_sent: "bg-brand-muted text-brand-muted-foreground",
+  estimate_sent: "bg-attention-approval-muted text-attention-approval-foreground",
+  estimate_signed: "bg-emerald-100 text-emerald-700",
   deposit_received: "bg-emerald-100 text-emerald-700",
-  invoice_sent: "bg-brand-muted text-brand-muted-foreground",
+  invoice_sent: "bg-attention-payment-muted text-attention-payment-foreground",
   payment_received: "bg-emerald-100 text-emerald-700",
   status_change: "bg-sky-100 text-sky-700",
   checklist: "bg-brand-muted text-brand-muted-foreground",
+  work_order_created: "bg-sky-100 text-sky-700",
+  change_order_sent: "bg-attention-approval-muted text-attention-approval-foreground",
+};
+
+const LABELS = {
+  note: "Note",
+  photo: "Photo",
+  receipt: "Receipt",
+  document: "Document",
+  estimate_sent: "Estimate sent",
+  estimate_signed: "Estimate signed",
+  deposit_received: "Deposit received",
+  invoice_sent: "Invoice sent",
+  payment_received: "Payment received",
+  status_change: "Status change",
+  checklist: "Checklist",
+  work_order_created: "Work order created",
+  change_order_sent: "Change order sent",
 };
 
 export default function TimelineFeed({ entries }) {
@@ -47,13 +69,13 @@ export default function TimelineFeed({ entries }) {
         const Icon = ICONS[e.type] || StickyNote;
         return (
           <div key={e.id} className="flex gap-3">
-            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0", TINT[e.type])}>
+            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0", TINT[e.type] || TINT.note)}>
               <Icon className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0 pb-4 border-b border-slate-100 last:border-0">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-slate-800 capitalize">
-                  {e.type.replace(/_/g, " ")}
+                <span className="text-sm font-medium text-slate-800">
+                  {LABELS[e.type] || String(e.type || "note").replace(/_/g, " ")}
                 </span>
                 <span className="text-xs text-slate-400 whitespace-nowrap">{timeAgo(e.created_date)}</span>
               </div>

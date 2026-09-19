@@ -65,7 +65,7 @@ const signMeta = {
 };
 
 /** Job-linked document entities (parent_id = job_id). */
-export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'WorkOrder', 'ChangeOrder', 'Invoice'];
+export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'WorkOrder', 'ChangeOrder', 'Invoice'];
 
 export const schemas = {
   Client: z.object({ name: z.string().trim().min(1).max(250), address: text.optional(), address_line2: text.optional(), phone: text.optional(), email: text.optional(), notes: text.optional() }),
@@ -74,7 +74,7 @@ export const schemas = {
     start_date: date.optional(), end_date: date.optional(), estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
-  TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','deposit_received','invoice_sent','payment_received','status_change','checklist']),
+  TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent']),
     text: text.optional(), photo_url: z.string().max(200).optional(),
     category: z.enum(['before','after','work','receipt','document','note','financial']).default('note'), amount: money.optional() }),
   CompanyProfile: z.object({
@@ -110,6 +110,24 @@ export const schemas = {
       total: money.optional(),
     }).optional(),
     ...signMeta,
+  }),
+  MaterialOrder: z.object({
+    job_id: id,
+    number: docNumber,
+    date: date.optional(),
+    notes: text.optional(),
+    related_estimate_id: id.optional(),
+    related_work_order_id: id.optional(),
+    status: z.enum(['draft', 'ordered', 'received', 'void']).default('draft'),
+    lines: z.array(z.object({
+      description: text.default(''),
+      qty: money.optional(),
+      unit_price: money.optional(),
+      supplier: text.optional(),
+      notes: text.optional(),
+    })).max(2000).default([]),
+    subtotal: money.optional(),
+    total: money.optional(),
   }),
   WorkOrder: z.object({
     job_id: id,
@@ -205,6 +223,7 @@ export async function saveRecord(db, owner, entity, input, recordId) {
   const { parentId, parentEntity } = parentFor(entity, data);
   if (parentId) await getRecord(db, owner, parentEntity, parentId);
   if (data.related_estimate_id) await getRecord(db, owner, 'Estimate', data.related_estimate_id);
+  if (data.related_work_order_id) await getRecord(db, owner, 'WorkOrder', data.related_work_order_id);
   if (Array.isArray(data.billed_change_order_ids)) {
     for (const changeOrderId of data.billed_change_order_ids) await getRecord(db, owner, 'ChangeOrder', changeOrderId);
   }

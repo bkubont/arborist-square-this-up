@@ -247,7 +247,7 @@ export async function createApp(db, env = process.env) {
       if (changeOrder.status === 'draft') await saveRecord(tx, req.user.id, 'ChangeOrder', { status: 'sent' }, changeOrder.id);
       await saveRecord(tx, req.user.id, 'TimelineEntry', {
         job_id: changeOrder.job_id,
-        type: 'note',
+        type: 'change_order_sent',
         text: `Change order ${changeOrder.number || ''} sign link sent (${channel})`.trim(),
         category: 'financial',
       });
@@ -263,16 +263,25 @@ export async function createApp(db, env = process.env) {
     const lines = mapEstimateToWorkOrderLines(estimate);
     const totals = workOrderTotals(lines, estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate);
     const existing = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
-    const created = await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'WorkOrder', {
-      job_id: estimate.job_id,
-      number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
-      related_estimate_id: estimate.id,
-      status: 'draft',
-      tax_rate: estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate,
-      instructions: estimate.accepted_snapshot?.notes || estimate.notes || '',
-      lines,
-      ...totals,
-    }));
+    const created = await ownedTransaction(req.user.id, async tx => {
+      const wo = await saveRecord(tx, req.user.id, 'WorkOrder', {
+        job_id: estimate.job_id,
+        number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
+        related_estimate_id: estimate.id,
+        status: 'draft',
+        tax_rate: estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate,
+        instructions: estimate.accepted_snapshot?.notes || estimate.notes || '',
+        lines,
+        ...totals,
+      });
+      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+        job_id: estimate.job_id,
+        type: 'work_order_created',
+        text: `Work Order ${wo.number || ''} created from estimate ${estimate.number || ''}`.trim(),
+        category: 'document',
+      });
+      return wo;
+    });
     res.status(201).json(created);
   });
   app.get('/api/jobs/:id/authorized-total', async (req, res) => {

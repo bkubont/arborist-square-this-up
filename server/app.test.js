@@ -317,6 +317,7 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
   const docs = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data
     .filter(e => e.category === 'document' && e.photo_url === after.signature_file_url);
   assert.equal(docs.length, 1);
+  assert.equal(docs[0].type, 'estimate_signed');
   assert.match(docs[0].text, /Pat Client/);
 
   // Owner can still edit after accept
@@ -390,6 +391,18 @@ test('work order from accepted estimate maps dual lines with work categories', a
   assert.equal(wo.related_estimate_id, estimate.id);
   assert.ok(wo.lines.some(l => l.kind === 'labor' && l.hours === 2 && l.work_category === 'Plumbing'));
   assert.ok(wo.lines.some(l => l.kind === 'material' && l.unit_price === 45));
+
+  const timeline = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.ok(timeline.some(e => e.type === 'work_order_created'));
+
+  const mo = await create('MaterialOrder', {
+    job_id: job.id,
+    number: 'MO-001',
+    status: 'draft',
+    lines: [{ description: 'Faucet cartridge', qty: 1, unit_price: 24 }],
+  });
+  assert.equal(mo.number, 'MO-001');
+  assert.equal(mo.lines[0].unit_price, 24);
 
   const patched = await request(`/entities/WorkOrder/${wo.id}`, {
     method: 'PATCH', cookie: a.cookie,
