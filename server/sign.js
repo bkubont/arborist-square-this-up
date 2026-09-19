@@ -222,6 +222,9 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
         signature_file_url: fileUrl,
         accepted_snapshot: snapshot,
       }, record.id);
+      if (snapshot.total != null) {
+        await saveRecord(tx, link.owner_id, 'Job', { estimate_amount: snapshot.total }, record.job_id);
+      }
       await saveRecord(tx, link.owner_id, 'TimelineEntry', {
         job_id: record.job_id,
         type: 'estimate_signed',

@@ -12,6 +12,14 @@ import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
 import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
 import { voidDocument, reviseDocument, assertDocumentEntity } from './documents.js';
+import {
+  assertSingularDocument,
+  assertWorkOrderCompleteForInvoice,
+  assertEstimateMutable,
+  stripJobDerivedMoney,
+  findActiveJobDocument,
+  listJobDocuments,
+} from './documentRules.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 
 export async function createApp(db, env = process.env) {
@@ -273,6 +281,11 @@ export async function createApp(db, env = process.env) {
     if (estimate.status !== 'accepted' && !estimate.accepted_snapshot) {
       throw fail(400, 'Accept the estimate before creating a work order from it');
     }
+    const existingWo = await findActiveJobDocument(db, req.user.id, 'WorkOrder', estimate.job_id);
+    if (existingWo) {
+      res.json(existingWo);
+      return;
+    }
     const lines = mapEstimateToWorkOrderLines(estimate);
     const totals = workOrderTotals(lines, estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate);
     const existing = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
@@ -304,21 +317,29 @@ export async function createApp(db, env = process.env) {
   app.post('/api/invoices/from-job', async (req, res) => {
     const jobId = z.string().min(1).max(36).parse(req.body.job_id);
     const job = await getRecord(db, req.user.id, 'Job', jobId);
-    const estimateRows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Estimate', jobId]);
-    const estimates = estimateRows.map(decode);
+    await assertWorkOrderCompleteForInvoice(db, req.user.id, jobId);
+    const existingInv = await findActiveJobDocument(db, req.user.id, 'Invoice', jobId);
+    if (existingInv) {
+      res.json(existingInv);
+      return;
+    }
+    const estimates = await listJobDocuments(db, req.user.id, 'Estimate', jobId);
     const estimate = estimates.find(e => e.status === 'accepted') || estimates.find(e => e.accepted_snapshot);
     if (!estimate) throw fail(400, 'Accept an estimate before creating an invoice from this job');
-    const cos = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'ChangeOrder', jobId])).map(decode);
+    const cos = await listJobDocuments(db, req.user.id, 'ChangeOrder', jobId);
     const approved = cos.filter(c => c.status === 'approved');
-    const timeline = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', jobId])).map(decode);
+    const timeline = await listJobDocuments(db, req.user.id, 'TimelineEntry', jobId);
     const payments_applied = timeline
       .filter(e => e.type === 'payment_received' && e.amount != null)
       .reduce((sum, e) => sum + Number(e.amount), 0);
-    const deposits_applied = Number(job.deposit_amount) || 0;
+    const deposits_applied = timeline
+      .filter(e => e.type === 'deposit_received' && e.amount != null)
+      .reduce((sum, e) => sum + Number(e.amount), 0)
+      || (Number(job.deposit_amount) || 0);
     let company = null;
     const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [req.user.id, 'CompanyProfile']);
     if (profiles[0]) company = decode(profiles[0]);
-    const existingRows = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', jobId])).map(decode);
+    const existingRows = await listJobDocuments(db, req.user.id, 'Invoice', jobId);
     const activeInvoices = existingRows.filter(inv => inv.status !== 'void');
     const built = buildInvoiceAutofill({
       job,
@@ -366,10 +387,26 @@ export async function createApp(db, env = process.env) {
     const created = await ownedTransaction(req.user.id, tx => reviseDocument(tx, req.user.id, entity, req.params.id));
     res.status(201).json(created);
   });
-  app.post('/api/entities/:entity', async (req, res) => res.status(201).json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body))));
+  app.post('/api/entities/:entity', async (req, res) => {
+    const entity = req.params.entity;
+    let body = req.body;
+    if (entity === 'Job') body = stripJobDerivedMoney(body);
+    if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
+      await assertSingularDocument(db, req.user.id, entity, body.job_id);
+      if (entity === 'Invoice') await assertWorkOrderCompleteForInvoice(db, req.user.id, body.job_id);
+    }
+    res.status(201).json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, entity, body)));
+  });
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
     let body = req.body;
+    if (entity === 'Job' && body && typeof body === 'object') {
+      body = stripJobDerivedMoney(body);
+    }
+    if (entity === 'Estimate') {
+      const previous = await getRecord(db, req.user.id, 'Estimate', req.params.id);
+      assertEstimateMutable(previous, body);
+    }
     if (entity === 'Invoice' && body && typeof body === 'object') {
       const previous = await getRecord(db, req.user.id, 'Invoice', req.params.id);
       const merged = { ...previous, ...body };
@@ -387,6 +424,18 @@ export async function createApp(db, env = process.env) {
     if (entity === 'Invoice' && updated.job_id) {
       const invoices = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', updated.job_id])).map(decode);
       await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: sumActiveInvoiceTotals(invoices) }, updated.job_id));
+    }
+    // Keep estimate_amount rollup when estimate is saved (pre-accept edits)
+    if (entity === 'Estimate' && updated.job_id && updated.total != null && !updated.accepted_snapshot) {
+      await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { estimate_amount: updated.total }, updated.job_id));
+    }
+    if (entity === 'Estimate' && updated.job_id && updated.accepted_snapshot?.total != null) {
+      await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { estimate_amount: updated.accepted_snapshot.total }, updated.job_id));
+    }
+    if (entity === 'MaterialOrder' && updated.job_id) {
+      const orders = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'MaterialOrder', updated.job_id])).map(decode);
+      const materials = orders.filter(o => o.status !== 'void').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+      await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { materials_cost: materials }, updated.job_id));
     }
     res.json(updated);
   });
