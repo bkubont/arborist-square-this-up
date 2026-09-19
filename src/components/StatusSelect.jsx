@@ -7,7 +7,13 @@ import { statusColors } from "@/lib/statusColors";
 /**
  * Status dropdown with the same color coding as badges / cards.
  */
-export default function StatusSelect({ value, onValueChange, statuses = JOB_STATUSES, className, triggerClassName }) {
+export default function StatusSelect({
+  value,
+  onValueChange,
+  statuses = JOB_STATUSES,
+  className = undefined,
+  triggerClassName = undefined,
+}) {
   const current = statusColors(value);
   return (
     <Select value={value} onValueChange={onValueChange}>

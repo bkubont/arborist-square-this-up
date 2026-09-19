@@ -128,7 +128,7 @@ export default function Outstanding() {
   );
 }
 
-function SummaryCard({ label, value, hint, attention = false }) {
+function SummaryCard({ label, value, hint = undefined, attention = false }) {
   return (
     <div className="bg-card rounded-xl border border-border p-3">
       <div className="text-xs text-muted-foreground">{label}</div>

@@ -8,6 +8,8 @@ import ClientFormDialog from "@/components/ClientFormDialog";
 import JobFormDialog from "@/components/JobFormDialog";
 import ClientAddress from "@/components/ClientAddress";
 import { money } from "@/lib/format";
+import { statusCardClass } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
 
 export default function ClientDetail() {
   const { id } = useParams();
