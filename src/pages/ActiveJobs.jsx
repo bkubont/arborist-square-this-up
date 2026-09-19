@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
-import { isActiveJob, jobBalance } from "@/lib/jobFilters";
+import { isActiveJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -12,14 +12,21 @@ const ActiveIcon = NAV_ICONS.activeJobs;
 
 export default function ActiveJobs() {
   const [jobs, setJobs] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.entities.Job.list("-created_date", 300).then((d) => {
-      setJobs(d.filter(isActiveJob));
+    Promise.all([
+      api.entities.Job.list("-created_date", 300),
+      api.entities.TimelineEntry.list("-created_date", 1000),
+    ]).then(([j, tl]) => {
+      setJobs(j.filter(isActiveJob));
+      setTimeline(tl);
       setLoading(false);
     });
   }, []);
+
+  const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
 
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
@@ -38,7 +45,7 @@ export default function ActiveJobs() {
       ) : (
         <div className="space-y-2">
           {jobs.map((j) => {
-            const balance = jobBalance(j);
+            const balance = jobBalance(j, paymentsMap[j.id] || 0);
             return (
               <Link
                 key={j.id}

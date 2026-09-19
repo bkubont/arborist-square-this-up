@@ -11,6 +11,7 @@ import {
   countByStatus,
   jobBalance,
   moneySummary,
+  paymentsByJobId,
 } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,12 +31,14 @@ export default function Dashboard() {
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
       api.entities.Invoice.list("-updated_date", 300),
+      api.entities.TimelineEntry.list("-created_date", 1000),
     ])
-      .then(([j, e, c, inv]) => {
+      .then(([j, e, c, inv, tl]) => {
         setJobs(j);
         setEstimates(e);
         setChangeOrders(c);
         setInvoices(inv);
+        setTimeline(tl);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -43,9 +47,10 @@ export default function Dashboard() {
   const active = useMemo(() => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)), [jobs]);
   const todayJobs = useMemo(() => jobs.filter((j) => j.start_date === today), [jobs, today]);
   const statusCounts = useMemo(() => countByStatus(jobs), [jobs]);
+  const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
   const moneyBuckets = useMemo(
-    () => moneySummary(jobs, estimates, changeOrders, invoices),
-    [jobs, estimates, changeOrders, invoices]
+    () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
+    [jobs, estimates, changeOrders, invoices, timeline]
   );
   const actionItems = useMemo(
     () => collectActionItems(jobs, estimates, changeOrders),
@@ -73,7 +78,7 @@ export default function Dashboard() {
         ) : todayJobs.length ? (
           <div className="space-y-2">
             {todayJobs.map((j) => (
-              <JobRow key={j.id} job={j} />
+              <JobRow key={j.id} job={j} paymentsLogged={paymentsMap[j.id] || 0} />
             ))}
           </div>
         ) : (
@@ -87,7 +92,7 @@ export default function Dashboard() {
         ) : active.length ? (
           <div className="space-y-2">
             {active.map((j) => (
-              <JobRow key={j.id} job={j} />
+              <JobRow key={j.id} job={j} paymentsLogged={paymentsMap[j.id] || 0} />
             ))}
           </div>
         ) : (
@@ -241,8 +246,8 @@ function Section({ title, children }) {
   );
 }
 
-function JobRow({ job }) {
-  const balance = jobBalance(job);
+function JobRow({ job, paymentsLogged = 0 }) {
+  const balance = jobBalance(job, paymentsLogged);
   return (
     <Link
       to={`/jobs/${job.id}`}

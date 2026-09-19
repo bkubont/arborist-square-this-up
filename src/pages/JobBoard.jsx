@@ -4,7 +4,7 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { api } from "@/api/client";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
-import { JOB_STATUSES, jobBalance } from "@/lib/jobFilters";
+import { JOB_STATUSES, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -13,12 +13,17 @@ const BoardIcon = NAV_ICONS.board;
 
 export default function JobBoard() {
   const [jobs, setJobs] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
 
   const load = useCallback(() => {
-    return api.entities.Job.list("-updated_date", 400).then((d) => {
-      setJobs(d);
+    return Promise.all([
+      api.entities.Job.list("-updated_date", 400),
+      api.entities.TimelineEntry.list("-created_date", 1000),
+    ]).then(([j, tl]) => {
+      setJobs(j);
+      setTimeline(tl);
       setLoading(false);
     });
   }, []);
@@ -26,6 +31,8 @@ export default function JobBoard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
 
   const columns = useMemo(() => {
     const map = Object.fromEntries(JOB_STATUSES.map((s) => [s, []]));
@@ -39,23 +46,33 @@ export default function JobBoard() {
   const onDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
-    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+    // Same status column: no-op (reorder not supported yet — no PATCH / timeline)
+    if (destination.droppableId === source.droppableId) return;
 
     const nextStatus = destination.droppableId;
     const jobId = draggableId;
-    const prev = jobs;
+    const previousStatus = jobs.find((j) => String(j.id) === String(jobId))?.status;
+    if (!previousStatus || previousStatus === nextStatus) return;
+
     setJobs((list) => list.map((j) => (String(j.id) === String(jobId) ? { ...j, status: nextStatus } : j)));
     setSavingId(jobId);
     try {
       await api.entities.Job.update(jobId, { status: nextStatus });
-      await api.entities.TimelineEntry.create({
-        job_id: jobId,
-        type: "status_change",
-        text: `Status changed to ${nextStatus}`,
-        category: "note",
-      });
+      try {
+        await api.entities.TimelineEntry.create({
+          job_id: jobId,
+          type: "status_change",
+          text: `Status changed to ${nextStatus}`,
+          category: "note",
+        });
+      } catch {
+        // Status already saved — do not roll back the card if only the timeline write fails
+      }
     } catch {
-      setJobs(prev);
+      // Revert only this card to its prior status (do not wipe concurrent successful moves)
+      setJobs((list) =>
+        list.map((j) => (String(j.id) === String(jobId) ? { ...j, status: previousStatus } : j))
+      );
     } finally {
       setSavingId(null);
     }
@@ -82,7 +99,13 @@ export default function JobBoard() {
         <DragDropContext onDragEnd={onDragEnd}>
           <div className="flex gap-3 overflow-x-auto pb-4 flex-1 min-h-0 items-start">
             {JOB_STATUSES.map((status) => (
-              <BoardColumn key={status} status={status} jobs={columns[status] || []} savingId={savingId} />
+              <BoardColumn
+                key={status}
+                status={status}
+                jobs={columns[status] || []}
+                savingId={savingId}
+                paymentsMap={paymentsMap}
+              />
             ))}
           </div>
         </DragDropContext>
@@ -91,7 +114,7 @@ export default function JobBoard() {
   );
 }
 
-function BoardColumn({ status, jobs, savingId }) {
+function BoardColumn({ status, jobs, savingId, paymentsMap }) {
   const colors = statusColors(status);
   return (
     <Droppable droppableId={status}>
@@ -115,37 +138,40 @@ function BoardColumn({ status, jobs, savingId }) {
             </div>
           </div>
           <div className="p-2 space-y-2 overflow-y-auto flex-1">
-            {jobs.map((job, index) => (
-              <Draggable key={job.id} draggableId={String(job.id)} index={index}>
-                {(dragProvided, dragSnapshot) => (
-                  <div
-                    ref={dragProvided.innerRef}
-                    {...dragProvided.draggableProps}
-                    {...dragProvided.dragHandleProps}
-                    className={cn(
-                      "bg-card rounded-lg border p-3 shadow-sm",
-                      statusCardClass(job.status),
-                      dragSnapshot.isDragging && "shadow-md ring-2 ring-primary/40",
-                      savingId === String(job.id) && "opacity-60"
-                    )}
-                  >
-                    <Link to={`/jobs/${job.id}`} className="block" onClick={(e) => e.stopPropagation()}>
-                      <div className="font-semibold text-sm text-foreground leading-snug line-clamp-2">{job.title}</div>
-                      <div className="text-xs text-muted-foreground truncate mt-0.5">{job.client_name || "—"}</div>
-                    </Link>
-                    <div className="flex items-center justify-between gap-2 mt-2">
-                      <StatusBadge status={job.status} className="scale-90 origin-left" />
-                      {jobBalance(job) > 0 && (
-                        <span className="text-[10px] font-semibold text-attention">{money(jobBalance(job))}</span>
+            {jobs.map((job, index) => {
+              const balance = jobBalance(job, paymentsMap[job.id] || 0);
+              return (
+                <Draggable key={job.id} draggableId={String(job.id)} index={index}>
+                  {(dragProvided, dragSnapshot) => (
+                    <div
+                      ref={dragProvided.innerRef}
+                      {...dragProvided.draggableProps}
+                      {...dragProvided.dragHandleProps}
+                      className={cn(
+                        "bg-card rounded-lg border p-3 shadow-sm",
+                        statusCardClass(job.status),
+                        dragSnapshot.isDragging && "shadow-md ring-2 ring-primary/40",
+                        savingId === String(job.id) && "opacity-60"
+                      )}
+                    >
+                      <Link to={`/jobs/${job.id}`} className="block" onClick={(e) => e.stopPropagation()}>
+                        <div className="font-semibold text-sm text-foreground leading-snug line-clamp-2">{job.title}</div>
+                        <div className="text-xs text-muted-foreground truncate mt-0.5">{job.client_name || "—"}</div>
+                      </Link>
+                      <div className="flex items-center justify-between gap-2 mt-2">
+                        <StatusBadge status={job.status} className="scale-90 origin-left" />
+                        {balance > 0 && (
+                          <span className="text-[10px] font-semibold text-attention">{money(balance)}</span>
+                        )}
+                      </div>
+                      {job.start_date && (
+                        <div className="text-[10px] text-muted-foreground mt-1">{shortDate(job.start_date)}</div>
                       )}
                     </div>
-                    {job.start_date && (
-                      <div className="text-[10px] text-muted-foreground mt-1">{shortDate(job.start_date)}</div>
-                    )}
-                  </div>
-                )}
-              </Draggable>
-            ))}
+                  )}
+                </Draggable>
+              );
+            })}
             {provided.placeholder}
             {jobs.length === 0 && (
               <div className="text-xs text-muted-foreground text-center py-6 px-2">Drop jobs here</div>

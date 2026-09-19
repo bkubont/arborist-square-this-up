@@ -3,7 +3,13 @@ import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import StatusBadge from "@/components/StatusBadge";
 import { money } from "@/lib/format";
-import { hasOutstandingBalance, jobBalance, moneySummary } from "@/lib/jobFilters";
+import {
+  hasOutstandingBalance,
+  invoiceBalanceDue,
+  jobBalance,
+  moneySummary,
+  paymentsByJobId,
+} from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -15,6 +21,7 @@ export default function Outstanding() {
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,21 +30,27 @@ export default function Outstanding() {
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
       api.entities.Invoice.list("-updated_date", 300),
+      api.entities.TimelineEntry.list("-created_date", 1000),
     ])
-      .then(([j, e, c, inv]) => {
+      .then(([j, e, c, inv, tl]) => {
         setJobs(j);
         setEstimates(e);
         setChangeOrders(c);
         setInvoices(inv);
+        setTimeline(tl);
       })
       .finally(() => setLoading(false));
   }, []);
 
+  const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
   const buckets = useMemo(
-    () => moneySummary(jobs, estimates, changeOrders, invoices),
-    [jobs, estimates, changeOrders, invoices]
+    () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
+    [jobs, estimates, changeOrders, invoices, timeline]
   );
-  const unpaid = useMemo(() => jobs.filter(hasOutstandingBalance), [jobs]);
+  const unpaid = useMemo(
+    () => jobs.filter((j) => hasOutstandingBalance(j, paymentsMap[j.id] || 0)),
+    [jobs, paymentsMap]
+  );
   const waitingApprovalDocs = useMemo(() => {
     const est = estimates.filter((e) => e.status === "sent").map((e) => ({ ...e, kind: "Estimate", entity: "Estimate" }));
     const cos = changeOrders.filter((c) => c.status === "sent").map((c) => ({ ...c, kind: "Change order", entity: "ChangeOrder" }));
@@ -92,7 +105,7 @@ export default function Outstanding() {
         ) : (
           <div className="space-y-2">
             {unpaid.map((j) => {
-              const balance = jobBalance(j);
+              const balance = jobBalance(j, paymentsMap[j.id] || 0);
               return (
                 <Link
                   key={j.id}
@@ -129,16 +142,17 @@ export default function Outstanding() {
 
       <DocSection
         title="Waiting on payment"
-        subtitle="Invoices sent or partial"
+        subtitle="Invoices sent or partial — amount still due"
         loading={loading}
         docs={waitingPaymentDocs}
         empty="No invoices awaiting payment."
+        amountFor={invoiceBalanceDue}
       />
     </div>
   );
 }
 
-function DocSection({ title, subtitle, loading, docs, empty }) {
+function DocSection({ title, subtitle, loading, docs, empty, amountFor = undefined }) {
   return (
     <section className="mb-8">
       <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">{title}</h2>
@@ -166,7 +180,7 @@ function DocSection({ title, subtitle, loading, docs, empty }) {
                 <div className="font-semibold text-foreground truncate">{d.number || d.title || d.id}</div>
               </div>
               <div className="text-sm font-semibold tabular-nums text-attention">
-                {money(d.total ?? d.net_change ?? 0)}
+                {money(amountFor ? amountFor(d) : d.total ?? d.net_change ?? 0)}
               </div>
             </Link>
           ))}
