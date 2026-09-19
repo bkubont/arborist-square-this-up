@@ -41,10 +41,28 @@ test('invitation-only registration, cookie sessions, logout and CSRF protection'
   assert.match(user.response.headers.get('set-cookie'), /HttpOnly/);
   assert.match(user.response.headers.get('set-cookie'), /SameSite=Lax/);
   assert.equal((await request('/auth/me', { cookie: user.cookie })).data.email, 'a@example.com');
+  assert.equal(user.data.default_tax_rate, 6);
+  const profiles = await request('/entities/CompanyProfile', { cookie: user.cookie });
+  assert.equal(profiles.status, 200);
+  assert.equal(profiles.data[0]?.default_tax_rate, 6);
   assert.equal((await request('/auth/register', { method: 'POST', data: { email: 'a@example.com', password: 'strong-password-123', inviteToken: user.invitation } })).status, 400);
   assert.equal((await request('/entities/Client', { method: 'POST', cookie: user.cookie, origin: 'https://evil.example', data: { name: 'Attack' } })).status, 403);
   await request('/auth/logout', { method: 'POST', cookie: user.cookie });
   assert.equal((await request('/auth/me', { cookie: user.cookie })).status, 401);
+});
+
+test('registration accepts custom sales tax rate on company profile', async t => {
+  const { request, db } = await fixture(t);
+  const invitation = token();
+  await db.run('INSERT INTO tokens (token_hash, kind, email, expires_at) VALUES (?, ?, ?, ?)', [hash(invitation), 'invite', 'tax@example.com', Date.now() + 60000]);
+  const result = await request('/auth/register', {
+    method: 'POST',
+    data: { email: 'tax@example.com', password: 'strong-password-123', inviteToken: invitation, default_tax_rate: 7.5 },
+  });
+  assert.equal(result.status, 201);
+  assert.equal(result.data.default_tax_rate, 7.5);
+  const profiles = await request('/entities/CompanyProfile', { cookie: result.cookie });
+  assert.equal(profiles.data[0]?.default_tax_rate, 7.5);
 });
 test('accounts cannot read, modify, delete, link or export each other’s data or photos', async t => {
   const { request, register } = await fixture(t);
