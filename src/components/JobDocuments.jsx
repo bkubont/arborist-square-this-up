@@ -8,7 +8,14 @@ import MaterialOrderEditorDialog from "@/components/MaterialOrderEditorDialog";
 import WorkOrderEditorDialog from "@/components/WorkOrderEditorDialog";
 import ChangeOrderEditorDialog from "@/components/ChangeOrderEditorDialog";
 import InvoiceEditorDialog from "@/components/InvoiceEditorDialog";
-import { documentCreateAvailability, hasAcceptedEstimate } from "@/lib/documentAvailability";
+import {
+  documentCreateAvailability,
+  findActiveDocument,
+  findLiveAcceptedEstimate,
+  hasAcceptedEstimate,
+  hasCompleteWorkOrder,
+  SINGLE_DOC_ENTITIES,
+} from "@/lib/documentAvailability";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
 import { addDaysIso, ESTIMATE_VALID_DAYS, todayIso } from "@/lib/estimateMath";
 import { logDocumentCreated } from "@/lib/jobActivity";
@@ -29,6 +36,11 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
     const gate = documentCreateAvailability(entity, documents);
     if (!gate.available) {
       alert(gate.reason || "Not available yet.");
+      return;
+    }
+
+    if (gate.openExisting && gate.existing) {
+      setOpenDoc({ entity, document: { ...gate.existing, entity } });
       return;
     }
 
@@ -58,7 +70,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       if (entity === "MaterialOrder") {
-        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        const accepted = findLiveAcceptedEstimate(documents);
         Object.assign(base, {
           date: today,
           lines: [],
@@ -67,7 +79,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       if (entity === "WorkOrder") {
-        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        const accepted = findLiveAcceptedEstimate(documents);
         if (!accepted) {
           alert("Accept the estimate first — then create a Work Order from it.");
           return;
@@ -79,7 +91,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       if (entity === "ChangeOrder") {
-        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        const accepted = findLiveAcceptedEstimate(documents);
         Object.assign(base, {
           lines: [],
           related_estimate_id: accepted?.id,
@@ -90,14 +102,18 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       if (entity === "Invoice") {
-        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
-        if (accepted) {
-          const created = await api.invoices.fromJob(jobId);
-          await onChanged?.();
-          setOpenDoc({ entity: "Invoice", document: created });
+        if (!hasCompleteWorkOrder(documents)) {
+          alert("Complete the Work Order before creating an invoice.");
           return;
         }
-        alert("Accept an estimate before creating an invoice.");
+        const existingInv = findActiveDocument("Invoice", documents);
+        if (existingInv) {
+          setOpenDoc({ entity: "Invoice", document: { ...existingInv, entity: "Invoice" } });
+          return;
+        }
+        const created = await api.invoices.fromJob(jobId);
+        await onChanged?.();
+        setOpenDoc({ entity: "Invoice", document: created });
         return;
       }
 
@@ -105,6 +121,8 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       await logDocumentCreated(api, { jobId, entity, number: created.number || base.number });
       await onChanged?.();
       setOpenDoc({ entity, document: created });
+    } catch (e) {
+      alert(e?.message || "Could not create document.");
     } finally {
       setCreating(null);
     }
@@ -116,6 +134,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
     return doc.total;
   };
   const accepted = hasAcceptedEstimate(documents);
+  const woComplete = hasCompleteWorkOrder(documents);
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -124,6 +143,8 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         <div className="flex flex-wrap gap-1.5">
           {DOCUMENT_TYPES.map((t) => {
             const gate = documentCreateAvailability(t.entity, documents);
+            const singular = SINGLE_DOC_ENTITIES.has(t.entity);
+            const label = gate.openExisting ? t.label : t.label;
             return (
               <Button
                 key={t.entity}
@@ -132,12 +153,16 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
                 className="h-8 text-xs"
                 disabled={!!creating || !gate.available}
                 onClick={() => createDraft(t.entity)}
-                title={gate.available
-                  ? (t.entity === "WorkOrder" ? "Creates from accepted estimate" : undefined)
-                  : gate.reason}
+                title={
+                  !gate.available
+                    ? gate.reason
+                    : gate.openExisting
+                      ? `Open existing ${t.label}`
+                      : (t.entity === "WorkOrder" ? "Creates from accepted estimate" : undefined)
+                }
               >
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                {t.label}
+                {!gate.openExisting && <Plus className="w-3.5 h-3.5 mr-1" />}
+                {singular && gate.openExisting ? `Open ${label}` : label}
               </Button>
             );
           })}
@@ -147,7 +172,12 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       {!accepted && (
         <p className="text-xs text-slate-500 mb-3">
           New job: create an <strong>Estimate</strong> (and optional <strong>Material Order</strong>).
-          Work Order, Change Order, and Invoice unlock after the customer accepts the estimate.
+          One Estimate, Work Order, and Invoice per job. Work Order unlocks after accept; Invoice after the Work Order is complete.
+        </p>
+      )}
+      {accepted && !woComplete && (
+        <p className="text-xs text-slate-500 mb-3">
+          Work Order and Change Orders are available. Invoice unlocks when the Work Order status is <strong>complete</strong>.
         </p>
       )}
 

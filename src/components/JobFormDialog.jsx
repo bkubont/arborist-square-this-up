@@ -16,7 +16,6 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
     client_id: "",
     start_date: "",
     end_date: "",
-    estimate_amount: "",
     notes: "",
   });
 
@@ -25,10 +24,13 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
       setForm(
         job
           ? {
-              ...job,
-              estimate_amount: job.estimate_amount ?? "",
+              title: job.title || "",
+              description: job.description || "",
+              status: job.status || "Estimate",
+              client_id: job.client_id || "",
               start_date: job.start_date || "",
               end_date: job.end_date || "",
+              notes: job.notes || "",
             }
           : {
               title: "",
@@ -37,7 +39,6 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
               client_id: defaultClientId || "",
               start_date: "",
               end_date: "",
-              estimate_amount: "",
               notes: "",
             }
       );
@@ -48,10 +49,7 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
 
   const submit = () => {
     if (!form.title?.trim() || !form.client_id) return;
-    onSave({
-      ...form,
-      estimate_amount: form.estimate_amount ? Number(form.estimate_amount) : undefined,
-    });
+    onSave({ ...form });
   };
 
   return (
@@ -84,20 +82,9 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
             <Label>Description</Label>
             <Textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Status</Label>
-              <StatusSelect value={form.status} onValueChange={(v) => set("status", v)} />
-            </div>
-            <div>
-              <Label>Estimate $</Label>
-              <Input
-                type="number"
-                value={form.estimate_amount}
-                onChange={(e) => set("estimate_amount", e.target.value)}
-                placeholder="0"
-              />
-            </div>
+          <div>
+            <Label>Status</Label>
+            <StatusSelect value={form.status} onValueChange={(v) => set("status", v)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -109,6 +96,9 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
               <Input type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} />
             </div>
           </div>
+          <p className="text-xs text-slate-500">
+            Money figures live on the Financials panel (from estimate, invoices, materials, and logged payments).
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

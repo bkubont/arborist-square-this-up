@@ -12,6 +12,19 @@ import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
 import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
 import { voidDocument, reviseDocument, assertDocumentEntity } from './documents.js';
+import {
+  assertSingularDocument,
+  assertWorkOrderCompleteForInvoice,
+  assertEstimateMutable,
+  stripJobDerivedMoney,
+  findActiveJobDocument,
+  listJobDocuments,
+  findLiveAcceptedEstimate,
+  isLiveAcceptedEstimate,
+  sumDepositsApplied,
+  refreshJobDocumentRollups,
+  SINGLE_DOC_ENTITIES,
+} from './documentRules.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 
 export async function createApp(db, env = process.env) {
@@ -270,13 +283,15 @@ export async function createApp(db, env = process.env) {
   app.post('/api/work-orders/from-estimate', async (req, res) => {
     const estimateId = z.string().min(1).max(36).parse(req.body.estimate_id);
     const estimate = await getRecord(db, req.user.id, 'Estimate', estimateId);
-    if (estimate.status !== 'accepted' && !estimate.accepted_snapshot) {
+    if (!isLiveAcceptedEstimate(estimate)) {
       throw fail(400, 'Accept the estimate before creating a work order from it');
     }
-    const lines = mapEstimateToWorkOrderLines(estimate);
-    const totals = workOrderTotals(lines, estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate);
-    const existing = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
-    const created = await ownedTransaction(req.user.id, async tx => {
+    const result = await ownedTransaction(req.user.id, async tx => {
+      const existingWo = await findActiveJobDocument(tx, req.user.id, 'WorkOrder', estimate.job_id);
+      if (existingWo) return { existing: existingWo };
+      const lines = mapEstimateToWorkOrderLines(estimate);
+      const totals = workOrderTotals(lines, estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate);
+      const existing = await tx.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
       const wo = await saveRecord(tx, req.user.id, 'WorkOrder', {
         job_id: estimate.job_id,
         number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
@@ -293,9 +308,13 @@ export async function createApp(db, env = process.env) {
         text: `Work Order ${wo.number || ''} created from estimate ${estimate.number || ''}`.trim(),
         category: 'document',
       });
-      return wo;
+      return { created: wo };
     });
-    res.status(201).json(created);
+    if (result.existing) {
+      res.json(result.existing);
+      return;
+    }
+    res.status(201).json(result.created);
   });
   app.get('/api/jobs/:id/authorized-total', async (req, res) => {
     await getRecord(db, req.user.id, 'Job', req.params.id);
@@ -304,33 +323,37 @@ export async function createApp(db, env = process.env) {
   app.post('/api/invoices/from-job', async (req, res) => {
     const jobId = z.string().min(1).max(36).parse(req.body.job_id);
     const job = await getRecord(db, req.user.id, 'Job', jobId);
-    const estimateRows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Estimate', jobId]);
-    const estimates = estimateRows.map(decode);
-    const estimate = estimates.find(e => e.status === 'accepted') || estimates.find(e => e.accepted_snapshot);
-    if (!estimate) throw fail(400, 'Accept an estimate before creating an invoice from this job');
-    const cos = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'ChangeOrder', jobId])).map(decode);
-    const approved = cos.filter(c => c.status === 'approved');
-    const timeline = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', jobId])).map(decode);
-    const payments_applied = timeline
-      .filter(e => e.type === 'payment_received' && e.amount != null)
-      .reduce((sum, e) => sum + Number(e.amount), 0);
-    const deposits_applied = Number(job.deposit_amount) || 0;
     let company = null;
     const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [req.user.id, 'CompanyProfile']);
     if (profiles[0]) company = decode(profiles[0]);
-    const existingRows = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', jobId])).map(decode);
-    const activeInvoices = existingRows.filter(inv => inv.status !== 'void');
-    const built = buildInvoiceAutofill({
-      job,
-      estimate,
-      approvedChangeOrders: approved,
-      company,
-      deposits_applied,
-      payments_applied,
-      number: `INV-${String(existingRows.length + 1).padStart(3, '0')}`,
-      existingInvoices: activeInvoices,
-    });
-    const created = await ownedTransaction(req.user.id, async tx => {
+
+    const result = await ownedTransaction(req.user.id, async tx => {
+      await assertWorkOrderCompleteForInvoice(tx, req.user.id, jobId);
+      const existingInv = await findActiveJobDocument(tx, req.user.id, 'Invoice', jobId);
+      if (existingInv) return { existing: existingInv };
+
+      const estimates = await listJobDocuments(tx, req.user.id, 'Estimate', jobId);
+      const estimate = findLiveAcceptedEstimate(estimates);
+      if (!estimate) throw fail(400, 'Accept an estimate before creating an invoice from this job');
+      const cos = await listJobDocuments(tx, req.user.id, 'ChangeOrder', jobId);
+      const approved = cos.filter(c => c.status === 'approved');
+      const timeline = await listJobDocuments(tx, req.user.id, 'TimelineEntry', jobId);
+      const payments_applied = timeline
+        .filter(e => e.type === 'payment_received' && e.amount != null)
+        .reduce((sum, e) => sum + Number(e.amount), 0);
+      const deposits_applied = sumDepositsApplied(job, timeline);
+      const existingRows = await listJobDocuments(tx, req.user.id, 'Invoice', jobId);
+      const activeInvoices = existingRows.filter(inv => inv.status !== 'void');
+      const built = buildInvoiceAutofill({
+        job,
+        estimate,
+        approvedChangeOrders: approved,
+        company,
+        deposits_applied,
+        payments_applied,
+        number: `INV-${String(existingRows.length + 1).padStart(3, '0')}`,
+        existingInvoices: activeInvoices,
+      });
       const inv = await saveRecord(tx, req.user.id, 'Invoice', built.invoice);
       await saveRecord(tx, req.user.id, 'TimelineEntry', {
         job_id: jobId,
@@ -338,27 +361,33 @@ export async function createApp(db, env = process.env) {
         text: `Invoice ${inv.number || ''} created from accepted estimate`.trim(),
         category: 'document',
       });
-      return inv;
+      const invoicedRollup = sumActiveInvoiceTotals([...activeInvoices, inv]);
+      await saveRecord(tx, req.user.id, 'Job', { invoice_amount: invoicedRollup }, job.id);
+      return {
+        created: {
+          ...inv,
+          authorized_total: built.authorized_total,
+          billing_ceiling: built.billing_ceiling,
+          prior_invoiced: built.prior_invoiced,
+          over_authorized: built.over_authorized,
+        },
+      };
     });
-    // Roll up job invoice_amount to sum of active (non-void) invoice totals
-    const invoicedRollup = sumActiveInvoiceTotals([...activeInvoices, created]);
-    await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: invoicedRollup }, job.id));
-    res.status(201).json({
-      ...created,
-      authorized_total: built.authorized_total,
-      billing_ceiling: built.billing_ceiling,
-      prior_invoiced: built.prior_invoiced,
-      over_authorized: built.over_authorized,
-    });
+    if (result.existing) {
+      res.json(result.existing);
+      return;
+    }
+    res.status(201).json(result.created);
   });
   app.post('/api/documents/:entity/:id/void', async (req, res) => {
     const entity = assertDocumentEntity(req.params.entity);
-    const updated = await ownedTransaction(req.user.id, tx => voidDocument(tx, req.user.id, entity, req.params.id));
-    if (entity === 'Invoice') {
-      const jobId = updated.job_id;
-      const invoices = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', jobId])).map(decode);
-      await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: sumActiveInvoiceTotals(invoices) }, jobId));
-    }
+    const updated = await ownedTransaction(req.user.id, async tx => {
+      const voided = await voidDocument(tx, req.user.id, entity, req.params.id);
+      if (['Invoice', 'Estimate', 'MaterialOrder'].includes(entity) && voided.job_id) {
+        await refreshJobDocumentRollups(tx, req.user.id, voided.job_id, { saveRecord, sumActiveInvoiceTotals });
+      }
+      return voided;
+    });
     res.json(updated);
   });
   app.post('/api/documents/:entity/:id/revise', async (req, res) => {
@@ -366,12 +395,32 @@ export async function createApp(db, env = process.env) {
     const created = await ownedTransaction(req.user.id, tx => reviseDocument(tx, req.user.id, entity, req.params.id));
     res.status(201).json(created);
   });
-  app.post('/api/entities/:entity', async (req, res) => res.status(201).json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body))));
+  app.post('/api/entities/:entity', async (req, res) => {
+    const entity = req.params.entity;
+    let body = req.body;
+    if (entity === 'Job') body = stripJobDerivedMoney(body);
+    const created = await ownedTransaction(req.user.id, async tx => {
+      if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
+        await assertSingularDocument(tx, req.user.id, entity, body.job_id);
+        if (entity === 'Invoice') await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
+      }
+      return saveRecord(tx, req.user.id, entity, body);
+    });
+    res.status(201).json(created);
+  });
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
     let body = req.body;
-    if (entity === 'Invoice' && body && typeof body === 'object') {
-      const previous = await getRecord(db, req.user.id, 'Invoice', req.params.id);
+    if (entity === 'Job' && body && typeof body === 'object') {
+      body = stripJobDerivedMoney(body);
+    }
+    const previous = JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'Estimate' || entity === 'Invoice'
+      ? await getRecord(db, req.user.id, entity, req.params.id)
+      : null;
+    if (entity === 'Estimate' && previous) {
+      assertEstimateMutable(previous, body);
+    }
+    if (entity === 'Invoice' && body && typeof body === 'object' && previous) {
       const merged = { ...previous, ...body };
       body = {
         ...body,
@@ -383,10 +432,43 @@ export async function createApp(db, env = process.env) {
         }),
       };
     }
-    const updated = await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, entity, body, req.params.id));
+
+    const movingJob = previous && body && typeof body === 'object'
+      && Object.prototype.hasOwnProperty.call(body, 'job_id')
+      && body.job_id
+      && body.job_id !== previous.job_id;
+
+    const updated = await ownedTransaction(req.user.id, async tx => {
+      if (movingJob && SINGLE_DOC_ENTITIES.has(entity)) {
+        await assertSingularDocument(tx, req.user.id, entity, body.job_id, { excludeId: req.params.id });
+        if (entity === 'Invoice') await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
+      } else if (movingJob && entity === 'Invoice') {
+        await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
+      }
+      return saveRecord(tx, req.user.id, entity, body, req.params.id);
+    });
+
     if (entity === 'Invoice' && updated.job_id) {
-      const invoices = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Invoice', updated.job_id])).map(decode);
-      await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: sumActiveInvoiceTotals(invoices) }, updated.job_id));
+      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      if (movingJob && previous.job_id) {
+        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      }
+    }
+    // Keep estimate_amount rollup when estimate is saved (pre-accept edits)
+    if (entity === 'Estimate' && updated.job_id) {
+      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      if (movingJob && previous.job_id) {
+        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      }
+    }
+    if (entity === 'MaterialOrder' && updated.job_id) {
+      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+    }
+    if (movingJob && SINGLE_DOC_ENTITIES.has(entity) && entity !== 'Estimate' && entity !== 'Invoice' && previous?.job_id) {
+      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      if (updated.job_id) {
+        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      }
     }
     res.json(updated);
   });

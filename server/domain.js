@@ -109,7 +109,7 @@ export const schemas = {
     subtotal: money.optional(),
     tax_amount: money.optional(),
     total: money.optional(),
-    /** Frozen copy at client accept time; live fields stay editable (Decision #7). */
+    /** Frozen copy at client accept time; live fields become print/view only. */
     accepted_snapshot: z.object({
       number: docNumber,
       notes: text.optional(),

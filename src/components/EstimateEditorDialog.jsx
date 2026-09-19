@@ -25,10 +25,12 @@ import {
   serializeEstimateLine,
   todayIso,
 } from "@/lib/estimateMath";
+import { isEstimateReadOnly } from "@/lib/documentAvailability";
 
 /**
  * Estimate editor: simplified lines + catalog typeahead + client e-sign + job photo capture.
  * Hours × default/catalog rate → Est. Labor under the hood; hours kept for WO mapping.
+ * After client accept: print/view only (no content edits).
  */
 export default function EstimateEditorDialog({ open, onOpenChange, document, jobId, jobTitle, onSaved, onRevised }) {
   const [form, setForm] = useState({
@@ -96,11 +98,15 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
 
   if (!document) return null;
 
+  const readOnly = isEstimateReadOnly(document);
+
   const setLine = (index, patch) => {
+    if (readOnly) return;
     setLines((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
   const setHours = (index, hoursValue) => {
+    if (readOnly) return;
     setLines((rows) => rows.map((row, i) => {
       if (i !== index) return row;
       const rate = row.labor_rate || defaultLaborRate;
@@ -114,10 +120,14 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     }));
   };
 
-  const addLine = () => setLines((rows) => [...rows, emptyEstimateLine()]);
-  const removeLine = (index) => setLines((rows) => (rows.length <= 1 ? [emptyEstimateLine()] : rows.filter((_, i) => i !== index)));
+  const addLine = () => { if (!readOnly) setLines((rows) => [...rows, emptyEstimateLine()]); };
+  const removeLine = (index) => {
+    if (readOnly) return;
+    setLines((rows) => (rows.length <= 1 ? [emptyEstimateLine()] : rows.filter((_, i) => i !== index)));
+  };
 
   const onCatalogPick = (index, item) => {
+    if (readOnly) return;
     setLine(index, catalogItemToFormLine(item, defaultLaborRate));
   };
 
@@ -146,6 +156,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   };
 
   const save = async ({ markSent = false } = {}) => {
+    if (readOnly) return;
     setSaving(true);
     try {
       const nextStatus = markSent ? "sent" : form.status;
@@ -187,6 +198,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   };
 
   const sendSignLink = async () => {
+    if (readOnly) return;
     setSignBusy(true);
     setSignResult(null);
     try {
@@ -297,34 +309,48 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
         </DialogHeader>
 
-        {document.status === "accepted" && (
+        {(document.status === "accepted" || (document.accepted_snapshot && document.status !== "void")) && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-            Signed by <strong>{document.signer_name || "client"}</strong>
-            {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.
-            Fields stay editable. Accepted snapshot ({money(document.accepted_snapshot?.total ?? document.total)}) is kept for Work Order / Invoice carryover.
+            {document.signer_name ? (
+              <>
+                Signed by <strong>{document.signer_name}</strong>
+                {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.{" "}
+              </>
+            ) : (
+              <>Accepted. </>
+            )}
+            This estimate is <strong>print / view only</strong> — content cannot be edited.
+            Snapshot total {money(document.accepted_snapshot?.total ?? document.total)} carries to the Work Order.
           </div>
         )}
 
         <div className="grid sm:grid-cols-4 gap-3">
           <div>
             <Label>Number</Label>
-            <Input value={form.number} onChange={(e) => setForm((f) => ({ ...f, number: e.target.value }))} />
+            <Input value={form.number} onChange={(e) => setForm((f) => ({ ...f, number: e.target.value }))} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} />
           </div>
           <div>
             <Label>Status</Label>
-            <StatusSelect
-              value={form.status}
-              onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
-              statuses={DOCUMENT_STATUSES.Estimate}
-              entity="Estimate"
-            />
+            {readOnly ? (
+              <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
+            ) : (
+              <StatusSelect
+                value={form.status}
+                onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
+                statuses={DOCUMENT_STATUSES.Estimate}
+                entity="Estimate"
+              />
+            )}
           </div>
           <div>
             <Label>Date</Label>
             <Input
               type="date"
               value={form.date}
+              readOnly={readOnly}
+              className={readOnly ? "bg-slate-50" : undefined}
               onChange={(e) => {
+                if (readOnly) return;
                 const date = e.target.value;
                 setForm((f) => ({
                   ...f,
@@ -339,23 +365,29 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           <div>
             <Label>Valid until</Label>
-            <Input type="date" value={form.valid_till} onChange={(e) => setForm((f) => ({ ...f, valid_till: e.target.value }))} />
-            <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-              Defaults to {ESTIMATE_VALID_DAYS} days from the estimate date — how long the customer has to decide. You can still edit.
-            </p>
+            <Input type="date" value={form.valid_till} onChange={(e) => setForm((f) => ({ ...f, valid_till: e.target.value }))} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} />
+            {!readOnly && (
+              <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                Defaults to {ESTIMATE_VALID_DAYS} days from the estimate date — how long the customer has to decide. You can still edit.
+              </p>
+            )}
           </div>
         </div>
 
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Line items</div>
-            <Button type="button" variant="outline" size="sm" onClick={addLine}>
-              <Plus className="w-3.5 h-3.5 mr-1" /> Line
-            </Button>
+            {!readOnly && (
+              <Button type="button" variant="outline" size="sm" onClick={addLine}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Line
+              </Button>
+            )}
           </div>
-          <p className="text-xs text-slate-500 mb-2">
-            Type in Description to pick from the catalog. Hrs × rate fills Est. Labor (rate stored for Work Order mapping).
-          </p>
+          {!readOnly && (
+            <p className="text-xs text-slate-500 mb-2">
+              Type in Description to pick from the catalog. Hrs × rate fills Est. Labor (rate stored for Work Order mapping).
+            </p>
+          )}
 
           <div className="space-y-3">
             {lines.map((line, index) => (
@@ -364,52 +396,62 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
                   <div>
                     <Label className="text-xs">Category</Label>
                     <Input
-                      className="bg-white"
-                      list={`est-cat-${index}`}
+                      className={readOnly ? "bg-slate-50" : "bg-white"}
+                      list={readOnly ? undefined : `est-cat-${index}`}
                       value={line.category}
                       onChange={(e) => setLine(index, { category: e.target.value })}
                       placeholder="e.g. Plumbing"
+                      readOnly={readOnly}
                     />
-                    <datalist id={`est-cat-${index}`}>
-                      {WORK_CATEGORIES.map((c) => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
+                    {!readOnly && (
+                      <datalist id={`est-cat-${index}`}>
+                        {WORK_CATEGORIES.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
+                    )}
                   </div>
                   <div>
                     <Label className="text-xs">Description</Label>
-                    <CatalogTypeahead
-                      value={line.description}
-                      onChange={(description) => setLine(index, { description, catalog_id: "" })}
-                      onPick={(item) => onCatalogPick(index, item)}
-                    />
+                    {readOnly ? (
+                      <Input className="bg-slate-50" value={line.description} readOnly />
+                    ) : (
+                      <CatalogTypeahead
+                        value={line.description}
+                        onChange={(description) => setLine(index, { description, catalog_id: "" })}
+                        onPick={(item) => onCatalogPick(index, item)}
+                      />
+                    )}
                   </div>
                   <div>
                     <Label className="text-xs">Hrs.</Label>
                     <Input
                       type="number"
-                      className="bg-white"
+                      className={readOnly ? "bg-slate-50" : "bg-white"}
                       value={line.labor_hours}
                       onChange={(e) => setHours(index, e.target.value)}
                       placeholder="—"
+                      readOnly={readOnly}
                     />
                   </div>
-                  <Button type="button" variant="outline" size="icon" className="shrink-0 text-red-600 mb-0.5" onClick={() => removeLine(index)}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  {!readOnly && (
+                    <Button type="button" variant="outline" size="icon" className="shrink-0 text-red-600 mb-0.5" onClick={() => removeLine(index)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
                 <div className="grid sm:grid-cols-3 gap-2">
                   <div>
                     <Label className="text-xs">Notes</Label>
-                    <Input className="bg-white" value={line.notes} onChange={(e) => setLine(index, { notes: e.target.value })} />
+                    <Input className={readOnly ? "bg-slate-50" : "bg-white"} value={line.notes} onChange={(e) => setLine(index, { notes: e.target.value })} readOnly={readOnly} />
                   </div>
                   <div>
                     <Label className="text-xs">Est. Material $</Label>
-                    <Input type="number" className="bg-white" value={line.material_amount} onChange={(e) => setLine(index, { material_amount: e.target.value })} placeholder="0" />
+                    <Input type="number" className={readOnly ? "bg-slate-50" : "bg-white"} value={line.material_amount} onChange={(e) => setLine(index, { material_amount: e.target.value })} placeholder="0" readOnly={readOnly} />
                   </div>
                   <div>
                     <Label className="text-xs">Est. Labor $</Label>
-                    <Input type="number" className="bg-white" value={line.labor_amount} onChange={(e) => setLine(index, { labor_amount: e.target.value })} placeholder="0" />
+                    <Input type="number" className={readOnly ? "bg-slate-50" : "bg-white"} value={line.labor_amount} onChange={(e) => setLine(index, { labor_amount: e.target.value })} placeholder="0" readOnly={readOnly} />
                   </div>
                 </div>
                 <div className="text-xs text-slate-500 text-right">Row total {money(lineTotal(serializeEstimateLine(line)))}</div>
@@ -421,12 +463,12 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
         <div className="grid sm:grid-cols-2 gap-4 mt-4">
           <div>
             <Label>Notes</Label>
-            <Textarea rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+            <Textarea rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} />
           </div>
           <div className="space-y-2">
             <div>
               <Label>Tax %</Label>
-              <Input type="number" value={form.tax_rate} onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))} placeholder="Company default" />
+              <Input type="number" value={form.tax_rate} onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))} placeholder="Company default" readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} />
             </div>
             <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm space-y-1">
               <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{money(totals.subtotal)}</span></div>
@@ -436,7 +478,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
         </div>
 
-        {form.status !== "void" && (
+        {!readOnly && form.status !== "void" && (
           <div className="mt-4 rounded-lg border border-slate-200 p-3 space-y-2">
             <div className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
               <Send className="w-4 h-4" /> Send client sign link
@@ -480,6 +522,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             entity="Estimate"
             document={document}
             disabled={saving}
+            allowRevise={false}
             onSaved={() => { onSaved?.(); onOpenChange(false); }}
             onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
           />
@@ -488,12 +531,14 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             <Button variant="outline" onClick={printEstimate} disabled={saving}>
               <Printer className="w-4 h-4 mr-1" /> Print
             </Button>
-            {form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
+            {!readOnly && form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
               <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
             )}
-            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
-              {saving ? "Saving…" : "Save estimate"}
-            </Button>
+            {!readOnly && (
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
+                {saving ? "Saving…" : "Save estimate"}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
