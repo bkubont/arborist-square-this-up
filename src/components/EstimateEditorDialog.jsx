@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Plus, Search, Trash2, Printer } from "lucide-react";
+import { Plus, Search, Trash2, Printer, Send } from "lucide-react";
 import { api } from "@/api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CatalogPickerDialog from "@/components/CatalogPickerDialog";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
-import { money } from "@/lib/format";
+import { money, shortDate } from "@/lib/format";
 import {
   catalogItemToFormLine,
   emptyEstimateLine,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/estimateMath";
 
 /**
- * Phase 1 Estimate editor: dual line model + catalog search→fill + tax/totals.
+ * Estimate editor: dual line model + catalog search→fill + client e-sign send.
  */
 export default function EstimateEditorDialog({ open, onOpenChange, document, jobId, jobTitle, onSaved }) {
   const [form, setForm] = useState({
@@ -34,9 +34,14 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   const [saving, setSaving] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogTarget, setCatalogTarget] = useState(null);
+  const [signChannel, setSignChannel] = useState("link");
+  const [signRecipient, setSignRecipient] = useState("");
+  const [signBusy, setSignBusy] = useState(false);
+  const [signResult, setSignResult] = useState(null);
 
   useEffect(() => {
     if (!open || !document) return;
+    setSignResult(null);
     setForm({
       number: document.number || "",
       status: document.status || "draft",
@@ -61,7 +66,6 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       : [emptyEstimateLine()];
     setLines(existing);
 
-    // Apply company default tax when estimate has none yet
     if (document.tax_rate == null || document.tax_rate === "") {
       api.entities.CompanyProfile.list("-created_date", 1).then((rows) => {
         const profile = rows[0];
@@ -115,12 +119,11 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       };
       const previousStatus = document.status;
       await api.entities.Estimate.update(document.id, payload);
-      // Keep Job scalar estimate_amount in sync as a rollup
       try {
         await api.entities.Job.update(jobId, { estimate_amount: nextTotals.total });
       } catch { /* non-blocking */ }
 
-      if (nextStatus === "sent" && previousStatus !== "sent") {
+      if (nextStatus === "sent" && previousStatus !== "sent" && previousStatus !== "accepted") {
         await api.entities.TimelineEntry.create({
           job_id: jobId,
           type: "estimate_sent",
@@ -132,6 +135,39 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       onOpenChange(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const sendSignLink = async () => {
+    setSignBusy(true);
+    setSignResult(null);
+    try {
+      const serialized = lines.map(serializeEstimateLine).filter((line) =>
+        line.description || line.material_amount || line.labor_amount || line.equipment_amount
+      );
+      const nextTotals = estimateTotals(serialized, form.tax_rate);
+      await api.entities.Estimate.update(document.id, {
+        number: form.number || undefined,
+        date: form.date,
+        valid_till: form.valid_till,
+        notes: form.notes,
+        tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
+        lines: serialized,
+        subtotal: nextTotals.subtotal,
+        tax_amount: nextTotals.tax_amount,
+        total: nextTotals.total,
+      });
+      const result = await api.estimates.sendSign(document.id, {
+        channel: signChannel,
+        recipient: signChannel === "link" ? undefined : signRecipient.trim(),
+      });
+      setSignResult(result);
+      setForm((f) => ({ ...f, status: f.status === "draft" ? "sent" : f.status }));
+      onSaved?.();
+    } catch (e) {
+      setSignResult({ delivery: "error", message: e.message || "Could not create sign link" });
+    } finally {
+      setSignBusy(false);
     }
   };
 
@@ -185,6 +221,14 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           <DialogHeader>
             <DialogTitle>Estimate{form.number ? ` · ${form.number}` : ""}</DialogTitle>
           </DialogHeader>
+
+          {document.status === "accepted" && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              Signed by <strong>{document.signer_name || "client"}</strong>
+              {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.
+              Fields stay editable. Accepted snapshot ({money(document.accepted_snapshot?.total ?? document.total)}) is kept for Work Order / Invoice carryover.
+            </div>
+          )}
 
           <div className="grid sm:grid-cols-4 gap-3">
             <div>
@@ -298,12 +342,51 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             </div>
           </div>
 
+          {form.status !== "void" && (
+            <div className="mt-4 rounded-lg border border-slate-200 p-3 space-y-2">
+              <div className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                <Send className="w-4 h-4" /> Send client sign link
+              </div>
+              <div className="grid sm:grid-cols-3 gap-2">
+                <Select value={signChannel} onValueChange={setSignChannel}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="link">Copy link</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="sms">Text (SMS)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {signChannel !== "link" && (
+                  <Input
+                    className="sm:col-span-2"
+                    value={signRecipient}
+                    onChange={(e) => setSignRecipient(e.target.value)}
+                    placeholder={signChannel === "email" ? "client@example.com" : "Phone number"}
+                  />
+                )}
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={sendSignLink} disabled={signBusy}>
+                {signBusy ? "Creating…" : "Create / send sign link"}
+              </Button>
+              {signResult && (
+                <div className={`text-xs rounded-md px-2 py-1.5 ${signResult.delivery === "error" ? "bg-red-50 text-red-700" : "bg-slate-50 text-slate-700"}`}>
+                  <div>{signResult.message}</div>
+                  {signResult.sign_url && (
+                    <a href={signResult.sign_url} target="_blank" rel="noreferrer" className="underline break-all">
+                      {signResult.sign_url}
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
             <Button variant="outline" onClick={printEstimate} disabled={saving}>
               <Printer className="w-4 h-4 mr-1" /> Print
             </Button>
-            {form.status !== "sent" && (
+            {form.status !== "sent" && form.status !== "accepted" && (
               <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
             )}
             <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving}>

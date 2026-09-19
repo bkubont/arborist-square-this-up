@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
 import { searchCatalog } from './catalog.js';
+import { createEstimateSignLink, loadPublicEstimateSign, completeEstimateSign } from './sign.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 
 export async function createApp(db, env = process.env) {
@@ -32,12 +33,13 @@ export async function createApp(db, env = process.env) {
       return next(fail(403, 'Invalid request origin'));
     next();
   });
-  app.use(express.json({ limit: '256kb' }));
+  app.use(express.json({ limit: '1mb' }));
   const cleanup = async tx => {
     const now = Date.now();
     await tx.run('DELETE FROM sessions WHERE expires_at < ?', [now]);
     await tx.run('DELETE FROM tokens WHERE expires_at < ?', [now]);
     await tx.run('DELETE FROM rate_limits WHERE expires_at < ?', [now]);
+    await tx.run('DELETE FROM sign_links WHERE expires_at < ?', [now]);
   };
   const limited = async (key, max = 10) => db.transaction(async tx => {
     await cleanup(tx);
@@ -137,6 +139,23 @@ export async function createApp(db, env = process.env) {
     });
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
+
+  // Public client e-sign (Estimate Phase 2; no login). Rate-limited.
+  app.get('/api/sign/:token', async (req, res) => {
+    if (!await limited(`sign-get:${req.ip}`, 60)) throw fail(429, 'Too many attempts. Try again later.');
+    res.json(await loadPublicEstimateSign(db, req.params.token));
+  });
+  app.post('/api/sign/:token', async (req, res) => {
+    if (!await limited(`sign-post:${req.ip}`, 20)) throw fail(429, 'Too many attempts. Try again later.');
+    const updated = await completeEstimateSign(db, {
+      rawToken: req.params.token,
+      signerName: req.body.signer_name,
+      signatureDataUrl: req.body.signature_data_url,
+      env,
+    });
+    res.json({ ok: true, estimate: { id: updated.id, status: updated.status, signed_at: updated.signed_at, signer_name: updated.signer_name } });
+  });
+
   app.use('/api', requireUser);
   app.get('/api/catalog', async (req, res) => {
     const q = z.string().max(200).optional().parse(req.query.q);
@@ -162,6 +181,34 @@ export async function createApp(db, env = process.env) {
     await tx.all('SELECT id FROM users WHERE id = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [owner]);
     return fn(tx);
   });
+  app.post('/api/estimates/:id/send-sign', async (req, res) => {
+    const channel = z.enum(['email', 'sms', 'link']).parse(req.body.channel || 'link');
+    const recipient = req.body.recipient != null && req.body.recipient !== ''
+      ? z.string().trim().max(254).parse(req.body.recipient)
+      : undefined;
+    if (channel === 'email' && !recipient) throw fail(400, 'Enter an email address');
+    if (channel === 'sms' && !recipient) throw fail(400, 'Enter a phone number');
+    const estimate = await getRecord(db, req.user.id, 'Estimate', req.params.id);
+    if (estimate.status === 'void') throw fail(400, 'Cannot send a void estimate');
+    const result = await createEstimateSignLink(db, {
+      ownerId: req.user.id,
+      estimate,
+      channel,
+      recipient,
+      origin,
+      env,
+    });
+    await ownedTransaction(req.user.id, async tx => {
+      if (estimate.status === 'draft') await saveRecord(tx, req.user.id, 'Estimate', { status: 'sent' }, estimate.id);
+      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+        job_id: estimate.job_id,
+        type: 'estimate_sent',
+        text: `Estimate ${estimate.number || ''} sign link sent (${channel})`.trim(),
+        category: 'financial',
+      });
+    });
+    res.status(201).json(result);
+  });
   app.post('/api/entities/:entity', async (req, res) => res.status(201).json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body))));
   app.patch('/api/entities/:entity/:id', async (req, res) => res.json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body, req.params.id))));
   app.delete('/api/entities/:entity/:id', async (req, res) => {
@@ -176,6 +223,7 @@ export async function createApp(db, env = process.env) {
         for (const child of ['TimelineEntry', ...JOB_DOCUMENT_ENTITIES]) {
           await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, child, record.id]);
         }
+        await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);
       }
       await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
       // Remove files no longer referenced by remaining timeline entries.

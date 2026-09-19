@@ -3,7 +3,7 @@ export default function ApiErrors() {
   const [error, setError] = useState('');
   useEffect(() => {
     const onError = event => {
-      if (event.detail.status === 401 && !['/login','/register','/forgot-password','/reset-password'].includes(window.location.pathname)) {
+      if (event.detail.status === 401 && !['/login','/register','/forgot-password','/reset-password'].includes(window.location.pathname) && !window.location.pathname.startsWith('/sign/')) {
         window.location.assign('/login'); return;
       }
       if (event.detail.status !== 401) setError(event.detail.message);

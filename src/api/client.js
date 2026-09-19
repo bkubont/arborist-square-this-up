@@ -54,6 +54,13 @@ export const api = {
       return request(`/catalog?${params}`);
     },
   },
+  estimates: {
+    sendSign(id, data) { return post(`/estimates/${encodeURIComponent(id)}/send-sign`, data); },
+  },
+  sign: {
+    get(token) { return request(`/sign/${encodeURIComponent(token)}`); },
+    submit(token, data) { return post(`/sign/${encodeURIComponent(token)}`, data); },
+  },
   auth: {
     me: () => request('/auth/me'),
     loginViaEmailPassword: (email, password) => post('/auth/login', { email, password }),

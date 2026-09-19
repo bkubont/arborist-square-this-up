@@ -251,3 +251,82 @@ test('catalog search and estimate line fill with recomputed totals', async t => 
   assert.equal(updated.data.lines[0].labor_amount, hit.est_labor_cost + 1);
   assert.equal(updated.data.total, total);
 });
+
+test('estimate sign link: client signs, estimate accepted, signed copy on job Photos/Documents', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('sign-owner@example.com');
+  const b = await register('other@example.com');
+  const create = async (entity, data, cookie = a.cookie) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Sign client', email: 'client@example.com' });
+  const job = await create('Job', { title: 'Deck repair', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-100',
+    status: 'draft',
+    tax_rate: 10,
+    lines: [{ description: 'Labor', labor_amount: 200, labor_hours: 4, labor_rate: 50 }],
+    subtotal: 200,
+    tax_amount: 20,
+    total: 220,
+  });
+
+  const sent = await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  });
+  assert.equal(sent.status, 201, sent.data?.message);
+  assert.match(sent.data.sign_url, /\/sign\/[a-f0-9]{64}$/);
+  assert.equal(sent.data.delivery, 'stubbed');
+  const token = sent.data.sign_url.split('/').pop();
+
+  assert.equal((await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data.status, 'sent');
+  assert.equal((await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: b.cookie, data: { channel: 'link' } })).status, 404);
+
+  const publicView = await request(`/sign/${token}`);
+  assert.equal(publicView.status, 200);
+  assert.equal(publicView.data.estimate.number, 'EST-100');
+  assert.equal(publicView.data.estimate.total, 220);
+  assert.equal(publicView.data.job.title, 'Deck repair');
+
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const signed = await request(`/sign/${token}`, {
+    method: 'POST',
+    data: { signer_name: 'Pat Client', signature_data_url: png },
+  });
+  assert.equal(signed.status, 200, signed.data?.message);
+  assert.equal(signed.data.estimate.status, 'accepted');
+
+  const after = (await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data;
+  assert.equal(after.status, 'accepted');
+  assert.equal(after.signer_name, 'Pat Client');
+  assert.ok(after.signed_at);
+  assert.ok(after.signature_file_url);
+  assert.equal(after.accepted_snapshot.total, 220);
+  assert.equal(after.accepted_snapshot.lines[0].labor_amount, 200);
+
+  // Signed hardcopy appears as a document timeline entry on the job
+  const docs = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data
+    .filter(e => e.category === 'document' && e.photo_url === after.signature_file_url);
+  assert.equal(docs.length, 1);
+  assert.match(docs[0].text, /Pat Client/);
+
+  // Owner can still edit after accept
+  const edited = await request(`/entities/Estimate/${estimate.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { notes: 'Adjusted after sign', lines: [{ description: 'Labor', labor_amount: 250 }] },
+  });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.data.notes, 'Adjusted after sign');
+  assert.equal(edited.data.lines[0].labor_amount, 250);
+  assert.equal(edited.data.status, 'accepted');
+  assert.equal(edited.data.accepted_snapshot.total, 220);
+
+  // Token is single-use
+  assert.equal((await request(`/sign/${token}`, { method: 'POST', data: { signer_name: 'Again', signature_data_url: png } })).status, 400);
+
+  // Other accounts cannot see the signature file
+  assert.equal((await request(after.signature_file_url.replace('/api', ''), { cookie: b.cookie })).status, 404);
+  assert.equal((await request(after.signature_file_url.replace('/api', ''), { cookie: a.cookie })).status, 200);
+});

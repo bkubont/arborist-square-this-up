@@ -62,12 +62,14 @@ export async function migrate(db) {
     `CREATE TABLE IF NOT EXISTS records (id VARCHAR(36) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, entity VARCHAR(20) NOT NULL, parent_id VARCHAR(36), data ${jsonText} NOT NULL, created_date VARCHAR(30) NOT NULL, updated_date VARCHAR(30) NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS files (id VARCHAR(36) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, mime VARCHAR(50) NOT NULL, content ${blob} NOT NULL, size INTEGER NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS rate_limits (bucket VARCHAR(64) PRIMARY KEY, attempts INTEGER NOT NULL, expires_at BIGINT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS sign_links (token_hash VARCHAR(64) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, entity VARCHAR(20) NOT NULL, record_id VARCHAR(36) NOT NULL, job_id VARCHAR(36) NOT NULL, channel VARCHAR(12) NOT NULL, recipient VARCHAR(254), expires_at BIGINT NOT NULL, used_at VARCHAR(30), created_date VARCHAR(30) NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
   ]) await db.run(sql + suffix);
   for (const [name, table, columns] of [
     ['records_owner_entity', 'records', 'owner_id, entity, created_date'],
     ['records_owner_parent', 'records', 'owner_id, parent_id'],
     ['files_owner', 'files', 'owner_id'],
     ['sessions_expiry', 'sessions', 'expires_at'],
+    ['sign_links_record', 'sign_links', 'owner_id, entity, record_id'],
   ]) {
     try { await db.run(`CREATE INDEX ${db.dialect === 'sqlite' ? 'IF NOT EXISTS ' : ''}${name} ON ${table} (${columns})`); }
     catch (error) { if (error.code !== 'ER_DUP_KEYNAME') throw error; }

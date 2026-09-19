@@ -217,6 +217,7 @@ export default function JobDetail() {
                   <SelectItem value="before">Before</SelectItem>
                   <SelectItem value="after">After</SelectItem>
                   <SelectItem value="receipt">Receipts</SelectItem>
+                  <SelectItem value="document">Documents</SelectItem>
                   <SelectItem value="financial">Financial</SelectItem>
                   <SelectItem value="note">Notes</SelectItem>
                 </SelectContent>
