@@ -12,8 +12,10 @@ import VoiceRecorder from "@/components/VoiceRecorder";
 import Checklist from "@/components/Checklist";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
+import JobDocuments from "@/components/JobDocuments";
 
 const STATUSES = ["Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
+const DOC_ENTITIES = ["Estimate", "WorkOrder", "ChangeOrder", "Invoice"];
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -21,18 +23,21 @@ export default function JobDetail() {
   const [job, setJob] = useState(null);
   const [client, setClient] = useState(null);
   const [entries, setEntries] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
   const [filter, setFilter] = useState("all");
 
   const load = useCallback(async () => {
-    const [j, e] = await Promise.all([
+    const [j, e, ...docLists] = await Promise.all([
       api.entities.Job.get(id),
       api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 200),
+      ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 100)),
     ]);
     setJob(j);
     setEntries(e);
+    setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
     if (j?.client_id) {
       try {
         setClient(await api.entities.Client.get(j.client_id));
@@ -164,6 +169,8 @@ export default function JobDetail() {
               <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-slate-100 text-slate-700 border-slate-200" />
             </div>
           </div>
+
+          <JobDocuments jobId={id} documents={documents} onChanged={load} />
 
           {/* Photos */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">

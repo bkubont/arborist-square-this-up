@@ -35,7 +35,16 @@ const entity = name => ({
   delete(id) { return request(`/entities/${name}/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
 });
 export const api = {
-  entities: { Client: entity('Client'), Job: entity('Job'), TimelineEntry: entity('TimelineEntry') },
+  entities: {
+    Client: entity('Client'),
+    Job: entity('Job'),
+    TimelineEntry: entity('TimelineEntry'),
+    CompanyProfile: entity('CompanyProfile'),
+    Estimate: entity('Estimate'),
+    WorkOrder: entity('WorkOrder'),
+    ChangeOrder: entity('ChangeOrder'),
+    Invoice: entity('Invoice'),
+  },
   auth: {
     me: () => request('/auth/me'),
     loginViaEmailPassword: (email, password) => post('/auth/login', { email, password }),

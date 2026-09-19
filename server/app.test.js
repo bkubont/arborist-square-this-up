@@ -143,3 +143,52 @@ test('invalid inputs, forbidden file types, expired invitations and login thrott
   for (let i = 0; i < 10; i++) assert.equal((await request('/auth/login', { method: 'POST', data: { email: 'a@example.com', password: 'wrong' } })).status, 401);
   assert.equal((await request('/auth/login', { method: 'POST', data: { email: 'a@example.com', password: 'wrong' } })).status, 429);
 });
+
+test('job documents: create draft Estimate/Invoice stubs, list by job, and enforce ownership', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('docs-a@example.com');
+  const b = await register('docs-b@example.com');
+  const create = async (entity, data, cookie = a.cookie) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Docs client' });
+  const job = await create('Job', { title: 'Docs job', client_id: client.id, status: 'Estimate' });
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-001', status: 'draft', lines: [{ description: 'Labor', labor_amount: 100 }] });
+  const invoice = await create('Invoice', { job_id: job.id, number: 'INV-001', status: 'draft', date: '2026-09-19' });
+  assert.equal(estimate.status, 'draft');
+  assert.equal(estimate.lines[0].labor_amount, 100);
+  assert.equal(invoice.material_lines.length, 0);
+
+  const listedEstimates = (await request(`/entities/Estimate?job_id=${job.id}`, { cookie: a.cookie })).data;
+  const listedInvoices = (await request(`/entities/Invoice?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(listedEstimates.length, 1);
+  assert.equal(listedInvoices.length, 1);
+  assert.equal(listedEstimates[0].id, estimate.id);
+
+  const opened = (await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data;
+  assert.equal(opened.number, 'EST-001');
+
+  assert.deepEqual((await request('/entities/Estimate', { cookie: b.cookie })).data, []);
+  assert.equal((await request(`/entities/Estimate/${estimate.id}`, { cookie: b.cookie })).status, 404);
+  assert.equal((await request(`/entities/Invoice/${invoice.id}`, { method: 'PATCH', cookie: b.cookie, data: { notes: 'attack' } })).status, 404);
+  assert.equal((await request('/entities/Estimate', { method: 'POST', cookie: b.cookie, data: { job_id: job.id, number: 'X' } })).status, 404);
+
+  const profile = await create('CompanyProfile', { name: 'Square This Up', default_tax_rate: 10, default_payment_terms: 'Due upon receipt' });
+  assert.equal(profile.name, 'Square This Up');
+  assert.equal((await request(`/entities/CompanyProfile/${profile.id}`, { cookie: b.cookie })).status, 404);
+
+  // Existing job status / timeline still work alongside documents
+  assert.equal((await request(`/entities/Job/${job.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'Scheduled' } })).status, 200);
+  const note = await create('TimelineEntry', { job_id: job.id, type: 'note', text: 'Still works', category: 'note' });
+  assert.equal(note.text, 'Still works');
+
+  await request(`/entities/Estimate/${estimate.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'sent' } });
+  await create('TimelineEntry', { job_id: job.id, type: 'estimate_sent', text: 'Estimate EST-001 sent to client', category: 'financial' });
+
+  assert.equal((await request(`/entities/Job/${job.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+  assert.equal((await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).status, 404);
+  assert.equal((await request(`/entities/Invoice/${invoice.id}`, { cookie: a.cookie })).status, 404);
+  assert.equal((await request(`/entities/TimelineEntry/${note.id}`, { cookie: a.cookie })).status, 404);
+});

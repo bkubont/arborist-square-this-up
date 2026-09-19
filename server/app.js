@@ -6,7 +6,7 @@ import nodemailer from 'nodemailer';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { schemas, fail, decode, getRecord, saveRecord } from './domain.js';
+import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 
 export async function createApp(db, env = process.env) {
@@ -163,7 +163,11 @@ export async function createApp(db, env = process.env) {
         : req.params.entity === 'TimelineEntry' ? [record] : [];
       if (req.params.entity === 'Client' && (await tx.all('SELECT id FROM records WHERE owner_id = ? AND parent_id = ?', [req.user.id, record.id])).length)
         throw fail(409, 'Delete this client’s jobs first');
-      if (req.params.entity === 'Job') await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', record.id]);
+      if (req.params.entity === 'Job') {
+        for (const child of ['TimelineEntry', ...JOB_DOCUMENT_ENTITIES]) {
+          await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, child, record.id]);
+        }
+      }
       await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
       // Remove files no longer referenced by remaining timeline entries.
       const entries = await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [req.user.id, 'TimelineEntry']);
