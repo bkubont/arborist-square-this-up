@@ -87,17 +87,17 @@ export default function FinancialPanel({ job, documents = [], timeline = [], onU
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg bg-slate-50 p-2">
-          <div className="text-xs text-slate-500">Invoiced</div>
-          <div className="text-sm font-bold text-slate-800">{money(rollups.invoiced)}</div>
+        <div className="rounded-lg bg-secondary p-2">
+          <div className="text-xs text-muted-foreground">Invoiced</div>
+          <div className="text-sm font-bold text-foreground">{money(rollups.invoiced)}</div>
         </div>
         <div className="rounded-lg bg-emerald-50 p-2">
           <div className="text-xs text-emerald-600">Paid</div>
           <div className="text-sm font-bold text-emerald-700">{money(rollups.paid)}</div>
         </div>
-        <div className="rounded-lg bg-amber-50 p-2">
-          <div className="text-xs text-amber-600">Balance</div>
-          <div className="text-sm font-bold text-amber-700">{money(rollups.balance)}</div>
+        <div className="rounded-lg bg-attention-muted p-2">
+          <div className="text-xs text-attention-muted-foreground">Balance</div>
+          <div className="text-sm font-bold text-attention">{money(rollups.balance)}</div>
         </div>
       </div>
 
@@ -152,7 +152,7 @@ export default function FinancialPanel({ job, documents = [], timeline = [], onU
         <div>Est. profit (invoiced − materials) {money(profit)}</div>
       </div>
 
-      <Button size="sm" className="w-full bg-slate-900 hover:bg-slate-800" onClick={save}>
+      <Button size="sm" className="w-full" onClick={save}>
         Save amounts
       </Button>
 

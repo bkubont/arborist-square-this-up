@@ -5,10 +5,10 @@ import { Image } from "@/components/ui/image";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
-  { key: "before", label: "Before", tint: "border-slate-300 bg-slate-50 text-slate-700", accept: "image/*", type: "photo" },
+  { key: "before", label: "Before", tint: "border-border bg-secondary text-secondary-foreground", accept: "image/*", type: "photo" },
   { key: "after", label: "After", tint: "border-emerald-300 bg-emerald-50 text-emerald-700", accept: "image/*", type: "photo" },
-  { key: "receipt", label: "Receipts", tint: "border-orange-300 bg-orange-50 text-orange-700", accept: "image/*", type: "receipt" },
-  { key: "document", label: "Documents", tint: "border-blue-300 bg-blue-50 text-blue-700", accept: "image/*", type: "document", icon: FileText },
+  { key: "receipt", label: "Receipts", tint: "border-attention bg-attention-muted text-attention-muted-foreground", accept: "image/*", type: "receipt" },
+  { key: "document", label: "Documents", tint: "border-brand bg-brand-muted text-brand-muted-foreground", accept: "image/*", type: "document", icon: FileText },
 ];
 
 export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) {

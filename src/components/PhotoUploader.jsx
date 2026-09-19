@@ -42,8 +42,8 @@ export default function PhotoUploader({ jobId, category, type, onUploaded }) {
         className={cn(
           "flex flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed py-4 px-2 transition-colors flex-1 min-w-0",
           isReceipt
-            ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
-            : "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100",
+            ? "border-attention bg-attention-muted text-attention-muted-foreground hover:opacity-90"
+            : "border-brand bg-brand-muted text-brand-muted-foreground hover:opacity-90",
           busy && "opacity-50"
         )}
       >

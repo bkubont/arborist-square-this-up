@@ -135,7 +135,7 @@ export default function JobDetail() {
             <h1 className="text-2xl font-bold text-slate-900">{job.title}</h1>
             {client && (
               <div className="mt-1 space-y-1">
-                <Link to={`/clients/${client.id}`} className="text-sm text-slate-500 hover:text-amber-600">{client.name}</Link>
+                <Link to={`/clients/${client.id}`} className="text-sm text-slate-500 hover:text-blue-700">{client.name}</Link>
                 <ClientAddress client={client} />
               </div>
             )}
@@ -163,10 +163,10 @@ export default function JobDetail() {
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Actions</div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <QuickBtn label="Estimate Sent" icon={Send} onClick={() => quickAction("estimate_sent", "Estimate sent to client")} tint="bg-purple-50 text-purple-700 border-purple-200" />
+              <QuickBtn label="Estimate Sent" icon={Send} onClick={() => quickAction("estimate_sent", "Estimate sent to client")} tint="bg-brand-muted text-brand-muted-foreground border-brand" />
               <QuickBtn label="Deposit" icon={CheckCircle2} onClick={() => quickAction("deposit_received", "Deposit received")} tint="bg-emerald-50 text-emerald-700 border-emerald-200" />
-              <QuickBtn label="Invoice Sent" icon={Send} onClick={() => quickAction("invoice_sent", "Invoice sent to client")} tint="bg-purple-50 text-purple-700 border-purple-200" />
-              <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-slate-100 text-slate-700 border-slate-200" />
+              <QuickBtn label="Invoice Sent" icon={Send} onClick={() => quickAction("invoice_sent", "Invoice sent to client")} tint="bg-brand-muted text-brand-muted-foreground border-brand" />
+              <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-secondary text-secondary-foreground border-border" />
             </div>
           </div>
 
@@ -189,7 +189,7 @@ export default function JobDetail() {
                 rows={2}
                 className="text-sm"
               />
-              <Button className="bg-slate-900 hover:bg-slate-800 self-stretch" onClick={addNote}>
+              <Button className="self-stretch" onClick={addNote}>
                 <StickyNote className="w-4 h-4" />
               </Button>
             </div>

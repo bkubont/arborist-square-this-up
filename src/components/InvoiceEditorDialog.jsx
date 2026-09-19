@@ -378,7 +378,7 @@ export default function InvoiceEditorDialog({
         </p>
 
         {overAuthorized && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="flex items-start gap-2 rounded-lg border border-attention bg-attention-muted px-3 py-2 text-sm text-attention-foreground">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
               {priorInvoiced > 0 ? (
@@ -626,7 +626,7 @@ export default function InvoiceEditorDialog({
             {form.status !== "sent" && form.status !== "partial" && form.status !== "paid" && form.status !== "void" && (
               <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
             )}
-            <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving || form.status === "void"}>
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
               {saving ? "Saving…" : "Save invoice"}
             </Button>
           </div>

@@ -293,7 +293,7 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
             />
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-              <Button className="bg-slate-900 hover:bg-slate-800" onClick={save} disabled={saving || form.status === "void"}>{saving ? "Saving…" : "Save work order"}</Button>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={save} disabled={saving || form.status === "void"}>{saving ? "Saving…" : "Save work order"}</Button>
             </div>
           </DialogFooter>
         </DialogContent>

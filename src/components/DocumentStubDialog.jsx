@@ -234,7 +234,7 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
               Mark sent
             </Button>
           )}
-          <Button onClick={() => save()} className="bg-slate-900 hover:bg-slate-800" disabled={saving}>
+          <Button onClick={() => save()} className="bg-primary text-primary-foreground hover:bg-primary/90" disabled={saving}>
             Save
           </Button>
         </DialogFooter>

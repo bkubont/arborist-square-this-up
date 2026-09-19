@@ -12,7 +12,7 @@ async function start() {
     const server = app.listen(configuredPort, '0.0.0.0', () => {
       const addr = server.address();
       const port = addr && typeof addr === 'object' ? addr.port : configuredPort;
-      console.log(`Jobsite Notebook server is ready on port ${port}`);
+      console.log(`Square This Up server is ready on port ${port}`);
     });
     server.on('error', async error => {
       console.error('Server failed to listen:', error.code || error.name);

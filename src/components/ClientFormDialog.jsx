@@ -57,7 +57,7 @@ export default function ClientFormDialog({ open, onOpenChange, onSave, client })
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} className="bg-slate-900 hover:bg-slate-800">
+          <Button onClick={submit} className="bg-primary text-primary-foreground hover:bg-primary/90">
             Save
           </Button>
         </DialogFooter>

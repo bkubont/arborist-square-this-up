@@ -28,11 +28,11 @@ export default function Checklist({ items, onChange }) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
           placeholder="Add a task…"
-          className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+          className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
         />
         <button
           onClick={add}
-          className="px-3 rounded-lg bg-slate-900 text-white flex items-center justify-center"
+          className="px-3 rounded-lg bg-primary text-primary-foreground flex items-center justify-center"
         >
           <Plus className="w-4 h-4" />
         </button>

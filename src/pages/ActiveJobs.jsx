@@ -3,56 +3,40 @@ import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { isActiveJob, jobBalance } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 
-const AllJobsIcon = NAV_ICONS.allJobs;
+const ActiveIcon = NAV_ICONS.activeJobs;
 
-const STATUSES = ["All", "Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
-
-export default function AllJobs() {
+export default function ActiveJobs() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("All");
 
   useEffect(() => {
     api.entities.Job.list("-created_date", 300).then((d) => {
-      setJobs(d);
+      setJobs(d.filter(isActiveJob));
       setLoading(false);
     });
   }, []);
 
-  const shown = filter === "All" ? jobs : jobs.filter((j) => j.status === filter);
-
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-foreground">All Jobs</h1>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-foreground">Active Jobs</h1>
+        <p className="text-sm text-muted-foreground">Estimate, Scheduled, In Progress, or Waiting on Materials</p>
       </div>
 
       {loading ? (
         <p className="text-muted-foreground">Loading…</p>
-      ) : shown.length === 0 ? (
+      ) : jobs.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          <AllJobsIcon className="w-12 h-12 mx-auto mb-3 opacity-40" strokeWidth={1.5} />
-          <p>No jobs here.</p>
+          <ActiveIcon className="w-12 h-12 mx-auto mb-3 opacity-40" strokeWidth={1.5} />
+          <p>No active jobs.</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {shown.map((j) => {
-            const balance = Math.max(0, (j.invoice_amount || 0) - (j.deposit_amount || 0));
+          {jobs.map((j) => {
+            const balance = jobBalance(j);
             return (
               <Link
                 key={j.id}
@@ -64,7 +48,9 @@ export default function AllJobs() {
                   <div className="text-sm text-muted-foreground truncate">{j.client_name || "—"}</div>
                 </div>
                 <div className="text-right hidden sm:block">
-                  {balance > 0 && <div className="text-xs font-semibold text-attention">{money(balance)} due</div>}
+                  {balance > 0 && (
+                    <div className="text-xs font-semibold text-attention">{money(balance)} due</div>
+                  )}
                   {j.start_date && <div className="text-xs text-muted-foreground">{shortDate(j.start_date)}</div>}
                 </div>
                 <StatusBadge status={j.status} />

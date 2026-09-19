@@ -177,10 +177,10 @@ export default function SignEstimate() {
     <div className="min-h-screen bg-slate-100 py-8 px-4">
       <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 p-5 sm:p-6 space-y-4">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+          <div className="text-xs font-semibold uppercase tracking-wide text-attention">
             {isCO ? "Change order signature" : "Estimate signature"}
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 mt-1">{company?.name || "Jobsite Notebook"}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 mt-1">{company?.name || "Square This Up"}</h1>
           <p className="text-sm text-slate-500 mt-1">
             {job?.title}
             {client?.name ? ` · ${client.name}` : ""}
@@ -254,7 +254,7 @@ export default function SignEstimate() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <Button className="w-full bg-slate-900 hover:bg-slate-800" onClick={submit} disabled={submitting}>
+        <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90" onClick={submit} disabled={submitting}>
           {submitting ? "Submitting…" : isCO ? "Sign & approve change order" : "Sign & accept estimate"}
         </Button>
       </div>

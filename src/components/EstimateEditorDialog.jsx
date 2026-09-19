@@ -398,7 +398,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
               {form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
                 <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
               )}
-              <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving || form.status === "void"}>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
                 {saving ? "Saving…" : "Save estimate"}
               </Button>
             </div>

@@ -25,6 +25,25 @@ module.exports = {
   				DEFAULT: 'hsl(var(--primary))',
   				foreground: 'hsl(var(--primary-foreground))'
   			},
+  			brand: {
+  				DEFAULT: 'hsl(var(--brand))',
+  				foreground: 'hsl(var(--brand-foreground))',
+  				muted: 'hsl(var(--brand-muted))',
+  				'muted-foreground': 'hsl(var(--brand-muted-foreground))',
+  				border: 'hsl(var(--brand-border))'
+  			},
+  			attention: {
+  				DEFAULT: 'hsl(var(--attention))',
+  				foreground: 'hsl(var(--attention-foreground))',
+  				muted: 'hsl(var(--attention-muted))',
+  				'muted-foreground': 'hsl(var(--attention-muted-foreground))',
+  				border: 'hsl(var(--attention-border))'
+  			},
+  			surface: {
+  				DEFAULT: 'hsl(var(--surface))',
+  				muted: 'hsl(var(--surface-muted))'
+  			},
+  			page: 'hsl(var(--page))',
   			secondary: {
   				DEFAULT: 'hsl(var(--secondary))',
   				foreground: 'hsl(var(--secondary-foreground))'
@@ -59,7 +78,8 @@ module.exports = {
   				accent: 'hsl(var(--sidebar-accent))',
   				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
   				border: 'hsl(var(--sidebar-border))',
-  				ring: 'hsl(var(--sidebar-ring))'
+  				ring: 'hsl(var(--sidebar-ring))',
+  				muted: 'hsl(var(--sidebar-muted))'
   			}
   		},
   		fontFamily: {

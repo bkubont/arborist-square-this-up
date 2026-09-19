@@ -14,6 +14,8 @@ import Clients from '@/pages/Clients';
 import ClientDetail from '@/pages/ClientDetail';
 import JobDetail from '@/pages/JobDetail';
 import AllJobs from '@/pages/AllJobs';
+import ActiveJobs from '@/pages/ActiveJobs';
+import Outstanding from '@/pages/Outstanding';
 import CompanySettings from '@/pages/CompanySettings';
 import SignEstimate from '@/pages/SignEstimate';
 import Login from '@/pages/Login';
@@ -46,6 +48,8 @@ const AuthenticatedApp = () => {
           <Route path="/" element={<Dashboard />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/clients/:id" element={<ClientDetail />} />
+          <Route path="/jobs/active" element={<ActiveJobs />} />
+          <Route path="/jobs/outstanding" element={<Outstanding />} />
           <Route path="/jobs" element={<AllJobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/settings" element={<CompanySettings />} />
