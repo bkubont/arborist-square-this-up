@@ -20,7 +20,7 @@ function lineAmount(line) {
 }
 
 /** Lightweight Material Order editor — available from day one on a job. */
-export default function MaterialOrderEditorDialog({ open, onOpenChange, document, onSaved, onRevised }) {
+export default function MaterialOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved, onRevised }) {
   const [form, setForm] = useState({ number: "", status: "draft", date: "", notes: "" });
   const [lines, setLines] = useState([emptyLine()]);
   const [saving, setSaving] = useState(false);
@@ -66,6 +66,7 @@ export default function MaterialOrderEditorDialog({ open, onOpenChange, document
         }))
         .filter((line) => line.description || line.qty || line.unit_price);
       const total = Math.round(serialized.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_price) || 0), 0) * 100) / 100;
+      const previousStatus = document.status;
       await api.entities.MaterialOrder.update(document.id, {
         number: form.number || undefined,
         status: form.status,
@@ -75,6 +76,16 @@ export default function MaterialOrderEditorDialog({ open, onOpenChange, document
         subtotal: total,
         total,
       });
+      if (jobId && form.status !== previousStatus) {
+        try {
+          await api.entities.TimelineEntry.create({
+            job_id: jobId,
+            type: "note",
+            text: `Material Order ${form.number || ""} status → ${form.status}`.trim(),
+            category: "document",
+          });
+        } catch { /* non-blocking */ }
+      }
       onSaved?.();
       onOpenChange(false);
     } finally {

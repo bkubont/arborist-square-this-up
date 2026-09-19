@@ -67,7 +67,7 @@ export async function voidDocument(tx, ownerId, entity, recordId) {
   }
   await saveRecord(tx, ownerId, 'TimelineEntry', {
     job_id: record.job_id,
-    type: 'note',
+    type: 'document_voided',
     text: `${entity} ${record.number || ''} marked void`.trim(),
     category: 'financial',
   });
@@ -90,9 +90,9 @@ export async function reviseDocument(tx, ownerId, entity, recordId) {
   const created = await saveRecord(tx, ownerId, entity, payload);
   await saveRecord(tx, ownerId, 'TimelineEntry', {
     job_id: record.job_id,
-    type: 'note',
+    type: 'document_created',
     text: `Revision ${number} created from ${entity} ${record.number || ''}`.trim(),
-    category: 'financial',
+    category: 'document',
   });
   return created;
 }

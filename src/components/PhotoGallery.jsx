@@ -28,7 +28,7 @@ export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) 
         await api.entities.TimelineEntry.create({
           job_id: jobId,
           type,
-          text: type === "document" ? file.name || "Document" : "",
+          text: type === "document" ? (file.name || "Document uploaded") : type === "receipt" ? (file.name || "Receipt uploaded") : `Photo added (${category})`,
           photo_url: file_url,
           category,
         });

@@ -2,22 +2,28 @@ import React, { useState } from "react";
 import { Plus, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/**
+ * @param {{ items: Array<{text: string, done: boolean}>, onChange: (next: Array, summary?: string) => void }} props
+ */
 export default function Checklist({ items, onChange }) {
   const [text, setText] = useState("");
 
   const toggle = (i) => {
-    const next = items.map((it, idx) => (idx === i ? { ...it, done: !it.done } : it));
-    onChange(next);
+    const it = items[i];
+    const next = items.map((row, idx) => (idx === i ? { ...row, done: !row.done } : row));
+    onChange(next, `${it.done ? "Unchecked" : "Checked"}: ${it.text}`);
   };
 
   const add = () => {
     if (!text.trim()) return;
-    onChange([...(items || []), { text: text.trim(), done: false }]);
+    const label = text.trim();
+    onChange([...(items || []), { text: label, done: false }], `Added checklist item: ${label}`);
     setText("");
   };
 
   const remove = (i) => {
-    onChange(items.filter((_, idx) => idx !== i));
+    const it = items[i];
+    onChange(items.filter((_, idx) => idx !== i), `Removed checklist item: ${it.text}`);
   };
 
   return (

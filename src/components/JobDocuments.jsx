@@ -11,6 +11,7 @@ import InvoiceEditorDialog from "@/components/InvoiceEditorDialog";
 import { documentCreateAvailability, hasAcceptedEstimate } from "@/lib/documentAvailability";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
 import { addDaysIso, ESTIMATE_VALID_DAYS, todayIso } from "@/lib/estimateMath";
+import { logDocumentCreated } from "@/lib/jobActivity";
 import { money, shortDate } from "@/lib/format";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -101,6 +102,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       const created = await api.entities[entity].create(base);
+      await logDocumentCreated(api, { jobId, entity, number: created.number || base.number });
       await onChanged?.();
       setOpenDoc({ entity, document: created });
     } finally {
@@ -198,6 +200,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         open={openDoc?.entity === "MaterialOrder"}
         onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
         document={openDoc?.entity === "MaterialOrder" ? openDoc.document : null}
+        jobId={jobId}
         onSaved={onChanged}
         onRevised={(created) => openRevised("MaterialOrder", created)}
       />

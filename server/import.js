@@ -67,7 +67,7 @@ export async function importData(db, email, input) {
           data[field] = fileMap.get(record[field]);
           if (!data[field]) throw new Error('A photo is missing. Add its bytes and source_url to the files collection before importing.');
         }
-        const saved = await saveRecord(tx, user.id, entity, data);
+        const saved = await saveRecord(tx, user.id, entity, data, undefined, { skipClientAddressCheck: true });
         ids.set(`${entity}:${record.id}`, saved.id);
         if (record.created_date) {
           const created = new Date(record.created_date);

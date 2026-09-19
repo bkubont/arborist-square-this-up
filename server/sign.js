@@ -258,9 +258,9 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
       }, record.id);
       await saveRecord(tx, link.owner_id, 'TimelineEntry', {
         job_id: record.job_id,
-        type: 'document',
+        type: 'change_order_signed',
         category: 'document',
-        text: `Signed change order ${record.number || ''} — ${name} (revised total ${revised})`.trim(),
+        text: `Change order ${record.number || ''} signed by ${name} (revised total ${revised})`.trim(),
         photo_url: fileUrl,
       });
       await saveRecord(tx, link.owner_id, 'TimelineEntry', {
