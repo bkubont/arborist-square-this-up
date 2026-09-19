@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DEFAULT_SALES_TAX_RATE } from "@/lib/salesTax";
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
 export default function CompanySettings() {
@@ -14,7 +15,7 @@ export default function CompanySettings() {
     phone: "",
     email: "",
     website: "",
-    default_tax_rate: "",
+    default_tax_rate: String(DEFAULT_SALES_TAX_RATE),
     default_payment_terms: "",
   });
   const [loading, setLoading] = useState(true);
@@ -32,9 +33,11 @@ export default function CompanySettings() {
         phone: existing.phone || "",
         email: existing.email || "",
         website: existing.website || "",
-        default_tax_rate: existing.default_tax_rate ?? "",
+        default_tax_rate: existing.default_tax_rate ?? String(DEFAULT_SALES_TAX_RATE),
         default_payment_terms: existing.default_payment_terms || "",
       });
+    } else {
+      setForm((f) => ({ ...f, default_tax_rate: String(DEFAULT_SALES_TAX_RATE) }));
     }
     setLoading(false);
   }, []);
@@ -56,7 +59,7 @@ export default function CompanySettings() {
         email: form.email,
         website: form.website,
         default_payment_terms: form.default_payment_terms,
-        default_tax_rate: form.default_tax_rate === "" ? undefined : Number(form.default_tax_rate),
+        default_tax_rate: form.default_tax_rate === "" ? DEFAULT_SALES_TAX_RATE : Number(form.default_tax_rate),
       };
       if (profile) await api.entities.CompanyProfile.update(profile.id, payload);
       else {
@@ -103,8 +106,17 @@ export default function CompanySettings() {
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
-            <Label>Default tax %</Label>
-            <Input type="number" value={form.default_tax_rate} onChange={(e) => set("default_tax_rate", e.target.value)} placeholder="e.g. 10" />
+            <Label>Sales tax %</Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={form.default_tax_rate}
+              onChange={(e) => set("default_tax_rate", e.target.value)}
+              placeholder={String(DEFAULT_SALES_TAX_RATE)}
+            />
+            <p className="text-xs text-slate-500 mt-1">Autofills new estimates, invoices, work orders, and change orders.</p>
           </div>
           <div>
             <Label>Default payment terms</Label>

@@ -12,6 +12,7 @@ import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import StatusSelect from "@/components/StatusSelect";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
+import { loadAccountTaxRate } from "@/lib/salesTax";
 import {
   WORK_CATEGORIES,
   catalogItemToWorkOrderLine,
@@ -88,6 +89,11 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
     setLines(Array.isArray(document.lines) && document.lines.length
       ? document.lines.map(toFormLine)
       : [emptyLine()]);
+    if (document.tax_rate == null || document.tax_rate === "") {
+      loadAccountTaxRate(api).then((rate) => {
+        setForm((f) => (f.tax_rate === "" ? { ...f, tax_rate: String(rate) } : f));
+      });
+    }
   }, [open, document]);
 
   const totals = useMemo(() => workOrderTotals(lines.map(serializeLine), form.tax_rate), [lines, form.tax_rate]);

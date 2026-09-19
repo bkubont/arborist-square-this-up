@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
 import { invoiceTotals, deriveInvoiceStatus } from "@/lib/documentMapping";
+import { loadAccountTaxRate } from "@/lib/salesTax";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import StatusSelect from "@/components/StatusSelect";
 
@@ -121,7 +122,15 @@ export default function InvoiceEditorDialog({
     );
 
     api.entities.CompanyProfile.list("-created_date", 1)
-      .then((rows) => setCompany(rows[0] || null))
+      .then((rows) => {
+        const profile = rows[0] || null;
+        setCompany(profile);
+        if (document.tax_rate == null || document.tax_rate === "") {
+          loadAccountTaxRate(api).then((rate) => {
+            setForm((f) => (f.tax_rate === "" ? { ...f, tax_rate: String(rate) } : f));
+          });
+        }
+      })
       .catch(() => setCompany(null));
 
     setPriorInvoiced(document.prior_invoiced ?? 0);

@@ -20,8 +20,17 @@ export async function importData(db, email, input) {
   if (!Array.isArray(files)) throw new Error('Invalid file collection');
   await db.transaction(async tx => {
     await tx.all('SELECT id FROM users WHERE id = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [user.id]);
-    if ((await tx.all('SELECT id FROM records WHERE owner_id = ?', [user.id])).length || (await tx.all('SELECT id FROM files WHERE owner_id = ?', [user.id])).length)
+    const existingRecords = await tx.all('SELECT id, entity FROM records WHERE owner_id = ?', [user.id]);
+    const existingFiles = await tx.all('SELECT id FROM files WHERE owner_id = ?', [user.id]);
+    // Invite registration seeds CompanyProfile with sales tax; treat that alone as empty.
+    const onlySeedProfile = existingRecords.length > 0
+      && existingRecords.every((row) => row.entity === 'CompanyProfile')
+      && existingFiles.length === 0;
+    if (onlySeedProfile) {
+      await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ?', [user.id, 'CompanyProfile']);
+    } else if (existingRecords.length || existingFiles.length) {
       throw new Error('Import requires an empty account to prevent duplicate or overwritten data');
+    }
     const fileMap = new Map();
     let total = 0;
     for (const file of files) {

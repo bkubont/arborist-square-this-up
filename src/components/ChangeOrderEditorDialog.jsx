@@ -12,12 +12,14 @@ import StatusSelect from "@/components/StatusSelect";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
 import { changeOrderNet } from "@/lib/documentMapping";
+import { loadAccountTaxRate } from "@/lib/salesTax";
 
 /** Change Order editor + client e-sign (Phase 4). */
 export default function ChangeOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved, onRevised }) {
   const [form, setForm] = useState({
     number: "", status: "draft", reason: "", description: "", notes: "",
     added_cost: "", credit: "", net_change: "", added_days: "", revised_contract_total: "",
+    tax_rate: "",
   });
   const [lines, setLines] = useState([{ description: "", amount: "" }]);
   const [authorized, setAuthorized] = useState(null);
@@ -41,11 +43,17 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
       net_change: document.net_change ?? "",
       added_days: document.added_days ?? "",
       revised_contract_total: document.revised_contract_total ?? "",
+      tax_rate: document.tax_rate ?? "",
     });
     setLines(Array.isArray(document.lines) && document.lines.length
       ? document.lines.map((l) => ({ description: l.description || "", amount: l.amount ?? "" }))
       : [{ description: "", amount: "" }]);
     api.jobs.authorizedTotal(jobId).then(setAuthorized).catch(() => setAuthorized(null));
+    if (document.tax_rate == null || document.tax_rate === "") {
+      loadAccountTaxRate(api).then((rate) => {
+        setForm((f) => (f.tax_rate === "" ? { ...f, tax_rate: String(rate) } : f));
+      });
+    }
   }, [open, document, jobId]);
 
   const computedNet = useMemo(
@@ -79,6 +87,7 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
         net_change: computedNet,
         added_days: form.added_days === "" ? undefined : Number(form.added_days),
         revised_contract_total: previewRevised ?? (form.revised_contract_total === "" ? undefined : Number(form.revised_contract_total)),
+        tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
         lines: serializedLines,
       });
       onSaved?.();
@@ -105,6 +114,7 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
         net_change: computedNet,
         added_days: form.added_days === "" ? undefined : Number(form.added_days),
         revised_contract_total: previewRevised ?? undefined,
+        tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
         lines: serializedLines,
       });
       const result = await api.changeOrders.sendSign(document.id, {
@@ -185,6 +195,19 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
           <div>
             <Label>Added days</Label>
             <Input type="number" value={form.added_days} onChange={(e) => setForm((f) => ({ ...f, added_days: e.target.value }))} />
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <Label>Sales tax %</Label>
+            <Input
+              type="number"
+              value={form.tax_rate}
+              onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))}
+              placeholder="Account default"
+            />
+            <p className="text-xs text-slate-500 mt-1">Informational — CO nets stay pre-tax; invoices apply tax using estimate/account rate.</p>
           </div>
         </div>
 

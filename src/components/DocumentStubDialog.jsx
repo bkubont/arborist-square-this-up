@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import StatusSelect from "@/components/StatusSelect";
 import { DOCUMENT_STATUSES, documentTypeLabel } from "@/lib/documents";
+import { loadAccountTaxRate } from "@/lib/salesTax";
 
 /**
  * Phase 0 stub editor — open/edit document shell fields.
@@ -48,6 +49,11 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
         crew: document.crew || "",
         tax_rate: document.tax_rate ?? "",
       });
+      if (document.tax_rate == null || document.tax_rate === "") {
+        loadAccountTaxRate(api).then((rate) => {
+          setForm((f) => (f.tax_rate === "" ? { ...f, tax_rate: String(rate) } : f));
+        });
+      }
     }
   }, [open, document]);
 
@@ -153,7 +159,7 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
               {entity === "Invoice" && (
                 <div>
                   <Label>Tax %</Label>
-                  <Input type="number" value={form.tax_rate} onChange={(e) => set("tax_rate", e.target.value)} placeholder="0" />
+                  <Input type="number" value={form.tax_rate} onChange={(e) => set("tax_rate", e.target.value)} placeholder="Account default" />
                 </div>
               )}
             </div>
@@ -162,7 +168,7 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
           {entity === "Estimate" && (
             <div>
               <Label>Tax %</Label>
-              <Input type="number" value={form.tax_rate} onChange={(e) => set("tax_rate", e.target.value)} placeholder="0" />
+              <Input type="number" value={form.tax_rate} onChange={(e) => set("tax_rate", e.target.value)} placeholder="Account default" />
             </div>
           )}
 

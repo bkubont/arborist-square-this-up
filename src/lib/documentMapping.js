@@ -3,6 +3,8 @@
  * Assistive only — all values remain editable after carryover.
  */
 
+import { resolveSalesTaxRate } from './salesTax.js';
+
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
@@ -320,7 +322,7 @@ export function buildInvoiceAutofill({
   const material_lines = tables.material_lines;
   const labor_lines = tables.labor_lines;
   const misc_lines = [...tables.misc_lines, ...co.misc_lines];
-  const tax_rate = source.tax_rate ?? estimate?.tax_rate ?? company?.default_tax_rate;
+  const tax_rate = source.tax_rate ?? estimate?.tax_rate ?? resolveSalesTaxRate(company);
   const totals = invoiceTotals({
     material_lines, labor_lines, misc_lines, tax_rate,
     deposits_applied, payments_applied,

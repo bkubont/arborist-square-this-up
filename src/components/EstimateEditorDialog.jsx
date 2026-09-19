@@ -26,6 +26,7 @@ import {
   todayIso,
 } from "@/lib/estimateMath";
 import { isEstimateReadOnly } from "@/lib/documentAvailability";
+import { loadAccountTaxRate } from "@/lib/salesTax";
 
 /**
  * Estimate editor: simplified lines + catalog typeahead + client e-sign + job photo capture.
@@ -85,12 +86,9 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     }).catch(() => {});
 
     if (document.tax_rate == null || document.tax_rate === "") {
-      api.entities.CompanyProfile.list("-created_date", 1).then((rows) => {
-        const profile = rows[0];
-        if (profile?.default_tax_rate != null) {
-          setForm((f) => (f.tax_rate === "" ? { ...f, tax_rate: String(profile.default_tax_rate) } : f));
-        }
-      }).catch(() => {});
+      loadAccountTaxRate(api).then((rate) => {
+        setForm((f) => (f.tax_rate === "" ? { ...f, tax_rate: String(rate) } : f));
+      });
     }
   }, [open, document]);
 
@@ -470,7 +468,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           <div className="space-y-2">
             <div>
               <Label>Tax %</Label>
-              <Input type="number" value={form.tax_rate} onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))} placeholder="Company default" readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} />
+              <Input type="number" value={form.tax_rate} onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))} placeholder="Account default" readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} />
             </div>
             <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm space-y-1">
               <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{money(totals.subtotal)}</span></div>
