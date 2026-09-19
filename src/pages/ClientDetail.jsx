@@ -8,6 +8,8 @@ import ClientFormDialog from "@/components/ClientFormDialog";
 import JobFormDialog from "@/components/JobFormDialog";
 import ClientAddress from "@/components/ClientAddress";
 import { money } from "@/lib/format";
+import { statusCardClass } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
 
 export default function ClientDetail() {
   const { id } = useParams();
@@ -71,7 +73,7 @@ export default function ClientDetail() {
 
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-bold text-slate-900">Jobs</h2>
-        <Button size="sm" className="bg-slate-900 hover:bg-slate-800" onClick={() => setJobDialog(true)}>
+        <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setJobDialog(true)}>
           <Plus className="w-4 h-4 mr-1" /> New Job
         </Button>
       </div>
@@ -88,11 +90,14 @@ export default function ClientDetail() {
               <Link
                 key={j.id}
                 to={`/jobs/${j.id}`}
-                className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 p-4 hover:border-amber-400 transition-colors"
+                className={cn(
+                  "flex items-center gap-3 bg-card rounded-xl border p-4 hover:shadow-sm transition-colors",
+                  statusCardClass(j.status)
+                )}
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-slate-900 truncate">{j.title}</div>
-                  {balance > 0 && <span className="text-xs text-amber-600 font-semibold">{money(balance)} due</span>}
+                  {balance > 0 && <span className="text-xs text-attention font-semibold">{money(balance)} due</span>}
                 </div>
                 <StatusBadge status={j.status} />
                 <ChevronRight className="w-4 h-4 text-slate-300" />

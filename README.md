@@ -1,6 +1,6 @@
-# Jobsite Notebook
+# Square This Up
 
-A standalone React + Express job tracker. Production uses MySQL on Hostinger; local development uses a persistent SQLite database. Base44 is no longer required to start or run the app.
+A standalone React + Express job tracker (working title was Jobsite Notebook). Production uses MySQL on Hostinger; local development uses a persistent SQLite database. Base44 is no longer required to start or run the app.
 
 ## Local development
 

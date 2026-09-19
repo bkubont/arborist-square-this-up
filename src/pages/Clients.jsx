@@ -45,7 +45,7 @@ export default function Clients() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Clients</h1>
         <Button
-          className="bg-slate-900 hover:bg-slate-800"
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
           onClick={() => {
             setEditing(null);
             setDialog(true);
@@ -68,7 +68,7 @@ export default function Clients() {
             <Link
               key={c.id}
               to={`/clients/${c.id}`}
-              className="block bg-white rounded-xl border border-slate-200 p-4 hover:border-amber-400 transition-colors"
+              className="block bg-white rounded-xl border border-slate-200 p-4 hover:border-blue-600 transition-colors"
             >
               <div className="flex items-start justify-between">
                 <div className="font-semibold text-slate-900">{c.name}</div>

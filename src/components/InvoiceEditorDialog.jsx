@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
 import { invoiceTotals, deriveInvoiceStatus } from "@/lib/documentMapping";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
+import StatusSelect from "@/components/StatusSelect";
 
 function emptyMaterial() {
   return { description: "", qty: "", unit_price: "" };
@@ -378,7 +378,7 @@ export default function InvoiceEditorDialog({
         </p>
 
         {overAuthorized && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="flex items-start gap-2 rounded-lg border border-attention bg-attention-muted px-3 py-2 text-sm text-attention-foreground">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
               {priorInvoiced > 0 ? (
@@ -437,14 +437,12 @@ export default function InvoiceEditorDialog({
             </div>
             <div>
               <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {DOCUMENT_STATUSES.Invoice.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <StatusSelect
+                value={form.status}
+                onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
+                statuses={DOCUMENT_STATUSES.Invoice}
+                entity="Invoice"
+              />
             </div>
             <div>
               <Label>Tax %</Label>
@@ -626,7 +624,7 @@ export default function InvoiceEditorDialog({
             {form.status !== "sent" && form.status !== "partial" && form.status !== "paid" && form.status !== "void" && (
               <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
             )}
-            <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving || form.status === "void"}>
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
               {saving ? "Saving…" : "Save invoice"}
             </Button>
           </div>

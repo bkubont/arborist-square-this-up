@@ -120,7 +120,7 @@ export async function createApp(db, env = process.env) {
       try {
         const transport = nodemailer.createTransport({ host: env.SMTP_HOST, port: Number(env.SMTP_PORT || 465), secure: env.SMTP_SECURE !== 'false',
           auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } : undefined });
-        await transport.sendMail({ from: env.MAIL_FROM, to: email, subject: 'Reset your Jobsite Notebook password',
+        await transport.sendMail({ from: env.MAIL_FROM, to: email, subject: 'Reset your Square This Up password',
           text: `Reset your password within 30 minutes: ${origin}/reset-password?token=${value}\nIf you did not request this, ignore this email.` });
       } catch { console.error('Password reset email delivery failed'); }
     }

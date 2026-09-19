@@ -19,16 +19,16 @@ const ICONS = {
 };
 
 const TINT = {
-  note: "bg-slate-100 text-slate-600",
-  photo: "bg-blue-100 text-blue-600",
-  receipt: "bg-orange-100 text-orange-600",
-  document: "bg-purple-100 text-purple-600",
-  estimate_sent: "bg-purple-100 text-purple-600",
-  deposit_received: "bg-emerald-100 text-emerald-600",
-  invoice_sent: "bg-purple-100 text-purple-600",
-  payment_received: "bg-emerald-100 text-emerald-600",
-  status_change: "bg-amber-100 text-amber-600",
-  checklist: "bg-blue-100 text-blue-600",
+  note: "bg-secondary text-muted-foreground",
+  photo: "bg-brand-muted text-brand-muted-foreground",
+  receipt: "bg-attention-muted text-attention-muted-foreground",
+  document: "bg-brand-muted text-brand-muted-foreground",
+  estimate_sent: "bg-brand-muted text-brand-muted-foreground",
+  deposit_received: "bg-emerald-100 text-emerald-700",
+  invoice_sent: "bg-brand-muted text-brand-muted-foreground",
+  payment_received: "bg-emerald-100 text-emerald-700",
+  status_change: "bg-sky-100 text-sky-700",
+  checklist: "bg-brand-muted text-brand-muted-foreground",
 };
 
 export default function TimelineFeed({ entries }) {

@@ -1,0 +1,158 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { api } from "@/api/client";
+import StatusBadge from "@/components/StatusBadge";
+import { money, shortDate } from "@/lib/format";
+import { JOB_STATUSES, jobBalance } from "@/lib/jobFilters";
+import { NAV_ICONS } from "@/lib/navIcons";
+import { statusCardClass, statusColors } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
+
+const BoardIcon = NAV_ICONS.board;
+
+export default function JobBoard() {
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState(null);
+
+  const load = useCallback(() => {
+    return api.entities.Job.list("-updated_date", 400).then((d) => {
+      setJobs(d);
+      setLoading(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const columns = useMemo(() => {
+    const map = Object.fromEntries(JOB_STATUSES.map((s) => [s, []]));
+    for (const job of jobs) {
+      if (map[job.status]) map[job.status].push(job);
+      else map.Estimate.push(job);
+    }
+    return map;
+  }, [jobs]);
+
+  const onDragEnd = async (result) => {
+    const { destination, source, draggableId } = result;
+    if (!destination) return;
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+
+    const nextStatus = destination.droppableId;
+    const jobId = draggableId;
+    const prev = jobs;
+    setJobs((list) => list.map((j) => (String(j.id) === String(jobId) ? { ...j, status: nextStatus } : j)));
+    setSavingId(jobId);
+    try {
+      await api.entities.Job.update(jobId, { status: nextStatus });
+      await api.entities.TimelineEntry.create({
+        job_id: jobId,
+        type: "status_change",
+        text: `Status changed to ${nextStatus}`,
+        category: "note",
+      });
+    } catch {
+      setJobs(prev);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="p-4 lg:p-6 h-full flex flex-col min-h-0">
+      <div className="mb-4 flex items-start justify-between gap-3 shrink-0">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <BoardIcon className="w-6 h-6 text-primary" strokeWidth={1.75} />
+            Board
+          </h1>
+          <p className="text-sm text-muted-foreground">Drag a job to change its status</p>
+        </div>
+        <Link to="/jobs" className="text-sm font-medium text-primary hover:underline shrink-0">
+          List view
+        </Link>
+      </div>
+
+      {loading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : (
+        <DragDropContext onDragEnd={onDragEnd}>
+          <div className="flex gap-3 overflow-x-auto pb-4 flex-1 min-h-0 items-start">
+            {JOB_STATUSES.map((status) => (
+              <BoardColumn key={status} status={status} jobs={columns[status] || []} savingId={savingId} />
+            ))}
+          </div>
+        </DragDropContext>
+      )}
+    </div>
+  );
+}
+
+function BoardColumn({ status, jobs, savingId }) {
+  const colors = statusColors(status);
+  return (
+    <Droppable droppableId={status}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.droppableProps}
+          className={cn(
+            "w-64 shrink-0 rounded-xl border-2 bg-surface-muted/80 flex flex-col max-h-[calc(100vh-8rem)]",
+            colors.column,
+            snapshot.isDraggingOver && cn("ring-2", colors.ring, colors.columnHeader)
+          )}
+        >
+          <div className={cn("px-3 py-2.5 border-b sticky top-0 rounded-t-[10px] z-10", colors.columnHeader)}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
+                <span className={cn("w-2 h-2 rounded-full", colors.swatch)} aria-hidden="true" />
+                {status}
+              </span>
+              <span className="text-xs font-bold tabular-nums text-foreground">{jobs.length}</span>
+            </div>
+          </div>
+          <div className="p-2 space-y-2 overflow-y-auto flex-1">
+            {jobs.map((job, index) => (
+              <Draggable key={job.id} draggableId={String(job.id)} index={index}>
+                {(dragProvided, dragSnapshot) => (
+                  <div
+                    ref={dragProvided.innerRef}
+                    {...dragProvided.draggableProps}
+                    {...dragProvided.dragHandleProps}
+                    className={cn(
+                      "bg-card rounded-lg border p-3 shadow-sm",
+                      statusCardClass(job.status),
+                      dragSnapshot.isDragging && "shadow-md ring-2 ring-primary/40",
+                      savingId === String(job.id) && "opacity-60"
+                    )}
+                  >
+                    <Link to={`/jobs/${job.id}`} className="block" onClick={(e) => e.stopPropagation()}>
+                      <div className="font-semibold text-sm text-foreground leading-snug line-clamp-2">{job.title}</div>
+                      <div className="text-xs text-muted-foreground truncate mt-0.5">{job.client_name || "—"}</div>
+                    </Link>
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <StatusBadge status={job.status} className="scale-90 origin-left" />
+                      {jobBalance(job) > 0 && (
+                        <span className="text-[10px] font-semibold text-attention">{money(jobBalance(job))}</span>
+                      )}
+                    </div>
+                    {job.start_date && (
+                      <div className="text-[10px] text-muted-foreground mt-1">{shortDate(job.start_date)}</div>
+                    )}
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+            {jobs.length === 0 && (
+              <div className="text-xs text-muted-foreground text-center py-6 px-2">Drop jobs here</div>
+            )}
+          </div>
+        </div>
+      )}
+    </Droppable>
+  );
+}

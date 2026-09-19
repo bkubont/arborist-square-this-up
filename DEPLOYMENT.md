@@ -1,6 +1,6 @@
 # Hostinger setup for F&G
 
-Target: **https://squarethisup.com**. Start empty; no Base44 records need importing. The current interface still uses the working title **Jobsite Notebook**.
+Target: **https://squarethisup.com**. Start empty; no Base44 records need importing. User-facing product name: **Square This Up**.
 
 The code is prepared locally. No Hostinger resources have been created or changed, and no live account has been created.
 

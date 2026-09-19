@@ -112,7 +112,7 @@ export default function CompanySettings() {
           </div>
         </div>
         <div className="flex items-center gap-3 pt-2">
-          <Button onClick={save} disabled={saving} className="bg-slate-900 hover:bg-slate-800">
+          <Button onClick={save} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary/90">
             {saving ? "Saving…" : "Save profile"}
           </Button>
           {saved && <span className="text-sm text-emerald-600">Saved</span>}

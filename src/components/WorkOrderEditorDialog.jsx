@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CatalogPickerDialog from "@/components/CatalogPickerDialog";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
+import StatusSelect from "@/components/StatusSelect";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
 import {
@@ -159,12 +160,12 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
             </div>
             <div>
               <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {DOCUMENT_STATUSES.WorkOrder.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <StatusSelect
+                value={form.status}
+                onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
+                statuses={DOCUMENT_STATUSES.WorkOrder}
+                entity="WorkOrder"
+              />
             </div>
             <div>
               <Label>Start</Label>
@@ -293,7 +294,7 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
             />
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-              <Button className="bg-slate-900 hover:bg-slate-800" onClick={save} disabled={saving || form.status === "void"}>{saving ? "Saving…" : "Save work order"}</Button>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={save} disabled={saving || form.status === "void"}>{saving ? "Saving…" : "Save work order"}</Button>
             </div>
           </DialogFooter>
         </DialogContent>

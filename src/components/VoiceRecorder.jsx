@@ -29,7 +29,7 @@ export default function VoiceRecorder({ jobId, onTranscribed }) {
   };
   if (!SpeechRecognition) return <p className="text-xs text-slate-500">To dictate a note, use the microphone on your phone keyboard.</p>;
   return <div className="space-y-2">
-    <button className="flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white" onClick={() => recording ? recognition.current.stop() : start()}>
+    <button className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white" onClick={() => recording ? recognition.current.stop() : start()}>
       {recording ? <Square size={14} /> : <Mic size={14} />}{recording ? 'Stop dictation' : 'Dictate a note'}
     </button>
     <p className="text-xs text-slate-500">Uses your browser’s speech service. Review the text before saving.</p>

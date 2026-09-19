@@ -6,6 +6,7 @@ import { ArrowLeft, Pencil, StickyNote, Send, CheckCircle2, Trash2 } from "lucid
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import StatusSelect from "@/components/StatusSelect";
 import TimelineFeed from "@/components/TimelineFeed";
 import PhotoGallery from "@/components/PhotoGallery";
 import VoiceRecorder from "@/components/VoiceRecorder";
@@ -13,8 +14,9 @@ import Checklist from "@/components/Checklist";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
+import { statusCardClass } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
 
-const STATUSES = ["Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
 const DOC_ENTITIES = ["Estimate", "WorkOrder", "ChangeOrder", "Invoice"];
 
 export default function JobDetail() {
@@ -129,31 +131,20 @@ export default function JobDetail() {
       </div>
 
       {/* Header */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+      <div className={cn("bg-card rounded-xl border p-5 mb-4", statusCardClass(job.status))}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-slate-900">{job.title}</h1>
+            <h1 className="text-2xl font-bold text-foreground">{job.title}</h1>
             {client && (
               <div className="mt-1 space-y-1">
-                <Link to={`/clients/${client.id}`} className="text-sm text-slate-500 hover:text-amber-600">{client.name}</Link>
+                <Link to={`/clients/${client.id}`} className="text-sm text-muted-foreground hover:text-primary">{client.name}</Link>
                 <ClientAddress client={client} />
               </div>
             )}
           </div>
-          <Select value={job.status} onValueChange={changeStatus}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
         </div>
-        {job.description && <p className="text-sm text-slate-600 mt-3">{job.description}</p>}
+        {job.description && <p className="text-sm text-muted-foreground mt-3">{job.description}</p>}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
@@ -163,10 +154,10 @@ export default function JobDetail() {
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Actions</div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <QuickBtn label="Estimate Sent" icon={Send} onClick={() => quickAction("estimate_sent", "Estimate sent to client")} tint="bg-purple-50 text-purple-700 border-purple-200" />
+              <QuickBtn label="Estimate Sent" icon={Send} onClick={() => quickAction("estimate_sent", "Estimate sent to client")} tint="bg-brand-muted text-brand-muted-foreground border-brand" />
               <QuickBtn label="Deposit" icon={CheckCircle2} onClick={() => quickAction("deposit_received", "Deposit received")} tint="bg-emerald-50 text-emerald-700 border-emerald-200" />
-              <QuickBtn label="Invoice Sent" icon={Send} onClick={() => quickAction("invoice_sent", "Invoice sent to client")} tint="bg-purple-50 text-purple-700 border-purple-200" />
-              <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-slate-100 text-slate-700 border-slate-200" />
+              <QuickBtn label="Invoice Sent" icon={Send} onClick={() => quickAction("invoice_sent", "Invoice sent to client")} tint="bg-brand-muted text-brand-muted-foreground border-brand" />
+              <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-secondary text-secondary-foreground border-border" />
             </div>
           </div>
 
@@ -189,7 +180,7 @@ export default function JobDetail() {
                 rows={2}
                 className="text-sm"
               />
-              <Button className="bg-slate-900 hover:bg-slate-800 self-stretch" onClick={addNote}>
+              <Button className="self-stretch" onClick={addNote}>
                 <StickyNote className="w-4 h-4" />
               </Button>
             </div>

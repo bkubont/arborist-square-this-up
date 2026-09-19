@@ -104,7 +104,7 @@ export default function CatalogPickerDialog({ open, onOpenChange, onPick }) {
             <button
               key={item.id}
               type="button"
-              className="w-full text-left px-3 py-2.5 hover:bg-amber-50 transition-colors"
+              className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors"
               onClick={() => {
                 onPick?.(item);
                 onOpenChange(false);

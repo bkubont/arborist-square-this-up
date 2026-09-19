@@ -9,6 +9,8 @@ import ChangeOrderEditorDialog from "@/components/ChangeOrderEditorDialog";
 import InvoiceEditorDialog from "@/components/InvoiceEditorDialog";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
+import { statusCardClass } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
 
 export default function JobDocuments({ jobId, jobTitle, client, documents, onChanged }) {
   const [openDoc, setOpenDoc] = useState(null);
@@ -131,7 +133,10 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
               <button
                 type="button"
                 onClick={() => setOpenDoc({ entity: doc.entity, document: doc })}
-                className="w-full flex items-center gap-3 py-3 text-left hover:bg-slate-50 rounded-lg px-1 -mx-1 transition-colors"
+                className={cn(
+                  "w-full flex items-center gap-3 py-3 text-left hover:bg-muted/60 rounded-lg px-2 -mx-1 transition-colors border bg-card",
+                  statusCardClass(doc.status, { entity: doc.entity })
+                )}
               >
                 <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
                   <FileText className="w-4 h-4 text-slate-600" />
@@ -140,7 +145,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-slate-900">{documentTypeLabel(doc.entity)}</span>
                     {doc.number && <span className="text-xs text-slate-500">{doc.number}</span>}
-                    <StatusBadge status={doc.status} />
+                    <StatusBadge status={doc.status} entity={doc.entity} />
                   </div>
                   <div className="text-xs text-slate-400 mt-0.5">
                     {doc.date || doc.created_date ? shortDate(doc.date || doc.created_date) : "—"}
