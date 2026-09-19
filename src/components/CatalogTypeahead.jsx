@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 /**
  * Inline catalog typeahead — type in description; click a suggestion to fill the line.
  * No separate search button.
+ * @param {{ value: string, onChange: (v: string) => void, onPick: (item: object) => void, placeholder?: string, className?: string, inputClassName?: string }} props
  */
 export default function CatalogTypeahead({
   value,

@@ -198,7 +198,6 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         open={openDoc?.entity === "MaterialOrder"}
         onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
         document={openDoc?.entity === "MaterialOrder" ? openDoc.document : null}
-        jobId={jobId}
         onSaved={onChanged}
         onRevised={(created) => openRevised("MaterialOrder", created)}
       />
