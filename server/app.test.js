@@ -1384,33 +1384,47 @@ test('material order sync: purchased MO claims sources; no draft recreate', asyn
   assert.equal(mos.length, 1);
   const draftId = mos[0].id;
 
-  // Promote draft → purchased (still holds the materials)
+  // Promote draft → purchased (still holds the Estimate-sourced materials)
   assert.equal((await request(`/entities/MaterialOrder/${draftId}`, {
     method: 'PATCH', cookie: a.cookie,
-    data: { status: 'purchased', lines: mos[0].lines, total: 40 },
+    data: {
+      status: 'purchased',
+      lines: mos[0].lines.map((l) => ({ ...l, qty: 1, unit_price: 55 })),
+      total: 55,
+    },
   })).status, 200);
 
-  // Accept estimate + create WO — must not spawn another draft with the same materials
+  // Re-sync estimate with a different material amount — same source key still claims
+  // (qty/price edits must not recreate a draft)
   await request(`/entities/Estimate/${estimate.id}`, {
     method: 'PATCH', cookie: a.cookie,
     data: {
-      status: 'accepted',
-      total: 40,
-      accepted_snapshot: { number: 'EST-CLAIM', total: 40, lines: estimate.lines },
+      lines: [{ description: 'Lumber', category: 'Carpentry', material_amount: 99 }],
+      total: 99,
     },
-  });
-  await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
   });
 
   mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
-  const live = mos.filter((m) => m.status !== 'void');
+  let live = mos.filter((m) => m.status !== 'void');
   assert.equal(live.length, 1);
   assert.equal(live[0].status, 'purchased');
-  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 40);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
 
-  // Empty New MO stays empty (purchased already claims the source fingerprint)
+  // Empty New MO stays empty (purchased already claims the Estimate source key)
   const empty = await create('MaterialOrder', { job_id: job.id, number: 'MO-EMPTY', status: 'draft', lines: [] });
   assert.equal(empty.lines?.length || 0, 0);
-  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 40);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
+
+  // Same description from a distinct source (CO) must still autofill
+  await create('ChangeOrder', {
+    job_id: job.id,
+    number: 'CO-CLAIM',
+    status: 'draft',
+    lines: [{ description: 'Lumber', amount: 12 }],
+  });
+  mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  live = mos.filter((m) => m.status !== 'void');
+  const coDraft = live.find((m) => m.status === 'draft' && (m.lines || []).some((l) => l.source_entity === 'ChangeOrder'));
+  assert.ok(coDraft, 'distinct CO source with same description should autofill');
+  assert.equal(coDraft.lines.some((l) => l.source_entity === 'ChangeOrder' && l.description === 'Lumber'), true);
 });
