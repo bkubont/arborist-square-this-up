@@ -1,27 +1,50 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import { Calendar } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
-import { ACTIVE_STATUSES, jobBalance } from "@/lib/jobFilters";
+import {
+  ACTIVE_STATUSES,
+  JOB_STATUSES,
+  collectActionItems,
+  countByStatus,
+  jobBalance,
+  moneySummary,
+} from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
+import { cn } from "@/lib/utils";
+import { statusCardClass } from "@/lib/statusColors";
 
 export default function Dashboard() {
   const [jobs, setJobs] = useState([]);
+  const [estimates, setEstimates] = useState([]);
+  const [changeOrders, setChangeOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.entities.Job.list("-created_date", 200).then((data) => {
-      setJobs(data);
-      setLoading(false);
-    });
+    Promise.all([
+      api.entities.Job.list("-created_date", 300),
+      api.entities.Estimate.list("-updated_date", 300),
+      api.entities.ChangeOrder.list("-updated_date", 300),
+    ])
+      .then(([j, e, c]) => {
+        setJobs(j);
+        setEstimates(e);
+        setChangeOrders(c);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const today = new Date().toISOString().slice(0, 10);
-  const active = jobs.filter((j) => ACTIVE_STATUSES.includes(j.status));
-  const todayJobs = jobs.filter((j) => j.start_date === today);
-  const owed = jobs.reduce((sum, j) => sum + jobBalance(j), 0);
+  const active = useMemo(() => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)), [jobs]);
+  const todayJobs = useMemo(() => jobs.filter((j) => j.start_date === today), [jobs, today]);
+  const statusCounts = useMemo(() => countByStatus(jobs), [jobs]);
+  const moneyBuckets = useMemo(() => moneySummary(jobs, estimates, changeOrders), [jobs, estimates, changeOrders]);
+  const actionItems = useMemo(
+    () => collectActionItems(jobs, estimates, changeOrders),
+    [jobs, estimates, changeOrders]
+  );
 
   return (
     <div className="p-4 lg:p-8 max-w-5xl mx-auto">
@@ -32,29 +55,10 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-        <StatCard
-          to="/jobs/active"
-          label="Active Jobs"
-          value={active.length}
-          icon={NAV_ICONS.activeJobs}
-          tint="bg-brand-muted text-brand-muted-foreground"
-        />
-        <StatCard
-          to="/jobs/outstanding"
-          label="Outstanding"
-          value={money(owed)}
-          icon={NAV_ICONS.outstanding}
-          tint="bg-attention-muted text-attention-muted-foreground"
-          attention
-        />
-        <StatCard
-          to="/jobs"
-          label="Total Jobs"
-          value={jobs.length}
-          icon={NAV_ICONS.allJobs}
-          tint="bg-secondary text-secondary-foreground"
-        />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+        <MoneyTile loading={loading} buckets={moneyBuckets} />
+        <JobsTile loading={loading} total={jobs.length} counts={statusCounts} />
+        <ActionItemsTile loading={loading} count={actionItems.length} items={actionItems.slice(0, 3)} />
       </div>
 
       <Section title="Today's Jobs">
@@ -88,26 +92,125 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ to, label, value, icon: Icon, tint, attention = false }) {
+function MoneyTile({ loading, buckets }) {
+  const Icon = NAV_ICONS.money;
   return (
     <Link
-      to={to}
-      className={cnStat(
-        "block bg-card rounded-xl border border-border p-4 transition-all hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        attention ? "hover:border-attention" : "hover:border-brand"
-      )}
+      to="/jobs/outstanding"
+      className="block bg-card rounded-xl border border-border p-4 transition-all hover:shadow-sm hover:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-2 ${tint}`}>
-        <Icon className="w-5 h-5" strokeWidth={1.75} aria-hidden="true" />
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-brand-muted text-brand-muted-foreground">
+          <Icon className="w-5 h-5" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Money</div>
+          <div className="text-sm font-bold text-attention">
+            {loading ? "…" : `${money(buckets.outstanding)} due`}
+          </div>
+        </div>
       </div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`text-lg font-bold ${attention ? "text-attention" : "text-foreground"}`}>{value}</div>
+      <dl className="space-y-1.5 text-sm">
+        <BucketRow label="Invoiced" value={loading ? "…" : money(buckets.invoiced)} />
+        <BucketRow label="Received" value={loading ? "…" : money(buckets.received)} />
+        <BucketRow label="Outstanding" value={loading ? "…" : money(buckets.outstanding)} attention />
+        <BucketRow
+          label="Waiting approval"
+          value={
+            loading
+              ? "…"
+              : buckets.waitingDocCount
+                ? `${money(buckets.waitingApproval)} · ${buckets.waitingDocCount}`
+                : money(0)
+          }
+          attention={buckets.waitingDocCount > 0}
+        />
+      </dl>
     </Link>
   );
 }
 
-function cnStat(...parts) {
-  return parts.filter(Boolean).join(" ");
+function JobsTile({ loading, total, counts }) {
+  const Icon = NAV_ICONS.allJobs;
+  return (
+    <div className="bg-card rounded-xl border border-border p-4 transition-all hover:shadow-sm hover:border-brand">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <Link to="/jobs" className="flex items-center gap-2 min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-brand-muted text-brand-muted-foreground shrink-0">
+            <Icon className="w-5 h-5" strokeWidth={1.75} aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Jobs</div>
+            <div className="text-sm font-bold text-foreground">{loading ? "…" : `${total} total`}</div>
+          </div>
+        </Link>
+        <Link to="/jobs/board" className="text-xs font-semibold text-primary hover:underline shrink-0">
+          Board
+        </Link>
+      </div>
+      <Link to="/jobs" className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+          {JOB_STATUSES.map((status) => (
+            <BucketRow key={status} label={shortStatus(status)} value={loading ? "…" : String(counts[status] || 0)} compact />
+          ))}
+        </dl>
+      </Link>
+    </div>
+  );
+}
+
+function ActionItemsTile({ loading, count, items }) {
+  const Icon = NAV_ICONS.actionItems;
+  return (
+    <Link
+      to="/jobs/action-items"
+      className="block bg-card rounded-xl border border-border p-4 transition-all hover:shadow-sm hover:border-attention focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-attention-muted text-attention-muted-foreground">
+          <Icon className="w-5 h-5" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action items</div>
+          <div className="text-sm font-bold text-attention">{loading ? "…" : `${count} need attention`}</div>
+        </div>
+      </div>
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : count === 0 ? (
+        <p className="text-sm text-muted-foreground">Nothing blocked right now.</p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map(({ job, reasons }) => (
+            <li key={job.id} className="text-sm min-w-0">
+              <div className="font-medium text-foreground truncate">{job.title}</div>
+              <div className="text-xs text-attention truncate">{reasons.join(" · ")}</div>
+            </li>
+          ))}
+          {count > items.length && (
+            <li className="text-xs text-muted-foreground">+{count - items.length} more</li>
+          )}
+        </ul>
+      )}
+    </Link>
+  );
+}
+
+function BucketRow({ label, value, attention = false, compact = false }) {
+  return (
+    <div className={cn("flex items-baseline justify-between gap-2", compact && "gap-1")}>
+      <dt className={cn("text-muted-foreground truncate", compact ? "text-xs" : "text-xs")}>{label}</dt>
+      <dd className={cn("font-semibold tabular-nums shrink-0", attention ? "text-attention" : "text-foreground", compact && "text-xs")}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function shortStatus(status) {
+  if (status === "Waiting on Materials") return "Materials";
+  if (status === "In Progress") return "In progress";
+  return status;
 }
 
 function Section({ title, children }) {
@@ -124,7 +227,10 @@ function JobRow({ job }) {
   return (
     <Link
       to={`/jobs/${job.id}`}
-      className="block bg-card rounded-xl border border-border p-4 hover:border-brand hover:shadow-sm transition-all"
+      className={cn(
+        "block bg-card rounded-xl border p-4 hover:shadow-sm transition-all",
+        statusCardClass(job.status)
+      )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

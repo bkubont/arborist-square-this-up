@@ -5,8 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-const STATUSES = ["Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
+import StatusSelect from "@/components/StatusSelect";
 
 export default function JobFormDialog({ open, onOpenChange, onSave, job = null, clients, defaultClientId = "" }) {
   const [form, setForm] = useState({
@@ -87,18 +86,7 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => set("status", v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <StatusSelect value={form.status} onValueChange={(v) => set("status", v)} />
             </div>
             <div>
               <Label>Estimate $</Label>

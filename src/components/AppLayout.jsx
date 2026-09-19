@@ -7,11 +7,13 @@ import { cn } from "@/lib/utils";
 import { PRODUCT_NAME } from "@/lib/brand";
 import { NAV_ICONS } from "@/lib/navIcons";
 
-/** Expanded side menu — includes Dashboard square destinations + core hubs. */
+/** Expanded side menu — Dashboard destinations + Kanban + core hubs. */
 const nav = [
   { to: "/", label: "Dashboard", icon: NAV_ICONS.dashboard, end: true },
+  { to: "/jobs/action-items", label: "Action items", icon: NAV_ICONS.actionItems, attention: true },
+  { to: "/jobs/outstanding", label: "Money", icon: NAV_ICONS.money, attention: true },
   { to: "/jobs/active", label: "Active Jobs", icon: NAV_ICONS.activeJobs },
-  { to: "/jobs/outstanding", label: "Outstanding", icon: NAV_ICONS.outstanding, attention: true },
+  { to: "/jobs/board", label: "Board", icon: NAV_ICONS.board },
   { to: "/jobs", label: "All Jobs", icon: NAV_ICONS.allJobs, end: true },
   { to: "/clients", label: "Clients", icon: NAV_ICONS.clients },
   { to: "/settings", label: "Company", icon: NAV_ICONS.company },
@@ -43,10 +45,7 @@ export default function AppLayout() {
         )}
       >
         <Icon
-          className={cn(
-            "w-5 h-5 shrink-0",
-            !active && item.attention && "text-attention"
-          )}
+          className={cn("w-5 h-5 shrink-0", !active && item.attention && "text-attention")}
           strokeWidth={1.75}
           aria-hidden="true"
         />
@@ -129,7 +128,7 @@ export default function AppLayout() {
           </Link>
           <div className="w-6" />
         </header>
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto min-h-0">
           <Outlet />
         </main>
       </div>

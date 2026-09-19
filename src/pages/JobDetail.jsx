@@ -6,6 +6,7 @@ import { ArrowLeft, Pencil, StickyNote, Send, CheckCircle2, Trash2 } from "lucid
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import StatusSelect from "@/components/StatusSelect";
 import TimelineFeed from "@/components/TimelineFeed";
 import PhotoGallery from "@/components/PhotoGallery";
 import VoiceRecorder from "@/components/VoiceRecorder";
@@ -13,8 +14,9 @@ import Checklist from "@/components/Checklist";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
+import { statusCardClass } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
 
-const STATUSES = ["Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
 const DOC_ENTITIES = ["Estimate", "WorkOrder", "ChangeOrder", "Invoice"];
 
 export default function JobDetail() {
@@ -129,31 +131,20 @@ export default function JobDetail() {
       </div>
 
       {/* Header */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+      <div className={cn("bg-card rounded-xl border p-5 mb-4", statusCardClass(job.status))}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-slate-900">{job.title}</h1>
+            <h1 className="text-2xl font-bold text-foreground">{job.title}</h1>
             {client && (
               <div className="mt-1 space-y-1">
-                <Link to={`/clients/${client.id}`} className="text-sm text-slate-500 hover:text-blue-700">{client.name}</Link>
+                <Link to={`/clients/${client.id}`} className="text-sm text-muted-foreground hover:text-primary">{client.name}</Link>
                 <ClientAddress client={client} />
               </div>
             )}
           </div>
-          <Select value={job.status} onValueChange={changeStatus}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
         </div>
-        {job.description && <p className="text-sm text-slate-600 mt-3">{job.description}</p>}
+        {job.description && <p className="text-sm text-muted-foreground mt-3">{job.description}</p>}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">

@@ -5,6 +5,8 @@ import {
   Layers,
   UsersRound,
   Building2,
+  ListTodo,
+  Columns3,
 } from "lucide-react";
 
 /**
@@ -14,8 +16,12 @@ import {
 export const NAV_ICONS = {
   dashboard: LayoutGrid,
   activeJobs: Briefcase,
+  money: CircleDollarSign,
+  /** @deprecated alias — prefer money */
   outstanding: CircleDollarSign,
   allJobs: Layers,
+  actionItems: ListTodo,
+  board: Columns3,
   clients: UsersRound,
   company: Building2,
 };

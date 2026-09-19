@@ -5,10 +5,11 @@ import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NAV_ICONS } from "@/lib/navIcons";
+import { JOB_STATUSES } from "@/lib/jobFilters";
+import { statusCardClass, statusColors } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
 
 const AllJobsIcon = NAV_ICONS.allJobs;
-
-const STATUSES = ["All", "Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
 
 export default function AllJobs() {
   const [jobs, setJobs] = useState([]);
@@ -23,23 +24,41 @@ export default function AllJobs() {
   }, []);
 
   const shown = filter === "All" ? jobs : jobs.filter((j) => j.status === filter);
+  const filterColors = filter === "All" ? null : statusColors(filter);
 
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-foreground">All Jobs</h1>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Link to="/jobs/board" className="text-sm font-medium text-primary hover:underline px-2">
+            Board
+          </Link>
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger
+              className={cn(
+                "w-52 font-medium border-2",
+                filterColors ? cn(filterColors.border, filterColors.badge) : "border-border"
+              )}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All statuses</SelectItem>
+              {JOB_STATUSES.map((s) => {
+                const c = statusColors(s);
+                return (
+                  <SelectItem key={s} value={s} className={cn("font-medium", c.select)}>
+                    <span className="inline-flex items-center gap-2">
+                      <span className={cn("w-2 h-2 rounded-full shrink-0", c.swatch)} aria-hidden="true" />
+                      {s}
+                    </span>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {loading ? (
@@ -57,7 +76,10 @@ export default function AllJobs() {
               <Link
                 key={j.id}
                 to={`/jobs/${j.id}`}
-                className="flex items-center gap-3 bg-card rounded-xl border border-border p-4 hover:border-brand transition-colors"
+                className={cn(
+                  "flex items-center gap-3 bg-card rounded-xl border p-4 hover:shadow-sm transition-colors",
+                  statusCardClass(j.status)
+                )}
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-foreground truncate">{j.title}</div>

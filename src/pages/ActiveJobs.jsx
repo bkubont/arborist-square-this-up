@@ -5,6 +5,8 @@ import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
 import { isActiveJob, jobBalance } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
+import { statusCardClass } from "@/lib/statusColors";
+import { cn } from "@/lib/utils";
 
 const ActiveIcon = NAV_ICONS.activeJobs;
 
@@ -41,7 +43,10 @@ export default function ActiveJobs() {
               <Link
                 key={j.id}
                 to={`/jobs/${j.id}`}
-                className="flex items-center gap-3 bg-card rounded-xl border border-border p-4 hover:border-brand transition-colors"
+                className={cn(
+                  "flex items-center gap-3 bg-card rounded-xl border p-4 hover:shadow-sm transition-colors",
+                  statusCardClass(j.status)
+                )}
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-foreground truncate">{j.title}</div>
