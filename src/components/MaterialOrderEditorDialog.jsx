@@ -121,11 +121,8 @@ export default function MaterialOrderEditorDialog({ open, onOpenChange, document
         </div>
 
         <div className="mt-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Materials</div>
-            <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine()])}>
-              <Plus className="w-3.5 h-3.5 mr-1" /> Line
-            </Button>
           </div>
           <div className="space-y-2">
             {lines.map((line, index) => (
@@ -164,6 +161,11 @@ export default function MaterialOrderEditorDialog({ open, onOpenChange, document
                 <div className="text-xs text-slate-500 text-right">Line {money(lineAmount(line))}</div>
               </div>
             ))}
+          </div>
+          <div className="mt-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine()])}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Line
+            </Button>
           </div>
         </div>
 

@@ -375,13 +375,8 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
         </div>
 
         <div className="mt-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Line items</div>
-            {!readOnly && (
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>
-                <Plus className="w-3.5 h-3.5 mr-1" /> Line
-              </Button>
-            )}
           </div>
           {!readOnly && (
             <p className="text-xs text-slate-500 mb-2">
@@ -458,6 +453,13 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
               </div>
             ))}
           </div>
+          {!readOnly && (
+            <div className="mt-2">
+              <Button type="button" variant="outline" size="sm" onClick={addLine}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Line
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4 mt-4">

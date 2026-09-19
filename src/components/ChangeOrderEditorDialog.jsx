@@ -194,11 +194,8 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2">
             <Label>Optional line breakdown</Label>
-            <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, { description: "", amount: "" }])}>
-              <Plus className="w-3.5 h-3.5 mr-1" /> Line
-            </Button>
           </div>
           <div className="space-y-2">
             {lines.map((line, index) => (
@@ -210,6 +207,11 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
                 </Button>
               </div>
             ))}
+          </div>
+          <div className="mt-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, { description: "", amount: "" }])}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Line
+            </Button>
           </div>
         </div>
 
