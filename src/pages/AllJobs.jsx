@@ -21,11 +21,12 @@ export default function AllJobs() {
     Promise.all([
       api.entities.Job.list("-created_date", 300),
       api.entities.TimelineEntry.list("-created_date", 1000),
-    ]).then(([j, tl]) => {
-      setJobs(j);
-      setTimeline(tl);
-      setLoading(false);
-    });
+    ])
+      .then(([j, tl]) => {
+        setJobs(j);
+        setTimeline(tl);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);

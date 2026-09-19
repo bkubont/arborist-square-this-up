@@ -176,10 +176,16 @@ export async function createApp(db, env = process.env) {
   app.get('/api/entities/:entity', async (req, res) => {
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);
     const offset = z.coerce.number().int().min(0).parse(req.query.offset || 0);
-    const sort = z.enum(['created_date', '-created_date']).parse(req.query.sort || '-created_date');
+    // created_date | updated_date; leading "-" = DESC (Dashboard / Money / Board use -updated_date)
+    const sort = z.enum(['created_date', '-created_date', 'updated_date', '-updated_date']).parse(req.query.sort || '-created_date');
     const parent = req.query.job_id || req.query.client_id;
     if (parent !== undefined) z.string().min(1).max(36).parse(parent);
-    const rows = await db.all(`SELECT * FROM records WHERE owner_id = ? AND entity = ?${parent ? ' AND parent_id = ?' : ''} ORDER BY created_date ${sort.startsWith('-') ? 'DESC' : 'ASC'}, id ASC LIMIT ${limit} OFFSET ${offset}`, [req.user.id, req.params.entity, ...(parent ? [parent] : [])]);
+    const sortColumn = sort.includes('updated_date') ? 'updated_date' : 'created_date';
+    const sortDir = sort.startsWith('-') ? 'DESC' : 'ASC';
+    const rows = await db.all(
+      `SELECT * FROM records WHERE owner_id = ? AND entity = ?${parent ? ' AND parent_id = ?' : ''} ORDER BY ${sortColumn} ${sortDir}, id ASC LIMIT ${limit} OFFSET ${offset}`,
+      [req.user.id, req.params.entity, ...(parent ? [parent] : [])]
+    );
     res.json(rows.map(decode));
   });
   app.get('/api/entities/:entity/:id', async (req, res) => res.json(await getRecord(db, req.user.id, req.params.entity, req.params.id)));

@@ -18,14 +18,18 @@ async function request(path, options = {}) {
   return data;
 }
 const post = (path, data) => request(path, { method: 'POST', body: JSON.stringify(data) });
+/** Server caps page size at 500; larger requests are fetched in pages. */
+const PAGE_SIZE_MAX = 500;
+
 const entity = name => ({
   async filter(filters = {}, sort = '-created_date', limit = 200) {
+    const pageSize = Math.min(Math.max(1, Number(limit) || 200), PAGE_SIZE_MAX);
     const records = [];
-    for (let offset = 0; ; offset += limit) {
-      const params = new URLSearchParams({ ...filters, sort, limit: String(limit), offset: String(offset) });
+    for (let offset = 0; ; offset += pageSize) {
+      const params = new URLSearchParams({ ...filters, sort, limit: String(pageSize), offset: String(offset) });
       const page = await request(`/entities/${name}?${params}`);
       records.push(...page);
-      if (page.length < limit) return records;
+      if (page.length < pageSize) return records;
     }
   },
   list(sort = '-created_date', limit = 200) { return this.filter({}, sort, limit); },

@@ -138,6 +138,10 @@ test('invalid inputs, forbidden file types, expired invitations and login thrott
   assert.equal((await request('/auth/register', { method: 'POST', data: { email: 'expired@example.com', password: 'strong-password-123', inviteToken: expired } })).status, 400);
   assert.equal((await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: '' } })).status, 400);
   assert.equal((await request('/entities/Client?sort=DROP%20TABLE', { cookie: a.cookie })).status, 400);
+  assert.equal((await request('/entities/Client?sort=-updated_date', { cookie: a.cookie })).status, 200);
+  assert.equal((await request('/entities/Client?sort=updated_date', { cookie: a.cookie })).status, 200);
+  assert.equal((await request('/entities/TimelineEntry?limit=1000', { cookie: a.cookie })).status, 400);
+  assert.equal((await request('/entities/TimelineEntry?limit=500', { cookie: a.cookie })).status, 200);
   const form = new FormData(); form.append('file', new Blob(['<svg onload="alert(1)"></svg>'], { type: 'image/svg+xml' }), 'image.svg');
   assert.equal((await request('/files', { method: 'POST', cookie: a.cookie, form })).status, 400);
   const large = new FormData(); large.append('file', new Blob([new Uint8Array(4 * 1024 * 1024 + 1)], { type: 'image/png' }), 'large.png');
