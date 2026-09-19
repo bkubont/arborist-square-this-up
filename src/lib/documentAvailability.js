@@ -8,16 +8,31 @@
 /** Entities limited to one non-void document per job. */
 export const SINGLE_DOC_ENTITIES = new Set(["Estimate", "WorkOrder", "Invoice"]);
 
+/** Live accepted estimate — voided snapshots do not authorize. */
+export function isLiveAcceptedEstimate(doc) {
+  if (!doc || doc.status === "void") return false;
+  if (doc.entity && doc.entity !== "Estimate") return false;
+  return doc.status === "accepted" || !!doc.accepted_snapshot;
+}
+
 /** @param {Array<{entity?: string, status?: string, accepted_snapshot?: unknown}>} documents */
 export function hasAcceptedEstimate(documents = []) {
   return documents.some(
-    (d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot),
+    (d) => d.entity === "Estimate" && d.status !== "void" && (d.status === "accepted" || d.accepted_snapshot),
   );
 }
 
 /** Active (non-void) document of this entity for the job, if any. */
 export function findActiveDocument(entity, documents = []) {
   return documents.find((d) => d.entity === entity && d.status !== "void") || null;
+}
+
+/** @param {Array} documents */
+export function findLiveAcceptedEstimate(documents = []) {
+  const estimates = documents.filter((d) => d.entity === "Estimate");
+  return estimates.find((e) => e.status === "accepted")
+    || estimates.find((e) => e.status !== "void" && e.accepted_snapshot)
+    || null;
 }
 
 /** Work Order is complete when status is `complete` (document enum). */
@@ -76,8 +91,8 @@ export function documentCreateAvailability(entity, documents = []) {
   return { available: true };
 }
 
-/** Accepted estimate is print/view only — no content edits. */
+/** Accepted (non-void) estimate is print/view only — no content edits. */
 export function isEstimateReadOnly(document) {
-  if (!document) return false;
+  if (!document || document.status === "void") return document?.status === "void";
   return document.status === "accepted" || !!document.accepted_snapshot;
 }

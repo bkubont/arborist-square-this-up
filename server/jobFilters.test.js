@@ -27,6 +27,12 @@ describe("payment-aware money helpers", () => {
     assert.equal(jobBalance(job, 0), 800);
   });
 
+  it("keeps legacy deposit when timeline deposits are also logged", () => {
+    const job = { id: "j1", invoice_amount: 1000, deposit_amount: 200 };
+    assert.equal(jobReceived(job, 50, 100), 350);
+    assert.equal(jobBalance(job, 50, 100), 650);
+  });
+
   it("moneySummary includes timeline payments in received/outstanding", () => {
     const jobs = [{ id: "j1", invoice_amount: 1000, deposit_amount: 100 }];
     const timeline = [{ type: "payment_received", job_id: "j1", amount: 300 }];

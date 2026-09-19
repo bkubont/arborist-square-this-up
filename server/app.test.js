@@ -5,6 +5,8 @@ import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
 import { hash, token } from './security.js';
 import { importData } from './import.js';
+import { saveRecord } from './domain.js';
+import { sumDepositsApplied, isLiveAcceptedEstimate, findLiveAcceptedEstimate } from './documentRules.js';
 
 const CLIENT_ADDR = { address: '1 Main St', city: 'Springfield', state: 'IL', zip: '62701' };
 
@@ -1010,4 +1012,109 @@ test('void and revise document rules; partial invoice status; ownership', async 
   assert.equal((await request(`/documents/Invoice/${paid.id}/void`, {
     method: 'POST', cookie: a.cookie, data: {},
   })).status, 400);
+});
+
+test('document rules: void estimates excluded, deposits sum, freeze snapshot, job_id move, rollups', async t => {
+  const { db, request, register } = await fixture(t);
+  const a = await register('rules-fix@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const me = (await request('/auth/me', { cookie: a.cookie })).data;
+  const client = await create('Client', { name: 'Rules client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Rules job', client_id: client.id });
+  const job2 = await create('Job', { title: 'Other job', client_id: client.id });
+
+  assert.equal(sumDepositsApplied({ deposit_amount: 200 }, [{ type: 'deposit_received', amount: 100 }]), 300);
+  assert.equal(isLiveAcceptedEstimate({ status: 'void', accepted_snapshot: { total: 1 } }), false);
+  assert.equal(findLiveAcceptedEstimate([
+    { status: 'void', accepted_snapshot: { total: 99 } },
+    { status: 'accepted', accepted_snapshot: { total: 50 } },
+  ]).accepted_snapshot.total, 50);
+
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-RULES',
+    status: 'accepted',
+    total: 400,
+    lines: [{ description: 'Labor', labor_amount: 400 }],
+    accepted_snapshot: { number: 'EST-RULES', total: 400, lines: [{ description: 'Labor', labor_amount: 400 }] },
+  });
+
+  // Freeze signature / snapshot fields
+  assert.equal((await request(`/entities/Estimate/${estimate.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: { accepted_snapshot: { number: 'HACK', total: 1, lines: [] }, signer_name: 'Attacker' },
+  })).status, 400);
+
+  const wo = (await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  })).data;
+
+  // Void estimate clears estimate_amount and blocks from-estimate
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/void`, {
+    method: 'POST', cookie: a.cookie, data: {},
+  })).status, 200);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.estimate_amount, 0);
+  assert.equal((await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  })).status, 400);
+
+  // Replacement: void WO, create new accepted estimate, new WO
+  await request(`/documents/WorkOrder/${wo.id}/void`, { method: 'POST', cookie: a.cookie, data: {} });
+  const accepted2 = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-OK',
+    status: 'accepted',
+    total: 250,
+    lines: [{ description: 'Labor', labor_amount: 250 }],
+    accepted_snapshot: { number: 'EST-OK', total: 250, lines: [{ description: 'Labor', labor_amount: 250 }] },
+  });
+  const wo2 = (await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: accepted2.id },
+  })).data;
+  await request(`/entities/WorkOrder/${wo2.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'complete' } });
+
+  // Legacy deposit_amount + timeline deposit both apply
+  await saveRecord(db, me.id, 'Job', { deposit_amount: 200 }, job.id);
+  await create('TimelineEntry', {
+    job_id: job.id, type: 'deposit_received', text: 'More deposit', category: 'financial', amount: 100,
+  });
+  const inv = await request('/invoices/from-job', { method: 'POST', cookie: a.cookie, data: { job_id: job.id } });
+  assert.equal(inv.status, 201, inv.data?.message);
+  assert.equal(inv.data.deposits_applied, 300);
+
+  // Material order void clears materials_cost
+  const mo = await create('MaterialOrder', {
+    job_id: job.id, number: 'MO-1', status: 'draft',
+    lines: [{ description: 'Parts', qty: 1, unit_price: 40 }],
+    total: 40,
+  });
+  await request(`/entities/MaterialOrder/${mo.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { total: 40 },
+  });
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 40);
+  await request(`/documents/MaterialOrder/${mo.id}/void`, { method: 'POST', cookie: a.cookie, data: {} });
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 0);
+
+  // Cannot move invoice onto a job without a complete WO
+  assert.equal((await request(`/entities/Invoice/${inv.data.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { job_id: job2.id },
+  })).status, 400);
+
+  // Cannot move WO onto a job that already has an active WO
+  const estB = await create('Estimate', {
+    job_id: job2.id, number: 'EST-B', status: 'accepted', total: 10,
+    lines: [{ description: 'x', labor_amount: 10 }],
+    accepted_snapshot: { number: 'EST-B', total: 10, lines: [{ description: 'x', labor_amount: 10 }] },
+  });
+  const woB = (await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estB.id },
+  })).data;
+  assert.equal((await request(`/entities/WorkOrder/${wo2.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { job_id: job2.id },
+  })).status, 409);
+  assert.equal(woB.id != null, true);
 });

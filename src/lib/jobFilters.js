@@ -61,10 +61,10 @@ export function depositsByJobId(timeline = []) {
 
 /**
  * Deposit + logged payments (aligns with FinancialPanel).
- * Prefer timeline deposit_received; fall back to legacy job.deposit_amount.
+ * Always include legacy job.deposit_amount plus timeline deposit_received amounts.
  */
 export function jobReceived(job, paymentsLogged = 0, depositsLogged = 0) {
-  const deposit = depositsLogged > 0 ? depositsLogged : (Number(job?.deposit_amount) || 0);
+  const deposit = (Number(job?.deposit_amount) || 0) + (Number(depositsLogged) || 0);
   return deposit + (Number(paymentsLogged) || 0);
 }
 
@@ -113,8 +113,7 @@ export function invoiceBalanceDue(invoice) {
 
 /**
  * Money buckets for Dashboard Money tile / Outstanding page.
- * received / outstanding include deposit_received + payment_received timeline entries
- * (legacy job.deposit_amount still used when no timed deposits).
+ * received / outstanding include legacy deposit_amount + deposit_received + payment_received.
  * waitingApproval = Estimate/CO status `sent`
  * waitingPayment = Invoice status `sent` or `partial` — sum of balance_due (not full total)
  */

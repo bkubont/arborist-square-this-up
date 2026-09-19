@@ -36,10 +36,11 @@ export default function FinancialPanel({ job, documents = [], timeline = [], onL
     const accepted =
       estimates.find((e) => e.status === "accepted") ||
       estimates.find((e) => e.accepted_snapshot);
+    const hadEstimates = documents.some((d) => d.entity === "Estimate");
     const estimateTotal =
       accepted?.accepted_snapshot?.total ??
       accepted?.total ??
-      job.estimate_amount;
+      (hadEstimates ? 0 : job.estimate_amount);
 
     const approvedCos = documents.filter((d) => d.entity === "ChangeOrder" && d.status === "approved");
     const baseline = Number(accepted?.accepted_snapshot?.total ?? accepted?.total) || 0;
@@ -50,13 +51,15 @@ export default function FinancialPanel({ job, documents = [], timeline = [], onL
     const approvedNet = approvedCos.reduce((sum, co) => sum + changeOrderNet(co), 0);
 
     const invoices = documents.filter((d) => d.entity === "Invoice" && d.status !== "void");
-    const invoiced = invoices.length
+    const hadInvoices = documents.some((d) => d.entity === "Invoice");
+    const invoiced = hadInvoices
       ? invoices.reduce((sum, inv) => sum + (Number(inv.total) || 0), 0)
-      : job.invoice_amount || 0;
+      : (job.invoice_amount || 0);
 
     const materialOrders = documents.filter((d) => d.entity === "MaterialOrder" && d.status !== "void");
     const materialsFromDocs = materialOrders.reduce((sum, mo) => sum + (Number(mo.total) || 0), 0);
-    const materials = materialOrders.length ? materialsFromDocs : (job.materials_cost || 0);
+    const hadMaterialOrders = documents.some((d) => d.entity === "MaterialOrder");
+    const materials = hadMaterialOrders ? materialsFromDocs : (job.materials_cost || 0);
 
     const paymentsLogged = timeline
       .filter((e) => e.type === "payment_received" && e.amount != null)
@@ -64,8 +67,8 @@ export default function FinancialPanel({ job, documents = [], timeline = [], onL
     const depositsLogged = timeline
       .filter((e) => e.type === "deposit_received" && e.amount != null)
       .reduce((sum, e) => sum + Number(e.amount), 0);
-    // Prefer timeline deposits; fall back to legacy job.deposit_amount when no timed deposits.
-    const deposit = depositsLogged > 0 ? depositsLogged : (Number(job.deposit_amount) || 0);
+    // Legacy job.deposit_amount + timeline deposits (never discard legacy when logging more).
+    const deposit = (Number(job.deposit_amount) || 0) + depositsLogged;
     const paid = deposit + paymentsLogged;
     const balance = Math.max(0, invoiced - paid);
 

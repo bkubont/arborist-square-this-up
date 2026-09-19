@@ -11,6 +11,7 @@ import InvoiceEditorDialog from "@/components/InvoiceEditorDialog";
 import {
   documentCreateAvailability,
   findActiveDocument,
+  findLiveAcceptedEstimate,
   hasAcceptedEstimate,
   hasCompleteWorkOrder,
   SINGLE_DOC_ENTITIES,
@@ -69,7 +70,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       if (entity === "MaterialOrder") {
-        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        const accepted = findLiveAcceptedEstimate(documents);
         Object.assign(base, {
           date: today,
           lines: [],
@@ -78,7 +79,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       if (entity === "WorkOrder") {
-        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        const accepted = findLiveAcceptedEstimate(documents);
         if (!accepted) {
           alert("Accept the estimate first — then create a Work Order from it.");
           return;
@@ -90,7 +91,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       }
 
       if (entity === "ChangeOrder") {
-        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        const accepted = findLiveAcceptedEstimate(documents);
         Object.assign(base, {
           lines: [],
           related_estimate_id: accepted?.id,
