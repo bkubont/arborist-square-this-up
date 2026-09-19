@@ -198,6 +198,7 @@ test('material order lines from estimate / WO / CO; WO Line# is 1-based', () => 
   assert.equal(est[0].source_entity, 'Estimate');
   assert.equal(est[0].source_line_index, 0);
   assert.equal(est[0].wo_line_number, undefined);
+  assert.equal(est[0].line_status, undefined);
 
   const wo = materialLinesFromWorkOrder({
     id: 'wo-1',

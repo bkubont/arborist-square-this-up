@@ -86,7 +86,11 @@ export const schemas = {
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
   TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided']),
     text: text.optional(), photo_url: z.string().max(200).optional(),
-    category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery']).default('note'), amount: money.optional() }),
+    category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery']).default('note'),
+    amount: money.optional(),
+    /** When set, ties a receipt/photo to a specific Material Order (same job). */
+    related_material_order_id: id.optional(),
+  }),
   CompanyProfile: z.object({
     name: z.string().trim().max(250).default(''),
     address: text.optional(),
@@ -263,6 +267,12 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   if (parentId) await getRecord(db, owner, parentEntity, parentId);
   if (data.related_estimate_id) await getRecord(db, owner, 'Estimate', data.related_estimate_id);
   if (data.related_work_order_id) await getRecord(db, owner, 'WorkOrder', data.related_work_order_id);
+  if (data.related_material_order_id) {
+    const mo = await getRecord(db, owner, 'MaterialOrder', data.related_material_order_id);
+    if (entity === 'TimelineEntry' && data.job_id && mo.job_id !== data.job_id) {
+      throw fail(400, 'Material Order receipt must belong to the same job');
+    }
+  }
   if (Array.isArray(data.billed_change_order_ids)) {
     for (const changeOrderId of data.billed_change_order_ids) await getRecord(db, owner, 'ChangeOrder', changeOrderId);
   }

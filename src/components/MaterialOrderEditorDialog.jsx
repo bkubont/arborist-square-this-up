@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Plus, Printer, Trash2 } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Camera, Loader2, Plus, Printer, Trash2 } from "lucide-react";
 import { api } from "@/api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Image } from "@/components/ui/image";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import StatusSelect from "@/components/StatusSelect";
 import SupplierTypeahead from "@/components/SupplierTypeahead";
@@ -23,6 +24,7 @@ function emptyLine() {
     notes: "",
     supplier: "",
     on_hand: false,
+    /** Optional procurement status — blank by default (not Pricing). */
     line_status: "",
     source_entity: undefined,
     source_id: undefined,
@@ -63,6 +65,7 @@ function serializeLine(line) {
     wo_line_number: woNum != null && Number.isFinite(woNum) ? Math.round(woNum) : undefined,
     category: line.category || undefined,
     on_hand: !!line.on_hand || undefined,
+    // Omit when unset — never coerce to pricing
     line_status: line.line_status || undefined,
     source_entity: line.source_entity || undefined,
     source_id: line.source_id || undefined,
@@ -78,11 +81,36 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-/** Material Order editor — two-row lines, WO Line#, catalog/seed supplier typeahead. */
+function isMoReceipt(entry, materialOrderId) {
+  return Boolean(
+    entry?.photo_url
+    && entry.related_material_order_id === materialOrderId
+    && (entry.category === "receipt" || entry.type === "receipt"),
+  );
+}
+
+/** Material Order editor — two-row lines, WO Line#, receipts, catalog/seed supplier typeahead. */
 export default function MaterialOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved, onRevised }) {
+  const cameraRef = useRef(null);
+  const libraryRef = useRef(null);
   const [form, setForm] = useState({ number: "", status: "draft", date: "", notes: "" });
   const [lines, setLines] = useState([emptyLine()]);
+  const [receipts, setReceipts] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  const loadReceipts = useCallback(async () => {
+    if (!jobId || !document?.id) {
+      setReceipts([]);
+      return;
+    }
+    try {
+      const entries = await api.entities.TimelineEntry.filter({ job_id: jobId }, "-created_date", 500);
+      setReceipts((entries || []).filter((e) => isMoReceipt(e, document.id)));
+    } catch {
+      setReceipts([]);
+    }
+  }, [jobId, document?.id]);
 
   useEffect(() => {
     if (!open || !document) return;
@@ -96,7 +124,8 @@ export default function MaterialOrderEditorDialog({ open, onOpenChange, document
       ? document.lines.map(toFormLine)
       : [emptyLine()];
     setLines(existing);
-  }, [open, document]);
+    loadReceipts();
+  }, [open, document, loadReceipts]);
 
   if (!document) return null;
 
@@ -106,6 +135,41 @@ export default function MaterialOrderEditorDialog({ open, onOpenChange, document
 
   const subtotal = lines.reduce((sum, line) => sum + lineAmount(line), 0);
   const readOnly = form.status === "void";
+
+  const uploadReceipts = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length || !jobId || !document.id) return;
+    setPhotoBusy(true);
+    try {
+      for (const file of files) {
+        const { file_url } = await api.uploadFile({ file });
+        await api.entities.TimelineEntry.create({
+          job_id: jobId,
+          type: "receipt",
+          text: `Receipt · Material Order ${form.number || document.number || ""}`.trim(),
+          photo_url: file_url,
+          category: "receipt",
+          related_material_order_id: document.id,
+        });
+      }
+      await loadReceipts();
+      onSaved?.();
+    } catch (e) {
+      console.error(e);
+      alert("Receipt upload failed. Try again.");
+    } finally {
+      setPhotoBusy(false);
+      if (cameraRef.current) cameraRef.current.value = "";
+      if (libraryRef.current) libraryRef.current.value = "";
+    }
+  };
+
+  const removeReceipt = async (entry) => {
+    if (!confirm("Delete this receipt photo?")) return;
+    await api.entities.TimelineEntry.delete(entry.id);
+    await loadReceipts();
+    onSaved?.();
+  };
 
   const save = async () => {
     setSaving(true);
@@ -213,9 +277,9 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
         </div>
 
         <div className="mt-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Materials</div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button type="button" variant="outline" size="sm" onClick={print}>
                 <Printer className="w-3.5 h-3.5 mr-1" /> Print
               </Button>
@@ -266,7 +330,7 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
                   )}
                 </div>
 
-                {/* Row 2: Line# | Category | Spec/notes | Supplier | On hand */}
+                {/* Row 2: Line# | Category | Spec/notes | Supplier | On hand | optional status */}
                 <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
                   <div className="sm:col-span-1">
                     <Label className="text-xs">Line#</Label>
@@ -313,10 +377,14 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
                         disabled={readOnly}
                       >
                         <SelectTrigger className="h-8 text-xs bg-white">
-                          <SelectValue placeholder="Line status" />
+                          <SelectValue placeholder="">
+                            {line.line_status ? statusLabel(line.line_status) : ""}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none__">No status</SelectItem>
+                          <SelectItem value="__none__">
+                            <span className="text-slate-400">&nbsp;</span>
+                          </SelectItem>
                           {MATERIAL_LINE_STATUSES.map((s) => (
                             <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
                           ))}
@@ -330,6 +398,77 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
           </div>
         </div>
 
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+            <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Receipts</div>
+            {!readOnly && (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={photoBusy}
+                  onClick={() => cameraRef.current?.click()}
+                >
+                  {photoBusy ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Camera className="w-3.5 h-3.5 mr-1" />}
+                  Camera
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={photoBusy}
+                  onClick={() => libraryRef.current?.click()}
+                >
+                  Upload
+                </Button>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 mb-2">
+            Receipts attach to this Material Order, the job photo gallery (Receipt), and the job timeline.
+          </p>
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => uploadReceipts(e.target.files)}
+          />
+          <input
+            ref={libraryRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => uploadReceipts(e.target.files)}
+          />
+          {receipts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400">
+              No receipts yet
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {receipts.map((entry) => (
+                <div key={entry.id} className="relative group rounded-md overflow-hidden border border-slate-200 aspect-square bg-slate-100">
+                  <Image src={entry.photo_url} fittingType="fill" className="w-full h-full" alt={entry.text || "Receipt"} />
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="absolute top-1 right-1 p-1 rounded bg-white/90 text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => removeReceipt(entry)}
+                      title="Delete receipt"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="mt-3">
           <Label>Notes</Label>
           <Textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} disabled={readOnly} />
@@ -340,7 +479,7 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
           <DocumentLifecycleActions
             entity="MaterialOrder"
             document={document}
-            disabled={saving}
+            disabled={saving || photoBusy}
             onSaved={() => { onSaved?.(); onOpenChange(false); }}
             onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
           />

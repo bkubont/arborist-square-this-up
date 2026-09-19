@@ -1162,6 +1162,7 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
   assert.equal(mos[0].lines[0].unit_price, 48);
   assert.equal(mos[0].lines[0].source_entity, 'Estimate');
   assert.equal(mos[0].lines[0].wo_line_number, undefined);
+  assert.equal(mos[0].lines[0].line_status, undefined);
 
   // Legacy ordered → purchased; new line fields persist
   const patched = await request(`/entities/MaterialOrder/${mos[0].id}`, {
@@ -1184,6 +1185,57 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
   assert.equal(patched.data.lines[0].on_hand, true);
   assert.equal(patched.data.lines[0].line_status, 'pricing');
 
+  // Clearing line_status stores unset (not coerced to pricing)
+  const cleared = await request(`/entities/MaterialOrder/${mos[0].id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'purchased',
+      lines: [{
+        description: mos[0].lines[0].description,
+        qty: 1,
+        unit_price: 48,
+        supplier: 'Home Depot',
+        on_hand: true,
+      }],
+      total: 48,
+    },
+  });
+  assert.equal(cleared.status, 200, cleared.data?.message);
+  assert.equal(cleared.data.lines[0].line_status, undefined);
+
+  // Receipt photo linked to this Material Order (+ job gallery/timeline via TimelineEntry)
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from('89504e470d0a1a0a', 'hex')], { type: 'image/png' }), 'receipt.png');
+  const upload = await request('/files', { method: 'POST', cookie: a.cookie, form });
+  assert.equal(upload.status, 201, upload.data?.message);
+  const receipt = await request('/entities/TimelineEntry', {
+    method: 'POST', cookie: a.cookie,
+    data: {
+      job_id: job.id,
+      type: 'receipt',
+      category: 'receipt',
+      text: 'Receipt · Material Order MO',
+      photo_url: upload.data.file_url,
+      related_material_order_id: mos[0].id,
+    },
+  });
+  assert.equal(receipt.status, 201, receipt.data?.message);
+  assert.equal(receipt.data.related_material_order_id, mos[0].id);
+  assert.equal(receipt.data.category, 'receipt');
+
+  // Wrong-job Material Order link rejected
+  const job2 = await create('Job', { title: 'Other job', client_id: client.id });
+  const otherMo = await create('MaterialOrder', { job_id: job2.id, number: 'MO-OTHER', status: 'draft', lines: [] });
+  assert.equal((await request('/entities/TimelineEntry', {
+    method: 'POST', cookie: a.cookie,
+    data: {
+      job_id: job.id,
+      type: 'receipt',
+      category: 'receipt',
+      photo_url: upload.data.file_url,
+      related_material_order_id: otherMo.id,
+    },
+  })).status, 400);
   // New statuses accepted
   for (const status of ['quote', 'partial', 'received', 'void']) {
     const mo = await create('MaterialOrder', {
