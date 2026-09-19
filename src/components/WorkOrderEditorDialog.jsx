@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CatalogPickerDialog from "@/components/CatalogPickerDialog";
+import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
 import {
@@ -61,7 +62,7 @@ function serializeLine(line) {
 }
 
 /** Unified Work Order editor (Phase 3) — one type, per-line work category. */
-export default function WorkOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved }) {
+export default function WorkOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved, onRevised }) {
   const [form, setForm] = useState({
     number: "", status: "draft", crew: "", start_date: "", end_date: "",
     instructions: "", notes: "", tax_rate: "",
@@ -282,9 +283,18 @@ export default function WorkOrderEditorDialog({ open, onOpenChange, document, jo
             </div>
           </div>
 
-          <DialogFooter className="gap-2 mt-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-            <Button className="bg-slate-900 hover:bg-slate-800" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save work order"}</Button>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2 sm:justify-between">
+            <DocumentLifecycleActions
+              entity="WorkOrder"
+              document={document}
+              disabled={saving}
+              onSaved={() => { onSaved?.(); onOpenChange(false); }}
+              onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+              <Button className="bg-slate-900 hover:bg-slate-800" onClick={save} disabled={saving || form.status === "void"}>{saving ? "Saving…" : "Save work order"}</Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

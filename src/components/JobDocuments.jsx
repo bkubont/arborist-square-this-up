@@ -14,6 +14,11 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
   const [openDoc, setOpenDoc] = useState(null);
   const [creating, setCreating] = useState(null);
 
+  const openRevised = async (entity, created) => {
+    await onChanged?.();
+    setOpenDoc({ entity, document: { ...created, entity } });
+  };
+
   const createDraft = async (entity) => {
     setCreating(entity);
     try {
@@ -155,6 +160,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         jobId={jobId}
         jobTitle={jobTitle}
         onSaved={onChanged}
+        onRevised={(created) => openRevised("Estimate", created)}
       />
       <WorkOrderEditorDialog
         open={openDoc?.entity === "WorkOrder"}
@@ -162,6 +168,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         document={openDoc?.entity === "WorkOrder" ? openDoc.document : null}
         jobId={jobId}
         onSaved={onChanged}
+        onRevised={(created) => openRevised("WorkOrder", created)}
       />
       <ChangeOrderEditorDialog
         open={openDoc?.entity === "ChangeOrder"}
@@ -169,6 +176,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         document={openDoc?.entity === "ChangeOrder" ? openDoc.document : null}
         jobId={jobId}
         onSaved={onChanged}
+        onRevised={(created) => openRevised("ChangeOrder", created)}
       />
       <InvoiceEditorDialog
         open={openDoc?.entity === "Invoice"}
@@ -178,6 +186,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         jobTitle={jobTitle}
         client={client}
         onSaved={onChanged}
+        onRevised={(created) => openRevised("Invoice", created)}
       />
     </div>
   );

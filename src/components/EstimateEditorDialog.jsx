@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CatalogPickerDialog from "@/components/CatalogPickerDialog";
+import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
 import {
@@ -21,7 +22,7 @@ import {
 /**
  * Estimate editor: dual line model + catalog search→fill + client e-sign send.
  */
-export default function EstimateEditorDialog({ open, onOpenChange, document, jobId, jobTitle, onSaved }) {
+export default function EstimateEditorDialog({ open, onOpenChange, document, jobId, jobTitle, onSaved, onRevised }) {
   const [form, setForm] = useState({
     number: "",
     status: "draft",
@@ -381,17 +382,26 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             </div>
           )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-            <Button variant="outline" onClick={printEstimate} disabled={saving}>
-              <Printer className="w-4 h-4 mr-1" /> Print
-            </Button>
-            {form.status !== "sent" && form.status !== "accepted" && (
-              <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
-            )}
-            <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving}>
-              {saving ? "Saving…" : "Save estimate"}
-            </Button>
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-2 sm:justify-between">
+            <DocumentLifecycleActions
+              entity="Estimate"
+              document={document}
+              disabled={saving}
+              onSaved={() => { onSaved?.(); onOpenChange(false); }}
+              onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+              <Button variant="outline" onClick={printEstimate} disabled={saving}>
+                <Printer className="w-4 h-4 mr-1" /> Print
+              </Button>
+              {form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
+                <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
+              )}
+              <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving || form.status === "void"}>
+                {saving ? "Saving…" : "Save estimate"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
-import { invoiceTotals } from "@/lib/documentMapping";
+import { invoiceTotals, deriveInvoiceStatus } from "@/lib/documentMapping";
+import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 
 function emptyMaterial() {
   return { description: "", qty: "", unit_price: "" };
@@ -53,6 +54,7 @@ export default function InvoiceEditorDialog({
   jobTitle,
   client,
   onSaved,
+  onRevised,
 }) {
   const [form, setForm] = useState({
     number: "",
@@ -72,6 +74,8 @@ export default function InvoiceEditorDialog({
   const [misc, setMisc] = useState([emptyMisc()]);
   const [company, setCompany] = useState(null);
   const [authorizedTotal, setAuthorizedTotal] = useState(null);
+  const [billingCeiling, setBillingCeiling] = useState(null);
+  const [priorInvoiced, setPriorInvoiced] = useState(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -120,6 +124,8 @@ export default function InvoiceEditorDialog({
       .then((rows) => setCompany(rows[0] || null))
       .catch(() => setCompany(null));
 
+    setPriorInvoiced(document.prior_invoiced ?? 0);
+    setBillingCeiling(document.billing_ceiling ?? null);
     if (document.authorized_total != null) {
       setAuthorizedTotal(document.authorized_total);
     } else if (jobId) {
@@ -142,8 +148,9 @@ export default function InvoiceEditorDialog({
     [materials, labor, misc, form.tax_rate, form.deposits_applied, form.payments_applied]
   );
 
-  const overAuthorized =
-    authorizedTotal != null && totals.total > Number(authorizedTotal) + 0.009;
+  const ceiling = billingCeiling != null ? Number(billingCeiling) : authorizedTotal != null ? Number(authorizedTotal) : null;
+  const cumulative = (Number(priorInvoiced) || 0) + totals.total;
+  const overAuthorized = ceiling != null && cumulative > ceiling + 0.009;
 
   if (!document) return null;
 
@@ -164,7 +171,13 @@ export default function InvoiceEditorDialog({
         deposits_applied: form.deposits_applied,
         payments_applied: form.payments_applied,
       });
-      const nextStatus = markSent ? "sent" : form.status;
+      let nextStatus = markSent ? "sent" : form.status;
+      nextStatus = deriveInvoiceStatus({
+        balance_due: next.balance_due,
+        payments_applied: form.payments_applied,
+        deposits_applied: form.deposits_applied,
+        status: nextStatus,
+      });
       const previousStatus = document.status;
       await api.entities.Invoice.update(document.id, {
         number: form.number || undefined,
@@ -185,15 +198,20 @@ export default function InvoiceEditorDialog({
         misc_lines,
         ...next,
       });
-      try {
-        await api.entities.Job.update(jobId, { invoice_amount: next.total });
-      } catch { /* non-blocking rollup */ }
 
       if (nextStatus === "sent" && previousStatus !== "sent" && previousStatus !== "partial" && previousStatus !== "paid") {
         await api.entities.TimelineEntry.create({
           job_id: jobId,
           type: "invoice_sent",
           text: `Invoice ${form.number || ""} sent to client`.trim(),
+          category: "financial",
+        });
+      }
+      if (nextStatus === "partial" && previousStatus !== "partial") {
+        await api.entities.TimelineEntry.create({
+          job_id: jobId,
+          type: "note",
+          text: `Invoice ${form.number || ""} marked partial (progress billing)`.trim(),
           category: "financial",
         });
       }
@@ -356,16 +374,30 @@ export default function InvoiceEditorDialog({
           <DialogTitle>Invoice{form.number ? ` · ${form.number}` : ""}</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-slate-500 -mt-1">
-          Prefill from accepted estimate + approved change orders. All fields stay editable. No client e-sign on invoices.
+          Prefill from accepted estimate + approved change orders. Edit lines for progress billing. All fields stay editable. No client e-sign on invoices.
         </p>
 
         {overAuthorized && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
-              Invoice total ({money(totals.total)}) exceeds authorized contract total
-              ({money(authorizedTotal)}). Add an approved change order or adjust lines before sending.
+              {priorInvoiced > 0 ? (
+                <>
+                  Cumulative invoiced ({money(cumulative)}) exceeds the billing ceiling ({money(ceiling)}),
+                  which includes tax on approved change orders. Adjust progress lines or add an approved CO.
+                </>
+              ) : (
+                <>
+                  Invoice total ({money(totals.total)}) exceeds the billing ceiling ({money(ceiling)}),
+                  which includes tax on approved change-order nets. Add an approved change order or adjust lines before sending.
+                </>
+              )}
             </span>
+          </div>
+        )}
+        {priorInvoiced > 0 && !overAuthorized && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Prior active invoices: {money(priorInvoiced)}. Edit this invoice for progress billing; void unused drafts so they stay out of the rollup.
           </div>
         )}
 
@@ -571,21 +603,33 @@ export default function InvoiceEditorDialog({
               {authorizedTotal != null && (
                 <div className="text-xs text-slate-500 pt-1">Authorized total: {money(authorizedTotal)}</div>
               )}
+              {billingCeiling != null && billingCeiling !== authorizedTotal && (
+                <div className="text-xs text-slate-500">Billing ceiling (w/ CO tax): {money(billingCeiling)}</div>
+              )}
             </div>
           </div>
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2 mt-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button variant="outline" onClick={printInvoice} disabled={saving}>
-            <Printer className="w-4 h-4 mr-1" /> Print
-          </Button>
-          {form.status !== "sent" && form.status !== "partial" && form.status !== "paid" && (
-            <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
-          )}
-          <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving}>
-            {saving ? "Saving…" : "Save invoice"}
-          </Button>
+        <DialogFooter className="flex-col sm:flex-row gap-2 mt-2 sm:justify-between">
+          <DocumentLifecycleActions
+            entity="Invoice"
+            document={document}
+            disabled={saving}
+            onSaved={() => { onSaved?.(); onOpenChange(false); }}
+            onRevised={(created) => { onOpenChange(false); onRevised?.(created); }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <Button variant="outline" onClick={printInvoice} disabled={saving}>
+              <Printer className="w-4 h-4 mr-1" /> Print
+            </Button>
+            {form.status !== "sent" && form.status !== "partial" && form.status !== "paid" && form.status !== "void" && (
+              <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
+            )}
+            <Button className="bg-slate-900 hover:bg-slate-800" onClick={() => save()} disabled={saving || form.status === "void"}>
+              {saving ? "Saving…" : "Save invoice"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

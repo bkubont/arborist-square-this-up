@@ -7,6 +7,10 @@ import {
   changeOrderNet,
   buildInvoiceAutofill,
   invoiceTotals,
+  authorizedBillingCeiling,
+  isOverAuthorized,
+  deriveInvoiceStatus,
+  sumActiveInvoiceTotals,
 } from './mapping.js';
 
 test('estimate lines map to WO labor/material/equipment rows', () => {
@@ -44,6 +48,31 @@ test('authorized total uses approved COs only', () => {
     { status: 'approved', added_cost: 50, credit: 10 },
   ]);
   assert.equal(total, 1240);
+});
+
+test('tax on approved CO nets does not false-trigger over-authorized', () => {
+  const cos = [{ status: 'approved', net_change: 100 }];
+  assert.equal(computeAuthorizedTotal(1000, cos), 1100);
+  assert.equal(authorizedBillingCeiling(1000, cos, 10), 1110);
+  assert.equal(isOverAuthorized(1110, 1000, cos, 10), false);
+  assert.equal(isOverAuthorized(1110.02, 1000, cos, 10), true);
+
+  const { over_authorized, billing_ceiling, authorized_total } = buildInvoiceAutofill({
+    job: { id: 'j', title: 'Job' },
+    estimate: {
+      id: 'e',
+      accepted_snapshot: {
+        total: 1000,
+        tax_rate: 10,
+        lines: [{ description: 'Labor', labor_amount: 909.09, labor_hours: 1, labor_rate: 909.09 }],
+      },
+    },
+    approvedChangeOrders: [{ id: 'co', number: 'CO-1', status: 'approved', net_change: 100 }],
+    number: 'INV-TAX',
+  });
+  assert.equal(authorized_total, 1100);
+  assert.ok(billing_ceiling >= 1109.9 && billing_ceiling <= 1110.1);
+  assert.equal(over_authorized, false);
 });
 
 test('invoice autofill maps estimate + approved COs with balance due', () => {
@@ -119,4 +148,31 @@ test('invoice over-authorized flag when total exceeds authorized', () => {
   });
   assert.equal(bumped.total, 200);
   assert.ok(bumped.total > authorized_total);
+});
+
+test('progress billing: prior invoices feed cumulative over-authorized', () => {
+  const built = buildInvoiceAutofill({
+    job: { id: 'j', title: 'Job' },
+    estimate: {
+      id: 'e',
+      accepted_snapshot: {
+        total: 1000,
+        tax_rate: 0,
+        lines: [{ description: 'Labor', labor_amount: 1000, labor_hours: 10, labor_rate: 100 }],
+      },
+    },
+    approvedChangeOrders: [],
+    existingInvoices: [{ status: 'sent', total: 600 }],
+    number: 'INV-2',
+  });
+  assert.equal(built.prior_invoiced, 600);
+  assert.equal(built.over_authorized, true);
+  assert.equal(sumActiveInvoiceTotals([{ status: 'void', total: 999 }, { status: 'sent', total: 100 }]), 100);
+});
+
+test('deriveInvoiceStatus supports partial and paid without promoting drafts', () => {
+  assert.equal(deriveInvoiceStatus({ status: 'draft', balance_due: 0, deposits_applied: 500 }), 'draft');
+  assert.equal(deriveInvoiceStatus({ status: 'sent', balance_due: 100, payments_applied: 50, deposits_applied: 0 }), 'partial');
+  assert.equal(deriveInvoiceStatus({ status: 'sent', balance_due: 0, payments_applied: 100 }), 'paid');
+  assert.equal(deriveInvoiceStatus({ status: 'void', balance_due: 0 }), 'void');
 });

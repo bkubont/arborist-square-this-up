@@ -8,6 +8,10 @@ function num(v) {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 /** Map one estimate line into zero or more WO lines (labor / material / equipment). */
 export function estimateLineToWorkOrderLines(line = {}) {
   const out = [];
@@ -127,6 +131,7 @@ export function changeOrderNet({ added_cost, credit, net_change } = {}) {
 /**
  * Authorized contract total = accepted estimate baseline + sum(approved CO nets).
  * Unapproved COs do not enter the basis.
+ * Baseline is typically the accepted estimate total (tax-inclusive).
  */
 export function computeAuthorizedTotal(acceptedEstimateTotal, changeOrders = []) {
   const baseline = Number(acceptedEstimateTotal) || 0;
@@ -134,6 +139,59 @@ export function computeAuthorizedTotal(acceptedEstimateTotal, changeOrders = [])
     .filter(co => co.status === 'approved')
     .reduce((sum, co) => sum + changeOrderNet(co), 0);
   return Math.round((baseline + approvedNet) * 100) / 100;
+}
+
+/** Sum of approved change-order nets (pre-tax dollars). */
+export function approvedChangeOrderNet(changeOrders = []) {
+  return round2(
+    changeOrders
+      .filter(co => co.status === 'approved')
+      .reduce((sum, co) => sum + changeOrderNet(co), 0),
+  );
+}
+
+/**
+ * Billing ceiling for soft-warn: authorized total plus tax on positive CO nets.
+ * Estimate baseline is already tax-inclusive; CO nets are pre-tax and get taxed
+ * when folded into invoice misc — without this, a correct full-bill can false-warn.
+ */
+export function authorizedBillingCeiling(acceptedEstimateTotal, changeOrders = [], taxRate = 0) {
+  const baseline = Number(acceptedEstimateTotal) || 0;
+  const approvedNet = approvedChangeOrderNet(changeOrders);
+  const coTax = approvedNet > 0
+    ? round2(approvedNet * ((Number(taxRate) || 0) / 100))
+    : 0;
+  return round2(baseline + approvedNet + coTax);
+}
+
+/** Soft over-authorized check using the tax-aware billing ceiling. */
+export function isOverAuthorized(invoiceTotal, acceptedEstimateTotal, changeOrders = [], taxRate = 0) {
+  const ceiling = authorizedBillingCeiling(acceptedEstimateTotal, changeOrders, taxRate);
+  return Number(invoiceTotal) > ceiling + 0.009;
+}
+
+/** Derive invoice lifecycle status from balance / payments (progress billing). */
+export function deriveInvoiceStatus({ balance_due, payments_applied, deposits_applied, status } = /** @type {{balance_due?: number|string, payments_applied?: number|string, deposits_applied?: number|string, status?: string}} */ ({})) {
+  if (status === 'void') return 'void';
+  // Draft stays draft until explicitly sent — deposits on a draft do not mark it paid.
+  if (!status || status === 'draft') return status || 'draft';
+  const balance = Number(balance_due);
+  const applied = (Number(payments_applied) || 0) + (Number(deposits_applied) || 0);
+  if (Number.isFinite(balance) && balance <= 0.009) return 'paid';
+  if ((status === 'sent' || status === 'partial') && applied > 0 && Number.isFinite(balance) && balance > 0.009) {
+    return 'partial';
+  }
+  if (status === 'paid' && Number.isFinite(balance) && balance > 0.009) return 'partial';
+  return status;
+}
+
+/** Sum totals of non-void invoices (for progress / cumulative billing checks). */
+export function sumActiveInvoiceTotals(invoices = []) {
+  return round2(
+    invoices
+      .filter(inv => inv && inv.status !== 'void')
+      .reduce((sum, inv) => sum + (Number(inv.total) || 0), 0),
+  );
 }
 
 export function catalogItemToWorkOrderLine(item) {
@@ -146,10 +204,6 @@ export function catalogItemToWorkOrderLine(item) {
     notes: [item.notes, item.tools ? `Tools: ${item.tools}` : ''].filter(Boolean).join(' · '),
     catalog_id: item.id,
   };
-}
-
-function round2(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
 }
 
 /** Map estimate lines into invoice materials / labor / misc tables. */
@@ -247,7 +301,8 @@ export function invoiceTotals({ material_lines = [], labor_lines = [], misc_line
  * @param {number|string} [args.deposits_applied]
  * @param {number|string} [args.payments_applied]
  * @param {string} [args.number]
- * @returns {{ invoice: object, authorized_total: number, over_authorized: boolean }}
+ * @param {object[]} [args.existingInvoices] non-void prior invoices for progress billing
+ * @returns {{ invoice: object, authorized_total: number, billing_ceiling: number, prior_invoiced: number, over_authorized: boolean }}
  */
 export function buildInvoiceAutofill({
   job,
@@ -257,6 +312,7 @@ export function buildInvoiceAutofill({
   deposits_applied = 0,
   payments_applied = 0,
   number,
+  existingInvoices = [],
 } = {}) {
   const source = estimate?.accepted_snapshot || estimate || {};
   const tables = estimateLinesToInvoiceTables(source.lines || []);
@@ -271,6 +327,8 @@ export function buildInvoiceAutofill({
   });
   const baseline = Number(source.total ?? estimate?.total) || 0;
   const authorized_total = computeAuthorizedTotal(baseline, approvedChangeOrders);
+  const billing_ceiling = authorizedBillingCeiling(baseline, approvedChangeOrders, tax_rate);
+  const prior_invoiced = sumActiveInvoiceTotals(existingInvoices);
   const invoice = {
     job_id: job?.id,
     number,
@@ -294,6 +352,9 @@ export function buildInvoiceAutofill({
   return {
     invoice,
     authorized_total,
-    over_authorized: totals.total > authorized_total + 0.009,
+    billing_ceiling,
+    prior_invoiced,
+    // Cumulative check: prior active invoices + this draft vs tax-aware ceiling
+    over_authorized: prior_invoiced + totals.total > billing_ceiling + 0.009,
   };
 }
