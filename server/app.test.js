@@ -1099,6 +1099,22 @@ test('document rules: void estimates excluded, deposits sum, freeze snapshot, jo
   await request(`/documents/MaterialOrder/${mo.id}/void`, { method: 'POST', cookie: a.cookie, data: {} });
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 0);
 
+  // Moving a material order refreshes materials_cost on both source and destination jobs
+  const moMove = await create('MaterialOrder', {
+    job_id: job.id, number: 'MO-MOVE', status: 'draft',
+    lines: [{ description: 'Lumber', qty: 2, unit_price: 25 }],
+    total: 50,
+  });
+  await request(`/entities/MaterialOrder/${moMove.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { total: 50 },
+  });
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 50);
+  assert.equal((await request(`/entities/MaterialOrder/${moMove.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { job_id: job2.id },
+  })).status, 200);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 0);
+  assert.equal((await request(`/entities/Job/${job2.id}`, { cookie: a.cookie })).data.materials_cost, 50);
+
   // Cannot move invoice onto a job without a complete WO
   assert.equal((await request(`/entities/Invoice/${inv.data.id}`, {
     method: 'PATCH', cookie: a.cookie, data: { job_id: job2.id },

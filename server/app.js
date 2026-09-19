@@ -463,6 +463,9 @@ export async function createApp(db, env = process.env) {
     }
     if (entity === 'MaterialOrder' && updated.job_id) {
       await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      if (movingJob && previous.job_id) {
+        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      }
     }
     if (movingJob && SINGLE_DOC_ENTITIES.has(entity) && entity !== 'Estimate' && entity !== 'Invoice' && previous?.job_id) {
       await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
