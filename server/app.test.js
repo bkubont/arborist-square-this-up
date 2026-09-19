@@ -461,3 +461,133 @@ test('change order e-sign updates authorized total; draft CO excluded', async t 
   assert.equal(edited.data.notes, 'Post-sign note');
   assert.equal(edited.data.status, 'approved');
 });
+
+test('invoice from job autofills estimate + approved COs, balance due, job rollup', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('inv@example.com');
+  const b = await register('inv-other@example.com');
+  const create = async (entity, data, cookie = a.cookie) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+
+  await create('CompanyProfile', { name: 'Square This Up', default_tax_rate: 0, default_payment_terms: 'Due upon receipt' });
+  const client = await create('Client', { name: 'Invoice client', address: '1 Main St' });
+  const job = await create('Job', {
+    title: 'Kitchen refresh',
+    client_id: client.id,
+    deposit_amount: 200,
+  });
+
+  assert.equal((await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
+  })).status, 400);
+
+  await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-INV',
+    status: 'accepted',
+    tax_rate: 0,
+    lines: [{
+      description: 'Cabinets',
+      material_amount: 800,
+      labor_amount: 600,
+      labor_hours: 12,
+      labor_rate: 50,
+      equipment_amount: 50,
+    }],
+    subtotal: 1450,
+    tax_amount: 0,
+    total: 1450,
+    accepted_snapshot: {
+      number: 'EST-INV',
+      tax_rate: 0,
+      lines: [{
+        description: 'Cabinets',
+        material_amount: 800,
+        labor_amount: 600,
+        labor_hours: 12,
+        labor_rate: 50,
+        equipment_amount: 50,
+      }],
+      subtotal: 1450,
+      tax_amount: 0,
+      total: 1450,
+    },
+  });
+
+  const approvedCo = await create('ChangeOrder', {
+    job_id: job.id,
+    number: 'CO-INV',
+    status: 'approved',
+    description: 'Extra hardware',
+    added_cost: 100,
+    credit: 0,
+    net_change: 100,
+    accepted_snapshot: { number: 'CO-INV', net_change: 100, lines: [] },
+  });
+  await create('ChangeOrder', {
+    job_id: job.id,
+    number: 'CO-DRAFT',
+    status: 'draft',
+    added_cost: 500,
+    net_change: 500,
+  });
+
+  await create('TimelineEntry', {
+    job_id: job.id,
+    type: 'payment_received',
+    text: 'Partial payment',
+    category: 'financial',
+    amount: 150,
+  });
+
+  const created = await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
+  });
+  assert.equal(created.status, 201, created.data?.message);
+  const inv = created.data;
+  assert.equal(inv.status, 'draft');
+  assert.ok(inv.material_lines.some(l => l.unit_price === 800));
+  assert.ok(inv.labor_lines.some(l => l.hours === 12 && l.rate === 50));
+  assert.ok(inv.misc_lines.some(l => /equipment/i.test(l.description)));
+  assert.ok(inv.misc_lines.some(l => /CO-INV/.test(l.description) && l.amount === 100));
+  assert.deepEqual(inv.billed_change_order_ids, [approvedCo.id]);
+  assert.equal(inv.estimate_ref, 'EST-INV');
+  assert.equal(inv.change_order_refs, 'CO-INV');
+  assert.equal(inv.payment_terms, 'Due upon receipt');
+  assert.equal(inv.deposits_applied, 200);
+  assert.equal(inv.payments_applied, 150);
+  assert.equal(inv.total, 1550);
+  assert.equal(inv.authorized_total, 1550);
+  assert.equal(inv.over_authorized, false);
+  assert.equal(inv.balance_due, 1200);
+
+  const jobAfter = (await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(jobAfter.invoice_amount, inv.total);
+
+  // Editable after autofill
+  const patched = await request(`/entities/Invoice/${inv.id}`, {
+    method: 'PATCH',
+    cookie: a.cookie,
+    data: {
+      notes: 'Adjusted',
+      material_lines: [...inv.material_lines, { description: 'Extra tile', qty: 1, unit_price: 50 }],
+    },
+  });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.data.notes, 'Adjusted');
+  assert.equal(patched.data.material_lines.length, inv.material_lines.length + 1);
+
+  // Ownership
+  assert.equal((await request('/invoices/from-job', {
+    method: 'POST', cookie: b.cookie, data: { job_id: job.id },
+  })).status, 404);
+  assert.equal((await request(`/entities/Invoice/${inv.id}`, { cookie: b.cookie })).status, 404);
+
+  // No invoice e-sign route
+  assert.equal((await request(`/invoices/${inv.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  })).status, 404);
+});

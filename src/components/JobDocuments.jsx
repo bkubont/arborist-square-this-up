@@ -3,14 +3,14 @@ import { FileText, Plus } from "lucide-react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
-import DocumentStubDialog from "@/components/DocumentStubDialog";
 import EstimateEditorDialog from "@/components/EstimateEditorDialog";
 import WorkOrderEditorDialog from "@/components/WorkOrderEditorDialog";
 import ChangeOrderEditorDialog from "@/components/ChangeOrderEditorDialog";
+import InvoiceEditorDialog from "@/components/InvoiceEditorDialog";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
 
-export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) {
+export default function JobDocuments({ jobId, jobTitle, client, documents, onChanged }) {
   const [openDoc, setOpenDoc] = useState(null);
   const [creating, setCreating] = useState(null);
 
@@ -58,7 +58,21 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
       }
 
       if (entity === "Invoice") {
-        Object.assign(base, { date: today, material_lines: [], labor_lines: [], misc_lines: [], billed_change_order_ids: [] });
+        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        if (accepted) {
+          const created = await api.invoices.fromJob(jobId);
+          await onChanged?.();
+          setOpenDoc({ entity: "Invoice", document: created });
+          return;
+        }
+        Object.assign(base, {
+          date: today,
+          material_lines: [],
+          labor_lines: [],
+          misc_lines: [],
+          billed_change_order_ids: [],
+          project_name: jobTitle || "",
+        });
       }
 
       const created = await api.entities[entity].create(base);
@@ -88,7 +102,11 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
               className="h-8 text-xs"
               disabled={!!creating}
               onClick={() => createDraft(t.entity)}
-              title={t.entity === "WorkOrder" ? "Creates from accepted estimate when available" : undefined}
+              title={
+                t.entity === "WorkOrder" || t.entity === "Invoice"
+                  ? "Creates from accepted estimate when available"
+                  : undefined
+              }
             >
               <Plus className="w-3.5 h-3.5 mr-1" />
               {t.label}
@@ -152,12 +170,13 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
         jobId={jobId}
         onSaved={onChanged}
       />
-      <DocumentStubDialog
+      <InvoiceEditorDialog
         open={openDoc?.entity === "Invoice"}
         onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        entity={openDoc?.entity === "Invoice" ? "Invoice" : null}
         document={openDoc?.entity === "Invoice" ? openDoc.document : null}
         jobId={jobId}
+        jobTitle={jobTitle}
+        client={client}
         onSaved={onChanged}
       />
     </div>

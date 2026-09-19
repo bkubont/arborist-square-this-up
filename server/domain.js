@@ -50,7 +50,7 @@ const invoiceLaborLine = z.object({
 
 const invoiceMiscLine = z.object({
   description: text.default(''),
-  amount: money.optional(),
+  amount: signedMoney.optional(),
 });
 
 const changeOrderLine = z.object({
@@ -164,14 +164,19 @@ export const schemas = {
     tax_rate: rate.optional(),
     related_estimate_id: id.optional(),
     billed_change_order_ids: z.array(id).max(500).default([]),
+    project_name: text.optional(),
+    estimate_ref: text.optional(),
+    change_order_refs: text.optional(),
+    deposits_applied: money.optional(),
+    payments_applied: money.optional(),
     status: z.enum(['draft', 'sent', 'partial', 'paid', 'void']).default('draft'),
     material_lines: z.array(invoiceMaterialLine).max(2000).default([]),
     labor_lines: z.array(invoiceLaborLine).max(2000).default([]),
     misc_lines: z.array(invoiceMiscLine).max(2000).default([]),
     materials_total: money.optional(),
     labor_total: money.optional(),
-    misc_total: money.optional(),
-    subtotal: money.optional(),
+    misc_total: signedMoney.optional(),
+    subtotal: signedMoney.optional(),
     tax_amount: money.optional(),
     total: money.optional(),
     balance_due: money.optional(),

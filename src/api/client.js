@@ -63,6 +63,9 @@ export const api = {
   workOrders: {
     fromEstimate(estimateId) { return post('/work-orders/from-estimate', { estimate_id: estimateId }); },
   },
+  invoices: {
+    fromJob(jobId) { return post('/invoices/from-job', { job_id: jobId }); },
+  },
   jobs: {
     authorizedTotal(id) { return request(`/jobs/${encodeURIComponent(id)}/authorized-total`); },
   },
