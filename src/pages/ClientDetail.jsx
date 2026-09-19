@@ -88,7 +88,10 @@ export default function ClientDetail() {
               <Link
                 key={j.id}
                 to={`/jobs/${j.id}`}
-                className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 p-4 hover:border-blue-600 transition-colors"
+                className={cn(
+                  "flex items-center gap-3 bg-card rounded-xl border p-4 hover:shadow-sm transition-colors",
+                  statusCardClass(j.status)
+                )}
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-slate-900 truncate">{j.title}</div>
