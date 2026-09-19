@@ -367,6 +367,28 @@ export function materialOrderSourceKey(line = {}) {
   return `${line.source_entity}:${line.source_id}:${line.source_line_index}`;
 }
 
+export function normalizeMaterialDescription(description = '') {
+  return String(description || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s*\((materials|equipment)\)\s*$/i, '');
+}
+
+export function materialOrderLineFingerprint(line = {}) {
+  const desc = normalizeMaterialDescription(line.description);
+  if (!desc) return null;
+  const qty = num(line.qty);
+  const price = num(line.unit_price);
+  return `${desc}|${qty ?? ''}|${price ?? ''}`;
+}
+
+/** Stable claim identity — description only (ignores qty/price / Line#). */
+export function materialOrderClaimIdentity(line = {}) {
+  const desc = normalizeMaterialDescription(line.description);
+  if (!desc) return null;
+  return `desc:${desc}`;
+}
+
 /** Estimate material $ → MO lines (qty 1 × unit_price). Does not invent prices. */
 export function materialLinesFromEstimate(estimate) {
   if (!estimate?.id) return [];
@@ -467,19 +489,10 @@ export function selectChangeOrdersForMaterials(changeOrders = []) {
   return [...byStem.values()].map((row) => row.co);
 }
 
-/** Fingerprint for matching legacy unkeyed MO lines to incoming autofill. */
-export function materialOrderLineFingerprint(line = {}) {
-  let desc = String(line.description || '').trim().toLowerCase();
-  desc = desc.replace(/\s*\((materials|equipment)\)\s*$/i, '');
-  if (!desc) return null;
-  const qty = num(line.qty);
-  const price = num(line.unit_price);
-  return `${desc}|${qty ?? ''}|${price ?? ''}`;
-}
-
 /**
  * Merge incoming source lines into an MO line list.
- * Adopts matching legacy unkeyed rows instead of appending duplicates.
+ * Adopts legacy unkeyed rows only on strong match (description + qty + price).
+ * Same description with different qty/price keeps the manual row and skips autofill.
  */
 export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) {
   const remaining = existingLines.map((line, index) => ({ line, index }));
@@ -500,27 +513,25 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
       }
     }
     if (matchIdx < 0) {
-      const desc = String(incoming.description || '').trim().toLowerCase();
-      if (desc) {
-        matchIdx = remaining.findIndex(({ line }) => (
-          !materialOrderSourceKey(line)
-          && String(line.description || '').trim().toLowerCase() === desc
+      const claim = materialOrderClaimIdentity(incoming);
+      if (claim) {
+        const weakIdx = remaining.findIndex(({ line }) => (
+          !materialOrderSourceKey(line) && materialOrderClaimIdentity(line) === claim
         ));
+        if (weakIdx >= 0) continue;
       }
+      synced.push({ ...incoming, on_hand: incoming.on_hand ?? false });
+      continue;
     }
 
-    if (matchIdx >= 0) {
-      const [{ line: prev }] = remaining.splice(matchIdx, 1);
-      synced.push({
-        ...incoming,
-        supplier: prev.supplier || incoming.supplier,
-        on_hand: prev.on_hand ?? false,
-        line_status: prev.line_status || incoming.line_status,
-        notes: prev.notes || incoming.notes,
-      });
-    } else {
-      synced.push({ ...incoming, on_hand: incoming.on_hand ?? false });
-    }
+    const [{ line: prev }] = remaining.splice(matchIdx, 1);
+    synced.push({
+      ...incoming,
+      supplier: prev.supplier || incoming.supplier,
+      on_hand: prev.on_hand ?? false,
+      line_status: prev.line_status || incoming.line_status,
+      notes: prev.notes || incoming.notes,
+    });
   }
 
   const manual = remaining
@@ -534,21 +545,21 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
  */
 export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
   const claimedKeys = new Set();
-  const claimedFingerprints = new Set();
+  const claimedIdentities = new Set();
   for (const order of otherOrders) {
     if (!order || order.status === 'void') continue;
     for (const line of order.lines || []) {
       const key = materialOrderSourceKey(line);
       if (key) claimedKeys.add(key);
-      const fp = materialOrderLineFingerprint(line);
-      if (fp) claimedFingerprints.add(fp);
+      const claim = materialOrderClaimIdentity(line);
+      if (claim) claimedIdentities.add(claim);
     }
   }
   return incomingLines.filter((line) => {
     const key = materialOrderSourceKey(line);
     if (key && claimedKeys.has(key)) return false;
-    const fp = materialOrderLineFingerprint(line);
-    if (fp && claimedFingerprints.has(fp)) return false;
+    const claim = materialOrderClaimIdentity(line);
+    if (claim && claimedIdentities.has(claim)) return false;
     return true;
   });
 }
