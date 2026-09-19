@@ -146,7 +146,7 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
 
       {!accepted && (
         <p className="text-xs text-slate-500 mb-3">
-          New job: create an <strong>Estimate</strong> (and optional <strong>Material Order</strong>).
+          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> if needed).
           Work Order, Change Order, and Invoice unlock after the customer accepts the estimate.
         </p>
       )}

@@ -49,7 +49,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
 
   useEffect(() => {
     if (!GOOGLE_KEY) {
-      setHint("Type the street address. Suggestions appear when a Places API key is configured, or via free lookup.");
+      setHint("Type the street address — suggestions can fill city, state, and ZIP.");
       return undefined;
     }
     let cancelled = false;
