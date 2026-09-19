@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { ArrowLeft, Phone, Mail, Plus, Pencil, StickyNote, ChevronRight } from "lucide-react";
@@ -8,6 +8,7 @@ import ClientFormDialog from "@/components/ClientFormDialog";
 import JobFormDialog from "@/components/JobFormDialog";
 import ClientAddress from "@/components/ClientAddress";
 import { money } from "@/lib/format";
+import { jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -16,19 +17,24 @@ export default function ClientDetail() {
   const navigate = useNavigate();
   const [client, setClient] = useState(null);
   const [jobs, setJobs] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editClient, setEditClient] = useState(false);
   const [jobDialog, setJobDialog] = useState(false);
 
   const load = async () => {
-    const [c, allJobs] = await Promise.all([
+    const [c, allJobs, tl] = await Promise.all([
       api.entities.Client.get(id),
       api.entities.Job.list("-created_date", 200),
+      api.entities.TimelineEntry.list("-created_date", 1000),
     ]);
     setClient(c);
     setJobs(allJobs.filter((j) => j.client_id === id));
+    setTimeline(tl);
     setLoading(false);
   };
+
+  const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
 
   useEffect(() => {
     load();
@@ -85,7 +91,7 @@ export default function ClientDetail() {
       ) : (
         <div className="space-y-2">
           {jobs.map((j) => {
-            const balance = Math.max(0, (j.invoice_amount || 0) - (j.deposit_amount || 0));
+            const balance = jobBalance(j, paymentsMap[j.id] || 0);
             return (
               <Link
                 key={j.id}
