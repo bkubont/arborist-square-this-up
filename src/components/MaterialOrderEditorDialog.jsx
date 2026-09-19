@@ -279,16 +279,9 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Materials</div>
-            <div className="flex gap-2 flex-wrap">
-              <Button type="button" variant="outline" size="sm" onClick={print}>
-                <Printer className="w-3.5 h-3.5 mr-1" /> Print
-              </Button>
-              {!readOnly && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine()])}>
-                  <Plus className="w-3.5 h-3.5 mr-1" /> Line
-                </Button>
-              )}
-            </div>
+            <Button type="button" variant="outline" size="sm" onClick={print}>
+              <Printer className="w-3.5 h-3.5 mr-1" /> Print
+            </Button>
           </div>
           <div className="space-y-3">
             {lines.map((line, index) => (
@@ -395,6 +388,13 @@ ${form.notes ? `<p class="sub">Notes: ${escapeHtml(form.notes)}</p>` : ""}
                 </div>
               </div>
             ))}
+          </div>
+          <div className="mt-2">
+            {!readOnly && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, emptyLine()])}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Line
+              </Button>
+            )}
           </div>
         </div>
 

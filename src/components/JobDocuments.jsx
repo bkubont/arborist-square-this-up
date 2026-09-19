@@ -20,6 +20,7 @@ import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/
 import { addDaysIso, ESTIMATE_VALID_DAYS, todayIso } from "@/lib/estimateMath";
 import { logDocumentCreated } from "@/lib/jobActivity";
 import { money, shortDate } from "@/lib/format";
+import { loadAccountTaxRate } from "@/lib/salesTax";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -56,16 +57,12 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
       };
 
       if (entity === "Estimate") {
-        let tax_rate;
-        try {
-          const profiles = await api.entities.CompanyProfile.list("-created_date", 1);
-          if (profiles[0]?.default_tax_rate != null) tax_rate = profiles[0].default_tax_rate;
-        } catch { /* optional */ }
+        const tax_rate = await loadAccountTaxRate(api);
         Object.assign(base, {
           date: today,
           valid_till: addDaysIso(today, ESTIMATE_VALID_DAYS),
           lines: [],
-          ...(tax_rate != null ? { tax_rate } : {}),
+          tax_rate,
         });
       }
 
@@ -92,12 +89,16 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
 
       if (entity === "ChangeOrder") {
         const accepted = findLiveAcceptedEstimate(documents);
+        const tax_rate = accepted?.accepted_snapshot?.tax_rate
+          ?? accepted?.tax_rate
+          ?? await loadAccountTaxRate(api);
         Object.assign(base, {
           lines: [],
           related_estimate_id: accepted?.id,
           added_cost: 0,
           credit: 0,
           net_change: 0,
+          tax_rate,
         });
       }
 

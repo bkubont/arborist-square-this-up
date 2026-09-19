@@ -27,6 +27,7 @@ import {
   SINGLE_DOC_ENTITIES,
 } from './documentRules.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
+import { DEFAULT_SALES_TAX_RATE, resolveSalesTaxRate } from './salesTax.js';
 
 const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'WorkOrder', 'ChangeOrder']);
 
@@ -128,6 +129,10 @@ export async function createApp(db, env = process.env) {
     const email = emailSchema.parse(req.body.email);
     const invite = z.string().regex(/^[a-f0-9]{64}$/).parse(req.body.inviteToken);
     const password = passwordSchema.parse(req.body.password);
+    const taxRaw = req.body.default_tax_rate ?? req.body.sales_tax_rate;
+    const defaultTaxRate = taxRaw === undefined || taxRaw === null || taxRaw === ''
+      ? DEFAULT_SALES_TAX_RATE
+      : z.number().finite().min(0).max(100).parse(Number(taxRaw));
     const digest = await passwordHash(password);
     const userId = randomUUID();
     await db.transaction(async tx => {
@@ -137,9 +142,14 @@ export async function createApp(db, env = process.env) {
       if ((await tx.all('SELECT id FROM users WHERE email = ?', [email])).length) throw fail(409, 'Account already exists. Please log in.');
       await tx.run('INSERT INTO users (id, email, password_hash, created_date) VALUES (?, ?, ?, ?)', [userId, email, digest, new Date().toISOString()]);
       await tx.run('DELETE FROM tokens WHERE token_hash = ?', [hash(invite)]);
+      // Seed company profile with sales tax so docs can autofill immediately.
+      await saveRecord(tx, userId, 'CompanyProfile', {
+        name: '',
+        default_tax_rate: defaultTaxRate,
+      });
     });
     await session(res, userId);
-    res.status(201).json({ id: userId, email });
+    res.status(201).json({ id: userId, email, default_tax_rate: defaultTaxRate });
   });
   app.post('/api/auth/forgot-password', async (req, res) => {
     if (!env.SMTP_HOST || !env.MAIL_FROM) throw fail(503, 'Email recovery is not configured. Contact the app owner for a reset link.');
@@ -298,18 +308,22 @@ export async function createApp(db, env = process.env) {
     if (!isLiveAcceptedEstimate(estimate)) {
       throw fail(400, 'Accept the estimate before creating a work order from it');
     }
+    let company = null;
+    const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [req.user.id, 'CompanyProfile']);
+    if (profiles[0]) company = decode(profiles[0]);
     const result = await ownedTransaction(req.user.id, async tx => {
       const existingWo = await findActiveJobDocument(tx, req.user.id, 'WorkOrder', estimate.job_id);
       if (existingWo) return { existing: existingWo };
       const lines = mapEstimateToWorkOrderLines(estimate);
-      const totals = workOrderTotals(lines, estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate);
+      const taxRate = estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate ?? resolveSalesTaxRate(company);
+      const totals = workOrderTotals(lines, taxRate);
       const existing = await tx.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
       const wo = await saveRecord(tx, req.user.id, 'WorkOrder', {
         job_id: estimate.job_id,
         number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
         related_estimate_id: estimate.id,
         status: 'draft',
-        tax_rate: estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate,
+        tax_rate: taxRate,
         instructions: estimate.accepted_snapshot?.notes || estimate.notes || '',
         lines,
         ...totals,

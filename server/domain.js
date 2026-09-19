@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 
 const text = z.string().max(20000);
 const id = z.string().min(1).max(36);
@@ -98,7 +99,8 @@ export const schemas = {
     email: text.optional(),
     website: text.optional(),
     logo_url: z.string().max(200).optional(),
-    default_tax_rate: rate.optional(),
+    /** Percent, e.g. 6 for 6%. New accounts default to 6%. */
+    default_tax_rate: rate.default(DEFAULT_SALES_TAX_RATE),
     default_payment_terms: text.optional(),
   }),
   Estimate: z.object({
@@ -183,6 +185,8 @@ export const schemas = {
     net_change: signedMoney.optional(),
     added_days: z.number().finite().min(0).max(3650).optional(),
     revised_contract_total: signedMoney.optional(),
+    /** Sales tax % for this CO (autofilled from account; nets stay pre-tax). */
+    tax_rate: rate.optional(),
     notes: text.optional(),
     status: z.enum(['draft', 'sent', 'approved', 'rejected', 'void']).default('draft'),
     lines: z.array(changeOrderLine).max(2000).default([]),
@@ -195,6 +199,7 @@ export const schemas = {
       net_change: signedMoney.optional(),
       added_days: z.number().finite().min(0).max(3650).optional(),
       revised_contract_total: signedMoney.optional(),
+      tax_rate: rate.optional(),
       lines: z.array(changeOrderLine).max(2000).default([]),
       notes: text.optional(),
     }).optional(),

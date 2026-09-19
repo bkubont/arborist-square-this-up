@@ -41,10 +41,28 @@ test('invitation-only registration, cookie sessions, logout and CSRF protection'
   assert.match(user.response.headers.get('set-cookie'), /HttpOnly/);
   assert.match(user.response.headers.get('set-cookie'), /SameSite=Lax/);
   assert.equal((await request('/auth/me', { cookie: user.cookie })).data.email, 'a@example.com');
+  assert.equal(user.data.default_tax_rate, 6);
+  const profiles = await request('/entities/CompanyProfile', { cookie: user.cookie });
+  assert.equal(profiles.status, 200);
+  assert.equal(profiles.data[0]?.default_tax_rate, 6);
   assert.equal((await request('/auth/register', { method: 'POST', data: { email: 'a@example.com', password: 'strong-password-123', inviteToken: user.invitation } })).status, 400);
   assert.equal((await request('/entities/Client', { method: 'POST', cookie: user.cookie, origin: 'https://evil.example', data: { name: 'Attack' } })).status, 403);
   await request('/auth/logout', { method: 'POST', cookie: user.cookie });
   assert.equal((await request('/auth/me', { cookie: user.cookie })).status, 401);
+});
+
+test('registration accepts custom sales tax rate on company profile', async t => {
+  const { request, db } = await fixture(t);
+  const invitation = token();
+  await db.run('INSERT INTO tokens (token_hash, kind, email, expires_at) VALUES (?, ?, ?, ?)', [hash(invitation), 'invite', 'tax@example.com', Date.now() + 60000]);
+  const result = await request('/auth/register', {
+    method: 'POST',
+    data: { email: 'tax@example.com', password: 'strong-password-123', inviteToken: invitation, default_tax_rate: 7.5 },
+  });
+  assert.equal(result.status, 201);
+  assert.equal(result.data.default_tax_rate, 7.5);
+  const profiles = await request('/entities/CompanyProfile', { cookie: result.cookie });
+  assert.equal(profiles.data[0]?.default_tax_rate, 7.5);
 });
 test('accounts cannot read, modify, delete, link or export each other’s data or photos', async t => {
   const { request, register } = await fixture(t);
@@ -69,7 +87,9 @@ test('accounts cannot read, modify, delete, link or export each other’s data o
   const ownJob = await create('Job', { title: 'B job', client_id: ownClient.id }, b.cookie);
   assert.equal((await request('/entities/TimelineEntry', { method: 'POST', cookie: b.cookie, data: { job_id: ownJob.id, type: 'photo', photo_url: file.data.file_url } })).status, 400);
   const exported = (await request('/export', { cookie: b.cookie })).data;
-  assert.equal(exported.records.length, 2); assert.deepEqual(exported.files, []);
+  // Client + Job + registration-seeded CompanyProfile
+  assert.equal(exported.records.length, 3); assert.deepEqual(exported.files, []);
+  assert.ok(exported.records.some((r) => r.entity === 'CompanyProfile'));
   assert.equal((await request(`/entities/Client/${client.id}`, { method: 'DELETE', cookie: a.cookie })).status, 409);
   assert.equal((await request(`/entities/Job/${job.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
   assert.equal((await request(`/entities/TimelineEntry/${entry.id}`, { cookie: a.cookie })).status, 404);
@@ -136,7 +156,10 @@ test('export restores relationships and photos; invalid imports roll back', asyn
   await assert.rejects(importData(db, 'b@example.com', exported), /empty account/);
   await assert.rejects(importData(db, 'c@example.com', { ...source, Job: [{ id: 'bad', title: 'Broken', client_id: 'missing' }] }), /missing client/);
   const [c] = await db.all('SELECT id FROM users WHERE email = ?', ['c@example.com']);
-  assert.equal((await db.all('SELECT id FROM records WHERE owner_id = ?', [c.id])).length, 0);
+  // Failed import rolls back; seed CompanyProfile from registration remains.
+  const cRecords = await db.all('SELECT entity FROM records WHERE owner_id = ?', [c.id]);
+  assert.equal(cRecords.length, 1);
+  assert.equal(cRecords[0].entity, 'CompanyProfile');
 });
 test('client address requires street, city, state, ZIP; line 2 optional; persists through backup', async t => {
   const { db, request, register } = await fixture(t);
@@ -167,7 +190,7 @@ test('client address requires street, city, state, ZIP; line 2 optional; persist
   const backup = (await request('/export', { cookie: a.cookie })).data;
   await importData(db, 'restore-address@example.com', backup);
   const [owner] = await db.all('SELECT id FROM users WHERE email = ?', ['restore-address@example.com']);
-  const [restored] = await db.all('SELECT data FROM records WHERE owner_id = ?', [owner.id]);
+  const [restored] = await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'Client']);
   assert.equal(JSON.parse(restored.data).address_line2, saved.address_line2);
   assert.equal(JSON.parse(restored.data).zip, '62701');
   await request(`/entities/Client/${client.id}`, { method: 'PATCH', cookie: a.cookie, data: { address_line2: '' } });
