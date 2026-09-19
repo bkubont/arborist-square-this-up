@@ -333,11 +333,11 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
   );
   assert.equal(editedSameSource.length, 0);
 
-  // Distinct sources with the same description must still autofill
-  const distinctSources = filterIncomingNotClaimedElsewhere(
+  // Purchased Est-keyed line claims later WO autofill by description (no double draft)
+  const woAfterPurchase = filterIncomingNotClaimedElsewhere(
     [{
-      description: 'Pipe', qty: 1, unit_price: 50,
-      source_entity: 'ChangeOrder', source_id: 'co-1', source_line_index: 0,
+      description: 'Pipe (materials)', qty: 2, unit_price: 40, wo_line_number: 1,
+      source_entity: 'WorkOrder', source_id: 'wo-1', source_line_index: 0,
     }],
     [{
       status: 'purchased',
@@ -347,7 +347,23 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
       }],
     }],
   );
-  assert.equal(distinctSources.length, 1);
+  assert.equal(woAfterPurchase.length, 0);
+
+  // Draft MO does not description-claim keyed lines — distinct CO source can autofill
+  const draftDoesNotClaimDesc = filterIncomingNotClaimedElsewhere(
+    [{
+      description: 'Pipe', qty: 1, unit_price: 50,
+      source_entity: 'ChangeOrder', source_id: 'co-1', source_line_index: 0,
+    }],
+    [{
+      status: 'draft',
+      lines: [{
+        description: 'Pipe', qty: 1, unit_price: 30,
+        source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+      }],
+    }],
+  );
+  assert.equal(draftDoesNotClaimDesc.length, 1);
 
   const filteredKeyed = filterIncomingNotClaimedElsewhere(incoming, [
     { status: 'quote', lines: [{ ...incoming[0] }] },

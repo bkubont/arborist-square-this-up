@@ -544,28 +544,40 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
 
 /**
  * Drop incoming autofill rows already present on other non-void Material Orders.
- * Source-key claim ignores qty/price; description claim is legacy-unkeyed only.
+ * Source keys always claim. Past-draft MOs (quote|purchased|partial|received) and
+ * legacy unkeyed rows also claim by normalized description (Est→WO after purchase).
+ * Draft keyed lines do not description-claim, so new distinct sources can autofill.
  */
 export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
+  const CLAIM_DESC_STATUSES = new Set(['quote', 'purchased', 'partial', 'received']);
   const claimedKeys = new Set();
-  const claimedLegacyDescs = new Set();
+  const claimedDescs = new Set();
+  const claimedLineNos = new Set();
+
   for (const order of otherOrders) {
     if (!order || order.status === 'void') continue;
+    const claimByDesc = CLAIM_DESC_STATUSES.has(order.status);
     for (const line of order.lines || []) {
       const key = materialOrderSourceKey(line);
-      if (key) {
-        claimedKeys.add(key);
-        continue;
-      }
+      if (key) claimedKeys.add(key);
       const desc = normalizeMaterialDescription(line.description);
-      if (desc) claimedLegacyDescs.add(desc);
+      const unkeyed = !key;
+      if (desc && (unkeyed || claimByDesc)) {
+        claimedDescs.add(desc);
+        const lineNo = num(line.wo_line_number);
+        if (lineNo != null && lineNo > 0) claimedLineNos.add(`${lineNo}|${desc}`);
+      }
     }
   }
+
   return incomingLines.filter((line) => {
     const key = materialOrderSourceKey(line);
     if (key && claimedKeys.has(key)) return false;
     const desc = normalizeMaterialDescription(line.description);
-    if (desc && claimedLegacyDescs.has(desc)) return false;
+    if (!desc) return true;
+    const lineNo = num(line.wo_line_number);
+    if (lineNo != null && lineNo > 0 && claimedLineNos.has(`${lineNo}|${desc}`)) return false;
+    if (claimedDescs.has(desc)) return false;
     return true;
   });
 }

@@ -554,30 +554,43 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
 
 /**
  * Drop incoming autofill rows already present on other non-void Material Orders.
- * Claims by source key (qty/price ignored) so edited purchases of the same sourced
- * line do not recreate a draft. Description-only claim applies only to legacy
- * unkeyed rows — same-named materials from different sources still autofill.
+ * - Source keys always claim (qty/price ignored).
+ * - Legacy unkeyed rows claim by normalized description.
+ * - Past-draft MOs (quote|purchased|partial|received) also claim by normalized
+ *   description so Est→WO carryover after purchase does not open a second draft.
+ * - Draft MOs do not description-claim keyed lines, so a distinct new source
+ *   (e.g. CO) with the same name can still autofill.
  */
 export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
+  const CLAIM_DESC_STATUSES = new Set(['quote', 'purchased', 'partial', 'received']);
   const claimedKeys = new Set();
-  const claimedLegacyDescs = new Set();
+  const claimedDescs = new Set();
+  const claimedLineNos = new Set();
+
   for (const order of otherOrders) {
     if (!order || order.status === 'void') continue;
+    const claimByDesc = CLAIM_DESC_STATUSES.has(order.status);
     for (const line of order.lines || []) {
       const key = materialOrderSourceKey(line);
-      if (key) {
-        claimedKeys.add(key);
-        continue;
-      }
+      if (key) claimedKeys.add(key);
       const desc = normalizeMaterialDescription(line.description);
-      if (desc) claimedLegacyDescs.add(desc);
+      const unkeyed = !key;
+      if (desc && (unkeyed || claimByDesc)) {
+        claimedDescs.add(desc);
+        const lineNo = num(line.wo_line_number);
+        if (lineNo != null && lineNo > 0) claimedLineNos.add(`${lineNo}|${desc}`);
+      }
     }
   }
+
   return incomingLines.filter((line) => {
     const key = materialOrderSourceKey(line);
     if (key && claimedKeys.has(key)) return false;
     const desc = normalizeMaterialDescription(line.description);
-    if (desc && claimedLegacyDescs.has(desc)) return false;
+    if (!desc) return true;
+    const lineNo = num(line.wo_line_number);
+    if (lineNo != null && lineNo > 0 && claimedLineNos.has(`${lineNo}|${desc}`)) return false;
+    if (claimedDescs.has(desc)) return false;
     return true;
   });
 }

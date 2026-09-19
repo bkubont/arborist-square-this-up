@@ -1395,7 +1395,6 @@ test('material order sync: purchased MO claims sources; no draft recreate', asyn
   })).status, 200);
 
   // Re-sync estimate with a different material amount — same source key still claims
-  // (qty/price edits must not recreate a draft)
   await request(`/entities/Estimate/${estimate.id}`, {
     method: 'PATCH', cookie: a.cookie,
     data: {
@@ -1410,21 +1409,48 @@ test('material order sync: purchased MO claims sources; no draft recreate', asyn
   assert.equal(live[0].status, 'purchased');
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
 
-  // Empty New MO stays empty (purchased already claims the Estimate source key)
+  // Empty New MO stays empty (purchased claims source key + description)
   const empty = await create('MaterialOrder', { job_id: job.id, number: 'MO-EMPTY', status: 'draft', lines: [] });
   assert.equal(empty.lines?.length || 0, 0);
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
 
-  // Same description from a distinct source (CO) must still autofill
+  // Accept estimate + create WO — must not fill a draft with WO duplicates or double cost
+  await request(`/entities/Estimate/${estimate.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'accepted',
+      total: 99,
+      accepted_snapshot: {
+        number: 'EST-CLAIM',
+        total: 99,
+        lines: [{ description: 'Lumber', category: 'Carpentry', material_amount: 99 }],
+      },
+    },
+  });
+  const woRes = await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  });
+  assert.equal(woRes.status, 201, woRes.data?.message);
+
+  mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
+  live = mos.filter((m) => m.status !== 'void');
+  assert.equal(live.filter((m) => m.status === 'purchased').length, 1);
+  const woFilled = live.filter((m) => (
+    m.status === 'draft' && (m.lines || []).some((l) => l.source_entity === 'WorkOrder')
+  ));
+  assert.equal(woFilled.length, 0, 'WO after purchase must not autofill a duplicate draft');
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
+
+  // New CO with a different description still autofills (not already on a past-draft MO)
   await create('ChangeOrder', {
     job_id: job.id,
     number: 'CO-CLAIM',
     status: 'draft',
-    lines: [{ description: 'Lumber', amount: 12 }],
+    lines: [{ description: 'Extra fasteners', amount: 12 }],
   });
   mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
   live = mos.filter((m) => m.status !== 'void');
   const coDraft = live.find((m) => m.status === 'draft' && (m.lines || []).some((l) => l.source_entity === 'ChangeOrder'));
-  assert.ok(coDraft, 'distinct CO source with same description should autofill');
-  assert.equal(coDraft.lines.some((l) => l.source_entity === 'ChangeOrder' && l.description === 'Lumber'), true);
+  assert.ok(coDraft, 'distinct CO description should autofill a draft');
+  assert.equal(coDraft.lines.some((l) => l.description === 'Extra fasteners'), true);
 });
