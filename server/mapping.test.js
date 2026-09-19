@@ -317,11 +317,11 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
   ]);
   assert.equal(filtered.length, 0);
 
-  // Edited purchase price still claims by description (Est → WO, qty/price diverge)
-  const editedPurchase = filterIncomingNotClaimedElsewhere(
+  // Same sourced line with edited qty/price still claims (source key, ignore qty/price)
+  const editedSameSource = filterIncomingNotClaimedElsewhere(
     [{
-      description: 'Pipe (materials)', qty: 2, unit_price: 99, wo_line_number: 2,
-      source_entity: 'WorkOrder', source_id: 'wo-1', source_line_index: 1,
+      description: 'Pipe', qty: 2, unit_price: 99,
+      source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
     }],
     [{
       status: 'purchased',
@@ -331,7 +331,23 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
       }],
     }],
   );
-  assert.equal(editedPurchase.length, 0);
+  assert.equal(editedSameSource.length, 0);
+
+  // Distinct sources with the same description must still autofill
+  const distinctSources = filterIncomingNotClaimedElsewhere(
+    [{
+      description: 'Pipe', qty: 1, unit_price: 50,
+      source_entity: 'ChangeOrder', source_id: 'co-1', source_line_index: 0,
+    }],
+    [{
+      status: 'purchased',
+      lines: [{
+        description: 'Pipe', qty: 1, unit_price: 30,
+        source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+      }],
+    }],
+  );
+  assert.equal(distinctSources.length, 1);
 
   const filteredKeyed = filterIncomingNotClaimedElsewhere(incoming, [
     { status: 'quote', lines: [{ ...incoming[0] }] },

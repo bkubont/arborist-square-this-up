@@ -382,8 +382,10 @@ export function materialOrderLineFingerprint(line = {}) {
   return `${desc}|${qty ?? ''}|${price ?? ''}`;
 }
 
-/** Stable claim identity — description only (ignores qty/price / Line#). */
+/** Prefer source key; description fallback only for legacy unkeyed rows. */
 export function materialOrderClaimIdentity(line = {}) {
+  const key = materialOrderSourceKey(line);
+  if (key) return `src:${key}`;
   const desc = normalizeMaterialDescription(line.description);
   if (!desc) return null;
   return `desc:${desc}`;
@@ -513,10 +515,10 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
       }
     }
     if (matchIdx < 0) {
-      const claim = materialOrderClaimIdentity(incoming);
-      if (claim) {
+      const desc = normalizeMaterialDescription(incoming.description);
+      if (desc) {
         const weakIdx = remaining.findIndex(({ line }) => (
-          !materialOrderSourceKey(line) && materialOrderClaimIdentity(line) === claim
+          !materialOrderSourceKey(line) && normalizeMaterialDescription(line.description) === desc
         ));
         if (weakIdx >= 0) continue;
       }
@@ -542,24 +544,28 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
 
 /**
  * Drop incoming autofill rows already present on other non-void Material Orders.
+ * Source-key claim ignores qty/price; description claim is legacy-unkeyed only.
  */
 export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
   const claimedKeys = new Set();
-  const claimedIdentities = new Set();
+  const claimedLegacyDescs = new Set();
   for (const order of otherOrders) {
     if (!order || order.status === 'void') continue;
     for (const line of order.lines || []) {
       const key = materialOrderSourceKey(line);
-      if (key) claimedKeys.add(key);
-      const claim = materialOrderClaimIdentity(line);
-      if (claim) claimedIdentities.add(claim);
+      if (key) {
+        claimedKeys.add(key);
+        continue;
+      }
+      const desc = normalizeMaterialDescription(line.description);
+      if (desc) claimedLegacyDescs.add(desc);
     }
   }
   return incomingLines.filter((line) => {
     const key = materialOrderSourceKey(line);
     if (key && claimedKeys.has(key)) return false;
-    const claim = materialOrderClaimIdentity(line);
-    if (claim && claimedIdentities.has(claim)) return false;
+    const desc = normalizeMaterialDescription(line.description);
+    if (desc && claimedLegacyDescs.has(desc)) return false;
     return true;
   });
 }

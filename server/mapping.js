@@ -388,10 +388,13 @@ export function materialOrderLineFingerprint(line = {}) {
 }
 
 /**
- * Stable claim identity across MOs — normalized description only (ignores qty/price
- * and Line#). Estimate-keyed purchases must still claim later WO rows after price edits.
+ * Stable claim identity across MOs (ignores qty/price).
+ * Prefer source_entity/source_id/source_line_index; description fallback only for
+ * legacy unkeyed rows so distinct same-named materials from different sources still autofill.
  */
 export function materialOrderClaimIdentity(line = {}) {
+  const key = materialOrderSourceKey(line);
+  if (key) return `src:${key}`;
   const desc = normalizeMaterialDescription(line.description);
   if (!desc) return null;
   return `desc:${desc}`;
@@ -521,15 +524,13 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
       }
     }
     if (matchIdx < 0) {
-      const claim = materialOrderClaimIdentity(incoming);
-      if (claim) {
+      // Same description, different qty/price: keep manual, skip autofill (do not clobber)
+      const desc = normalizeMaterialDescription(incoming.description);
+      if (desc) {
         const weakIdx = remaining.findIndex(({ line }) => (
-          !materialOrderSourceKey(line) && materialOrderClaimIdentity(line) === claim
+          !materialOrderSourceKey(line) && normalizeMaterialDescription(line.description) === desc
         ));
-        if (weakIdx >= 0) {
-          // Manual line shares item identity but not qty/price — do not clobber or duplicate
-          continue;
-        }
+        if (weakIdx >= 0) continue;
       }
       synced.push({ ...incoming, on_hand: incoming.on_hand ?? false });
       continue;
@@ -553,26 +554,30 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
 
 /**
  * Drop incoming autofill rows already present on other non-void Material Orders.
- * Uses source keys and stable claim identity (normalized description) — not qty/price —
- * so edited purchases and Est→WO transitions still block a second draft.
+ * Claims by source key (qty/price ignored) so edited purchases of the same sourced
+ * line do not recreate a draft. Description-only claim applies only to legacy
+ * unkeyed rows — same-named materials from different sources still autofill.
  */
 export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
   const claimedKeys = new Set();
-  const claimedIdentities = new Set();
+  const claimedLegacyDescs = new Set();
   for (const order of otherOrders) {
     if (!order || order.status === 'void') continue;
     for (const line of order.lines || []) {
       const key = materialOrderSourceKey(line);
-      if (key) claimedKeys.add(key);
-      const claim = materialOrderClaimIdentity(line);
-      if (claim) claimedIdentities.add(claim);
+      if (key) {
+        claimedKeys.add(key);
+        continue;
+      }
+      const desc = normalizeMaterialDescription(line.description);
+      if (desc) claimedLegacyDescs.add(desc);
     }
   }
   return incomingLines.filter((line) => {
     const key = materialOrderSourceKey(line);
     if (key && claimedKeys.has(key)) return false;
-    const claim = materialOrderClaimIdentity(line);
-    if (claim && claimedIdentities.has(claim)) return false;
+    const desc = normalizeMaterialDescription(line.description);
+    if (desc && claimedLegacyDescs.has(desc)) return false;
     return true;
   });
 }
