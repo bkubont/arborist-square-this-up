@@ -7,9 +7,8 @@ import { cn } from "@/lib/utils";
 import { BRAND_ASSETS, PRODUCT_NAME } from "@/lib/brand";
 import { NAV_ICONS } from "@/lib/navIcons";
 
-/** Expanded side menu — Dashboard destinations + Kanban + core hubs. */
+/** Expanded side menu — destinations under the single Dashboard CTA (not a second Dashboard row). */
 const nav = [
-  { to: "/", label: "Dashboard", icon: NAV_ICONS.dashboard, end: true },
   { to: "/jobs/action-items", label: "Action items", icon: NAV_ICONS.actionItems, attention: true },
   { to: "/jobs/outstanding", label: "Money", icon: NAV_ICONS.money, attention: true },
   { to: "/jobs/active", label: "Active Jobs", icon: NAV_ICONS.activeJobs },

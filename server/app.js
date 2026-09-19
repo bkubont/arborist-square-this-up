@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
 import { searchCatalog } from './catalog.js';
+import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
 import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
 import { voidDocument, reviseDocument, assertDocumentEntity } from './documents.js';
@@ -23,8 +24,14 @@ export async function createApp(db, env = process.env) {
   const dummyHash = await passwordHash(token());
   app.disable('x-powered-by');
   app.use(helmet({ contentSecurityPolicy: { directives: {
-    defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
-    imgSrc: ["'self'", 'data:', 'blob:'], connectSrc: ["'self'"],
+    defaultSrc: ["'self'"],
+    // Google Places Autocomplete (optional VITE_GOOGLE_PLACES_API_KEY)
+    scriptSrc: ["'self'", "https://maps.googleapis.com", "https://maps.gstatic.com"],
+    styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+    fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+    imgSrc: ["'self'", "data:", "blob:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com"],
+    connectSrc: ["'self'", "https://maps.googleapis.com", "https://places.googleapis.com", "https://maps.gstatic.com"],
+    workerSrc: ["'self'", "blob:"],
     upgradeInsecureRequests: production ? [] : null,
   } }, strictTransportSecurity: production ? undefined : false }));
   app.use(cookieParser());
@@ -172,6 +179,12 @@ export async function createApp(db, env = process.env) {
     const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 40);
     res.json(searchCatalog({ q: q || '', category: category || '', maintenance: maintenance || '', source: source || '', limit }));
   });
+  /** Free address typeahead (Photon). Google Places is client-side when VITE_GOOGLE_PLACES_API_KEY is set. */
+  app.get('/api/address-suggest', async (req, res) => {
+    const q = z.string().trim().min(1).max(200).parse(req.query.q || '');
+    const items = await suggestAddresses(q);
+    res.json({ items });
+  });
   app.param('entity', (req, res, next, entity) => { if (!Object.hasOwn(schemas, entity)) return next(fail(404, 'Unknown record type')); next(); });
   app.get('/api/entities/:entity', async (req, res) => {
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);
@@ -247,7 +260,7 @@ export async function createApp(db, env = process.env) {
       if (changeOrder.status === 'draft') await saveRecord(tx, req.user.id, 'ChangeOrder', { status: 'sent' }, changeOrder.id);
       await saveRecord(tx, req.user.id, 'TimelineEntry', {
         job_id: changeOrder.job_id,
-        type: 'note',
+        type: 'change_order_sent',
         text: `Change order ${changeOrder.number || ''} sign link sent (${channel})`.trim(),
         category: 'financial',
       });
@@ -263,16 +276,25 @@ export async function createApp(db, env = process.env) {
     const lines = mapEstimateToWorkOrderLines(estimate);
     const totals = workOrderTotals(lines, estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate);
     const existing = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
-    const created = await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'WorkOrder', {
-      job_id: estimate.job_id,
-      number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
-      related_estimate_id: estimate.id,
-      status: 'draft',
-      tax_rate: estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate,
-      instructions: estimate.accepted_snapshot?.notes || estimate.notes || '',
-      lines,
-      ...totals,
-    }));
+    const created = await ownedTransaction(req.user.id, async tx => {
+      const wo = await saveRecord(tx, req.user.id, 'WorkOrder', {
+        job_id: estimate.job_id,
+        number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
+        related_estimate_id: estimate.id,
+        status: 'draft',
+        tax_rate: estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate,
+        instructions: estimate.accepted_snapshot?.notes || estimate.notes || '',
+        lines,
+        ...totals,
+      });
+      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+        job_id: estimate.job_id,
+        type: 'work_order_created',
+        text: `Work Order ${wo.number || ''} created from estimate ${estimate.number || ''}`.trim(),
+        category: 'document',
+      });
+      return wo;
+    });
     res.status(201).json(created);
   });
   app.get('/api/jobs/:id/authorized-total', async (req, res) => {
@@ -308,7 +330,16 @@ export async function createApp(db, env = process.env) {
       number: `INV-${String(existingRows.length + 1).padStart(3, '0')}`,
       existingInvoices: activeInvoices,
     });
-    const created = await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Invoice', built.invoice));
+    const created = await ownedTransaction(req.user.id, async tx => {
+      const inv = await saveRecord(tx, req.user.id, 'Invoice', built.invoice);
+      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+        job_id: jobId,
+        type: 'document_created',
+        text: `Invoice ${inv.number || ''} created from accepted estimate`.trim(),
+        category: 'document',
+      });
+      return inv;
+    });
     // Roll up job invoice_amount to sum of active (non-void) invoice totals
     const invoicedRollup = sumActiveInvoiceTotals([...activeInvoices, created]);
     await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'Job', { invoice_amount: invoicedRollup }, job.id));

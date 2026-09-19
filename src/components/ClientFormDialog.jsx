@@ -2,21 +2,42 @@ import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import AddressFields from "@/components/AddressFields";
+import FieldLabel from "@/components/FieldLabel";
+
+const empty = { name: "", address: "", address_line2: "", city: "", state: "", zip: "", phone: "", email: "", notes: "" };
 
 export default function ClientFormDialog({ open, onOpenChange, onSave, client }) {
-  const [form, setForm] = useState({ name: "", address: "", address_line2: "", phone: "", email: "", notes: "" });
+  const [form, setForm] = useState(empty);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (open) setForm({ name: "", address: "", address_line2: "", phone: "", email: "", notes: "", ...client });
+    if (open) {
+      setError("");
+      setForm({ ...empty, ...client });
+    }
   }, [open, client]);
 
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-
   const submit = () => {
-    if (!form.name?.trim()) return;
-    onSave(form);
+    if (!form.name?.trim()) {
+      setError("Enter a client name.");
+      return;
+    }
+    if (!form.address?.trim() || !form.city?.trim() || !form.state?.trim() || !form.zip?.trim()) {
+      setError("Enter street address, city, state, and ZIP.");
+      return;
+    }
+    setError("");
+    onSave({
+      ...form,
+      name: form.name.trim(),
+      address: form.address.trim(),
+      address_line2: form.address_line2?.trim() || "",
+      city: form.city.trim(),
+      state: form.state.trim(),
+      zip: form.zip.trim(),
+    });
   };
 
   return (
@@ -27,31 +48,25 @@ export default function ClientFormDialog({ open, onOpenChange, onSave, client })
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label>Name *</Label>
-            <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="John Smith" />
+            <FieldLabel htmlFor="client-name" required>Name</FieldLabel>
+            <Input id="client-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="John Smith" autoComplete="name" />
           </div>
-          <div>
-            <Label htmlFor="client-address">Address line 1</Label>
-            <Input id="client-address" autoComplete="address-line1" value={form.address} onChange={(e) => set("address", e.target.value)} placeholder="123 Oak St" />
-          </div>
-          <div>
-            <Label htmlFor="client-address-line2">Address line 2 (optional)</Label>
-            <Input id="client-address-line2" autoComplete="address-line2" value={form.address_line2} onChange={(e) => set("address_line2", e.target.value)} placeholder="Apt / suite, city, state, ZIP" />
-          </div>
+          <AddressFields value={form} onChange={(next) => setForm((f) => ({ ...f, ...next }))} />
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Phone</Label>
-              <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="555-1234" />
+              <FieldLabel htmlFor="client-phone">Phone</FieldLabel>
+              <Input id="client-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="555-1234" autoComplete="tel" />
             </div>
             <div>
-              <Label>Email</Label>
-              <Input value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="john@email.com" />
+              <FieldLabel htmlFor="client-email">Email</FieldLabel>
+              <Input id="client-email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="john@email.com" autoComplete="email" />
             </div>
           </div>
           <div>
-            <Label>Notes</Label>
-            <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} />
+            <FieldLabel htmlFor="client-notes">Notes</FieldLabel>
+            <Textarea id="client-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
           </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

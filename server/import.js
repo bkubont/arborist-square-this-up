@@ -51,6 +51,10 @@ export async function importData(db, email, input) {
           data.related_estimate_id = ids.get(`Estimate:${record.related_estimate_id}`);
           if (!data.related_estimate_id) throw new Error(`${entity} references a missing estimate`);
         }
+        if (record.related_work_order_id) {
+          data.related_work_order_id = ids.get(`WorkOrder:${record.related_work_order_id}`);
+          if (!data.related_work_order_id) throw new Error(`${entity} references a missing work order`);
+        }
         if (Array.isArray(record.billed_change_order_ids)) {
           data.billed_change_order_ids = record.billed_change_order_ids.map(sourceId => {
             const mapped = ids.get(`ChangeOrder:${sourceId}`);
@@ -63,7 +67,7 @@ export async function importData(db, email, input) {
           data[field] = fileMap.get(record[field]);
           if (!data[field]) throw new Error('A photo is missing. Add its bytes and source_url to the files collection before importing.');
         }
-        const saved = await saveRecord(tx, user.id, entity, data);
+        const saved = await saveRecord(tx, user.id, entity, data, undefined, { skipClientAddressCheck: true });
         ids.set(`${entity}:${record.id}`, saved.id);
         if (record.created_date) {
           const created = new Date(record.created_date);

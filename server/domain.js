@@ -65,18 +65,28 @@ const signMeta = {
 };
 
 /** Job-linked document entities (parent_id = job_id). */
-export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'WorkOrder', 'ChangeOrder', 'Invoice'];
+export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'WorkOrder', 'ChangeOrder', 'Invoice'];
 
 export const schemas = {
-  Client: z.object({ name: z.string().trim().min(1).max(250), address: text.optional(), address_line2: text.optional(), phone: text.optional(), email: text.optional(), notes: text.optional() }),
+  Client: z.object({
+    name: z.string().trim().min(1).max(250),
+    address: text.optional(),
+    address_line2: text.optional(),
+    city: text.optional(),
+    state: text.optional(),
+    zip: text.optional(),
+    phone: text.optional(),
+    email: text.optional(),
+    notes: text.optional(),
+  }),
   Job: z.object({ title: z.string().trim().min(1).max(250), client_id: id, client_name: text.optional(), description: text.optional(),
     status: z.enum(['Estimate','Scheduled','In Progress','Waiting on Materials','Completed','Paid']).default('Estimate'),
     start_date: date.optional(), end_date: date.optional(), estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
-  TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','deposit_received','invoice_sent','payment_received','status_change','checklist']),
+  TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided']),
     text: text.optional(), photo_url: z.string().max(200).optional(),
-    category: z.enum(['before','after','work','receipt','document','note','financial']).default('note'), amount: money.optional() }),
+    category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery']).default('note'), amount: money.optional() }),
   CompanyProfile: z.object({
     name: z.string().trim().max(250).default(''),
     address: text.optional(),
@@ -110,6 +120,24 @@ export const schemas = {
       total: money.optional(),
     }).optional(),
     ...signMeta,
+  }),
+  MaterialOrder: z.object({
+    job_id: id,
+    number: docNumber,
+    date: date.optional(),
+    notes: text.optional(),
+    related_estimate_id: id.optional(),
+    related_work_order_id: id.optional(),
+    status: z.enum(['draft', 'ordered', 'received', 'void']).default('draft'),
+    lines: z.array(z.object({
+      description: text.default(''),
+      qty: money.optional(),
+      unit_price: money.optional(),
+      supplier: text.optional(),
+      notes: text.optional(),
+    })).max(2000).default([]),
+    subtotal: money.optional(),
+    total: money.optional(),
   }),
   WorkOrder: z.object({
     job_id: id,
@@ -186,6 +214,18 @@ export const schemas = {
 export const fail = (status, message) => Object.assign(new Error(message), { status });
 export const decode = row => ({ ...JSON.parse(row.data), id: row.id, created_date: row.created_date, updated_date: row.updated_date });
 
+const CLIENT_ADDRESS_KEYS = ['address', 'address_line2', 'city', 'state', 'zip'];
+
+/** Brittany: street + city + state + ZIP required; line 2 (apt/suite) optional. */
+export function assertClientAddressComplete(data = {}) {
+  const missing = [];
+  if (!String(data.address || '').trim()) missing.push('address');
+  if (!String(data.city || '').trim()) missing.push('city');
+  if (!String(data.state || '').trim()) missing.push('state');
+  if (!String(data.zip || '').trim()) missing.push('ZIP');
+  if (missing.length) throw fail(400, `Client requires ${missing.join(', ')}`);
+}
+
 function parentFor(entity, data) {
   if (entity === 'Job') return { parentId: data.client_id, parentEntity: 'Client' };
   if (entity === 'TimelineEntry' || JOB_DOCUMENT_ENTITIES.includes(entity)) return { parentId: data.job_id, parentEntity: 'Job' };
@@ -198,13 +238,18 @@ export async function getRecord(db, owner, entity, recordId) {
   return decode(row);
 }
 
-export async function saveRecord(db, owner, entity, input, recordId) {
+export async function saveRecord(db, owner, entity, input, recordId, opts = {}) {
   if (!schemas[entity]) throw fail(404, 'Unknown record type');
   const previous = recordId ? await getRecord(db, owner, entity, recordId) : {};
   const data = schemas[entity].parse({ ...previous, ...input });
+  if (entity === 'Client' && !opts.skipClientAddressCheck) {
+    const touchingAddress = !recordId || CLIENT_ADDRESS_KEYS.some((key) => Object.prototype.hasOwnProperty.call(input || {}, key));
+    if (touchingAddress) assertClientAddressComplete(data);
+  }
   const { parentId, parentEntity } = parentFor(entity, data);
   if (parentId) await getRecord(db, owner, parentEntity, parentId);
   if (data.related_estimate_id) await getRecord(db, owner, 'Estimate', data.related_estimate_id);
+  if (data.related_work_order_id) await getRecord(db, owner, 'WorkOrder', data.related_work_order_id);
   if (Array.isArray(data.billed_change_order_ids)) {
     for (const changeOrderId of data.billed_change_order_ids) await getRecord(db, owner, 'ChangeOrder', changeOrderId);
   }

@@ -69,6 +69,10 @@ Photo uploads are resized to at most 1800 pixels on the longest side and encoded
 
 Dictation uses browser SpeechRecognition where supported, with editable text before saving. Browser providers may process audio remotely; availability depends on the browser and connectivity. Elsewhere, use the phone keyboard microphone. There is no Base44 or paid app-side transcription integration.
 
+## Address autocomplete
+
+Add/Edit Client can suggest addresses while typing. Set `VITE_GOOGLE_PLACES_API_KEY` (browser Places key, restrict by HTTP referrer) for Google Places. When unset, the API uses free Photon/OSM suggestions at `/api/address-suggest`, and fields remain fully editable manually. Street, city, state, and ZIP are required; address line 2 (apt/suite) is not.
+
 ## Checks
 
 ```sh

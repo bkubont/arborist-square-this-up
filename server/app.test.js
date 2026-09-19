@@ -6,6 +6,8 @@ import { createApp } from './app.js';
 import { hash, token } from './security.js';
 import { importData } from './import.js';
 
+const CLIENT_ADDR = { address: '1 Main St', city: 'Springfield', state: 'IL', zip: '62701' };
+
 async function fixture(t) {
   const db = await openDatabase({ SQLITE_PATH: ':memory:' });
   await migrate(db);
@@ -46,7 +48,7 @@ test('accounts cannot read, modify, delete, link or export each other’s data o
   const { request, register } = await fixture(t);
   const a = await register('a@example.com'), b = await register('b@example.com');
   const create = async (entity, data, cookie = a.cookie) => (await request(`/entities/${entity}`, { method: 'POST', data, cookie })).data;
-  const client = await create('Client', { name: 'Private client', owner_id: b.data.id });
+  const client = await create('Client', { name: 'Private client', owner_id: b.data.id, ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Private job', client_id: client.id });
   const form = new FormData();
   form.append('file', new Blob([Buffer.from('89504e470d0a1a0a', 'hex')], { type: 'image/png' }), 'photo.png');
@@ -61,7 +63,7 @@ test('accounts cannot read, modify, delete, link or export each other’s data o
   assert.equal((await request(file.data.file_url.replace('/api',''), { cookie: b.cookie })).status, 404);
   assert.equal((await request(file.data.file_url.replace('/api',''))).status, 401);
   assert.equal((await request(file.data.file_url.replace('/api',''), { cookie: a.cookie })).status, 200);
-  const ownClient = await create('Client', { name: 'B client' }, b.cookie);
+  const ownClient = await create('Client', { name: 'B client', ...CLIENT_ADDR }, b.cookie);
   const ownJob = await create('Job', { title: 'B job', client_id: ownClient.id }, b.cookie);
   assert.equal((await request('/entities/TimelineEntry', { method: 'POST', cookie: b.cookie, data: { job_id: ownJob.id, type: 'photo', photo_url: file.data.file_url } })).status, 400);
   const exported = (await request('/export', { cookie: b.cookie })).data;
@@ -71,6 +73,31 @@ test('accounts cannot read, modify, delete, link or export each other’s data o
   assert.equal((await request(`/entities/TimelineEntry/${entry.id}`, { cookie: a.cookie })).status, 404);
   assert.equal((await request(file.data.file_url.replace('/api',''), { cookie: a.cookie })).status, 404);
 });
+
+test('timeline photo categories include addition and gallery', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('photos-cat@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Photo client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Photo job', client_id: client.id });
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from('89504e470d0a1a0a', 'hex')], { type: 'image/png' }), 'photo.png');
+  const file = await request('/files', { method: 'POST', cookie: a.cookie, form });
+  assert.equal(file.status, 201);
+  const addition = await create('TimelineEntry', {
+    job_id: job.id, type: 'photo', category: 'addition', photo_url: file.data.file_url, text: 'Extra work',
+  });
+  const gallery = await create('TimelineEntry', {
+    job_id: job.id, type: 'photo', category: 'gallery', photo_url: file.data.file_url, text: 'General',
+  });
+  assert.equal(addition.category, 'addition');
+  assert.equal(gallery.category, 'gallery');
+});
+
 test('reset tokens expire, are single use, and revoke existing sessions', async t => {
   const { db, request, register } = await fixture(t);
   const user = await register('a@example.com');
@@ -109,25 +136,49 @@ test('export restores relationships and photos; invalid imports roll back', asyn
   const [c] = await db.all('SELECT id FROM users WHERE email = ?', ['c@example.com']);
   assert.equal((await db.all('SELECT id FROM records WHERE owner_id = ?', [c.id])).length, 0);
 });
-test('client address line two persists through edits and backup restore, and is optional for existing clients', async t => {
+test('client address requires street, city, state, ZIP; line 2 optional; persists through backup', async t => {
   const { db, request, register } = await fixture(t);
   const a = await register('address@example.com');
   await register('restore-address@example.com');
-  const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'Address test', address: '123 Oak St' } })).data;
+
+  assert.equal((await request('/entities/Client', {
+    method: 'POST', cookie: a.cookie, data: { name: 'Incomplete', address: '123 Oak St' },
+  })).status, 400);
+
+  const client = (await request('/entities/Client', {
+    method: 'POST', cookie: a.cookie,
+    data: { name: 'Address test', address: '123 Oak St', city: 'Springfield', state: 'IL', zip: '62701' },
+  })).data;
   assert.equal(client.address_line2, undefined);
-  const updated = await request(`/entities/Client/${client.id}`, { method: 'PATCH', cookie: a.cookie, data: { address_line2: 'Suite 2, Springfield, IL 62701' } });
+  assert.equal(client.city, 'Springfield');
+  const updated = await request(`/entities/Client/${client.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { address_line2: 'Suite 2' },
+  });
   assert.equal(updated.status, 200);
   await request(`/entities/Client/${client.id}`, { method: 'PATCH', cookie: a.cookie, data: { phone: '555-1234' } });
   const saved = (await request(`/entities/Client/${client.id}`, { cookie: a.cookie })).data;
   assert.equal(saved.address, '123 Oak St');
-  assert.equal(saved.address_line2, 'Suite 2, Springfield, IL 62701');
+  assert.equal(saved.address_line2, 'Suite 2');
+  assert.equal(saved.city, 'Springfield');
+  assert.equal(saved.state, 'IL');
+  assert.equal(saved.zip, '62701');
   const backup = (await request('/export', { cookie: a.cookie })).data;
   await importData(db, 'restore-address@example.com', backup);
   const [owner] = await db.all('SELECT id FROM users WHERE email = ?', ['restore-address@example.com']);
   const [restored] = await db.all('SELECT data FROM records WHERE owner_id = ?', [owner.id]);
   assert.equal(JSON.parse(restored.data).address_line2, saved.address_line2);
+  assert.equal(JSON.parse(restored.data).zip, '62701');
   await request(`/entities/Client/${client.id}`, { method: 'PATCH', cookie: a.cookie, data: { address_line2: '' } });
   assert.equal((await request(`/entities/Client/${client.id}`, { cookie: a.cookie })).data.address_line2, '');
+});
+
+test('address suggest returns items shape (empty ok if upstream unavailable)', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('suggest@example.com');
+  assert.equal((await request('/address-suggest?q=oak')).status, 401);
+  const res = await request('/address-suggest?q=oak', { cookie: a.cookie });
+  assert.equal(res.status, 200);
+  assert.ok(Array.isArray(res.data.items));
 });
 
 test('invalid inputs, forbidden file types, expired invitations and login throttling', async t => {
@@ -136,7 +187,7 @@ test('invalid inputs, forbidden file types, expired invitations and login thrott
   const expired = token();
   await db.run('INSERT INTO tokens (token_hash, kind, email, expires_at) VALUES (?, ?, ?, ?)', [hash(expired), 'invite', 'expired@example.com', Date.now() - 1]);
   assert.equal((await request('/auth/register', { method: 'POST', data: { email: 'expired@example.com', password: 'strong-password-123', inviteToken: expired } })).status, 400);
-  assert.equal((await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: '' } })).status, 400);
+  assert.equal((await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: '', ...CLIENT_ADDR } })).status, 400);
   assert.equal((await request('/entities/Client?sort=DROP%20TABLE', { cookie: a.cookie })).status, 400);
   assert.equal((await request('/entities/Client?sort=-updated_date', { cookie: a.cookie })).status, 200);
   assert.equal((await request('/entities/Client?sort=updated_date', { cookie: a.cookie })).status, 200);
@@ -159,7 +210,7 @@ test('job documents: create draft Estimate/Invoice stubs, list by job, and enfor
     assert.equal(result.status, 201, result.data?.message);
     return result.data;
   };
-  const client = await create('Client', { name: 'Docs client' });
+  const client = await create('Client', { name: 'Docs client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Docs job', client_id: client.id, status: 'Estimate' });
   const estimate = await create('Estimate', { job_id: job.id, number: 'EST-001', status: 'draft', lines: [{ description: 'Labor', labor_amount: 100 }] });
   const invoice = await create('Invoice', { job_id: job.id, number: 'INV-001', status: 'draft', date: '2026-09-19' });
@@ -218,11 +269,12 @@ test('catalog search and estimate line fill with recomputed totals', async t => 
   assert.ok(hit);
   assert.ok(hit.hours_mid > 0);
   assert.ok(hit.est_labor_cost > 0);
+  assert.ok(hit.est_materials_cost > 0);
 
   const byCategory = await request('/catalog?category=Plumbing&limit=20', { cookie: a.cookie });
   assert.ok(byCategory.data.items.every(item => /plumbing/i.test(item.category)));
 
-  const client = await create('Client', { name: 'Catalog client' });
+  const client = await create('Client', { name: 'Catalog client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Small faucet job', client_id: client.id });
   const estimate = await create('Estimate', {
     job_id: job.id,
@@ -267,7 +319,7 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
     assert.equal(result.status, 201, result.data?.message);
     return result.data;
   };
-  const client = await create('Client', { name: 'Sign client', email: 'client@example.com' });
+  const client = await create('Client', { name: 'Sign client', email: 'client@example.com', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Deck repair', client_id: client.id });
   const estimate = await create('Estimate', {
     job_id: job.id,
@@ -317,6 +369,7 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
   const docs = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data
     .filter(e => e.category === 'document' && e.photo_url === after.signature_file_url);
   assert.equal(docs.length, 1);
+  assert.equal(docs[0].type, 'estimate_signed');
   assert.match(docs[0].text, /Pat Client/);
 
   // Owner can still edit after accept
@@ -345,7 +398,7 @@ test('work order from accepted estimate maps dual lines with work categories', a
     assert.equal(result.status, 201, result.data?.message);
     return result.data;
   };
-  const client = await create('Client', { name: 'WO client' });
+  const client = await create('Client', { name: 'WO client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'WO job', client_id: client.id });
   const estimate = await create('Estimate', {
     job_id: job.id,
@@ -391,6 +444,18 @@ test('work order from accepted estimate maps dual lines with work categories', a
   assert.ok(wo.lines.some(l => l.kind === 'labor' && l.hours === 2 && l.work_category === 'Plumbing'));
   assert.ok(wo.lines.some(l => l.kind === 'material' && l.unit_price === 45));
 
+  const timeline = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.ok(timeline.some(e => e.type === 'work_order_created'));
+
+  const mo = await create('MaterialOrder', {
+    job_id: job.id,
+    number: 'MO-001',
+    status: 'draft',
+    lines: [{ description: 'Faucet cartridge', qty: 1, unit_price: 24 }],
+  });
+  assert.equal(mo.number, 'MO-001');
+  assert.equal(mo.lines[0].unit_price, 24);
+
   const patched = await request(`/entities/WorkOrder/${wo.id}`, {
     method: 'PATCH', cookie: a.cookie,
     data: { lines: wo.lines.map((l, i) => i === 0 ? { ...l, hours: 3, work_category: 'Plumbing' } : l) },
@@ -407,7 +472,7 @@ test('change order e-sign updates authorized total; draft CO excluded', async t 
     assert.equal(result.status, 201, result.data?.message);
     return result.data;
   };
-  const client = await create('Client', { name: 'CO client' });
+  const client = await create('Client', { name: 'CO client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'CO job', client_id: client.id });
   await create('Estimate', {
     job_id: job.id,
@@ -476,7 +541,7 @@ test('credit change order can sign when revised total goes below baseline', asyn
     assert.equal(result.status, 201, result.data?.message);
     return result.data;
   };
-  const client = await create('Client', { name: 'Credit client' });
+  const client = await create('Client', { name: 'Credit client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Credit job', client_id: client.id });
   await create('Estimate', {
     job_id: job.id,
@@ -519,7 +584,7 @@ test('second unused sign link cannot overwrite accepted snapshot', async t => {
     assert.equal(result.status, 201, result.data?.message);
     return result.data;
   };
-  const client = await create('Client', { name: 'Double client' });
+  const client = await create('Client', { name: 'Double client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Double job', client_id: client.id });
   const estimate = await create('Estimate', {
     job_id: job.id,
@@ -574,7 +639,7 @@ test('status edit cannot bypass accepted_snapshot freeze', async t => {
     assert.equal(result.status, 201, result.data?.message);
     return result.data;
   };
-  const client = await create('Client', { name: 'Bypass client' });
+  const client = await create('Client', { name: 'Bypass client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Bypass job', client_id: client.id });
   const estimate = await create('Estimate', {
     job_id: job.id,
@@ -622,7 +687,7 @@ test('invoice from job autofills estimate + approved COs, balance due, job rollu
   };
 
   await create('CompanyProfile', { name: 'Square This Up', default_tax_rate: 0, default_payment_terms: 'Due upon receipt' });
-  const client = await create('Client', { name: 'Invoice client', address: '1 Main St' });
+  const client = await create('Client', { name: 'Invoice client', ...CLIENT_ADDR });
   const job = await create('Job', {
     title: 'Kitchen refresh',
     client_id: client.id,
@@ -744,7 +809,7 @@ test('invoice from job autofills estimate + approved COs, balance due, job rollu
 test('export backup includes form entities and company profile', async t => {
   const { request, register } = await fixture(t);
   const a = await register('export-forms@example.com');
-  const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'Forms Client' } })).data;
+  const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'Forms Client', ...CLIENT_ADDR } })).data;
   const job = (await request('/entities/Job', { method: 'POST', cookie: a.cookie, data: { title: 'Forms Job', client_id: client.id } })).data;
   await request('/entities/CompanyProfile', { method: 'POST', cookie: a.cookie, data: { name: 'Acme Handyman', default_tax_rate: 10 } });
   await request('/entities/Estimate', { method: 'POST', cookie: a.cookie, data: {
@@ -767,7 +832,7 @@ test('void and revise document rules; partial invoice status; ownership', async 
   const { request, register } = await fixture(t);
   const a = await register('void-revise@example.com');
   const b = await register('void-other@example.com');
-  const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'VR Client' } })).data;
+  const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'VR Client', ...CLIENT_ADDR } })).data;
   const job = (await request('/entities/Job', {
     method: 'POST', cookie: a.cookie,
     data: { title: 'VR Job', client_id: client.id, deposit_amount: 0 },

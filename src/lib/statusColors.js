@@ -140,6 +140,8 @@ export const STATUS_SEMANTIC_MAP = {
   paid: "closed",
   issued: "sky",
   complete: "success",
+  ordered: "attention-materials",
+  received: "success",
 };
 
 /** @deprecated Prefer statusColors(); kept for flat-map callers. */

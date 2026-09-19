@@ -8,6 +8,20 @@ export const shortDate = (d) => {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 };
 
+/** Full date + time for activity feed (uses record timestamps). */
+export const dateTime = (d) => {
+  if (!d) return "—";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 export const timeAgo = (d) => {
   if (!d) return "";
   const diff = Date.now() - new Date(d).getTime();

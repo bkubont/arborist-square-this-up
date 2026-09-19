@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import FieldLabel from "@/components/FieldLabel";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import StatusSelect from "@/components/StatusSelect";
@@ -61,11 +62,11 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label>Title *</Label>
+            <FieldLabel required>Title</FieldLabel>
             <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Kitchen faucet replacement" />
           </div>
           <div>
-            <Label>Client *</Label>
+            <FieldLabel required>Client</FieldLabel>
             <Select value={form.client_id} onValueChange={(v) => set("client_id", v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Select client" />

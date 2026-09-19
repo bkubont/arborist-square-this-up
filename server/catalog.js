@@ -28,7 +28,7 @@ export function searchCatalog({ q = '', category = '', maintenance = '', source 
       scored.push({ item, score: 0 });
       continue;
     }
-    const hay = `${item.task} ${item.category} ${item.notes} ${item.tools}`.toLowerCase();
+    const hay = `${item.task} ${item.category} ${item.notes || ''} ${item.tools || ''} ${item.materials_note || ''}`.toLowerCase();
     if (!hay.includes(query) && !query.split(/\s+/).every(part => hay.includes(part))) continue;
     const taskMatch = item.task.toLowerCase().startsWith(query) ? 0 : item.task.toLowerCase().includes(query) ? 1 : 2;
     scored.push({ item, score: taskMatch });
@@ -42,21 +42,32 @@ export function searchCatalog({ q = '', category = '', maintenance = '', source 
   };
 }
 
+/** Build editable notes from catalog labor tips + materials kit note + tools. */
+function catalogNotes(item) {
+  const parts = [
+    item.notes,
+    item.materials_note,
+    item.materials_flag ? `Materials: ${item.materials_flag}` : '',
+    item.tools ? `Tools: ${item.tools}` : '',
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
 /** Map a catalog row into an editable Estimate line (Decision #5). */
 export function catalogItemToEstimateLine(item) {
   const hours = item.hours_mid ?? null;
   const rate = item.labor_rate ?? 55;
   const labor = item.est_labor_cost ?? (hours != null ? hours * rate : undefined);
-  const noteParts = [item.notes, item.tools ? `Tools: ${item.tools}` : ''].filter(Boolean);
+  const materials = item.est_materials_cost;
   return {
     description: item.task,
     category: item.category || '',
     labor_amount: labor != null ? Math.round(labor * 100) / 100 : undefined,
     labor_hours: hours != null ? hours : undefined,
     labor_rate: rate,
-    material_amount: undefined,
+    material_amount: materials != null ? Math.round(Number(materials) * 100) / 100 : undefined,
     equipment_amount: undefined,
-    notes: noteParts.join(' · '),
+    notes: catalogNotes(item),
     tools: item.tools || undefined,
     catalog_id: item.id,
   };
