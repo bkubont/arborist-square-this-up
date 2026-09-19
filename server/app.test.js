@@ -560,6 +560,51 @@ test('second unused sign link cannot overwrite accepted snapshot', async t => {
   })).status, 400);
 });
 
+test('status edit cannot bypass accepted_snapshot freeze', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('status-bypass@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Bypass client' });
+  const job = await create('Job', { title: 'Bypass job', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-BYP',
+    status: 'draft',
+    total: 100,
+    lines: [{ description: 'Labor', labor_amount: 100 }],
+    subtotal: 100,
+    tax_amount: 0,
+  });
+  const sent = await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  });
+  const token = sent.data.sign_url.split('/').pop();
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal((await request(`/sign/${token}`, {
+    method: 'POST', data: { signer_name: 'Pat', signature_data_url: png },
+  })).status, 200);
+
+  // Live status is editable after accept (Decision #7), but snapshot stays frozen
+  const rolledBack = await request(`/entities/Estimate/${estimate.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { status: 'draft', total: 999 },
+  });
+  assert.equal(rolledBack.status, 200);
+  assert.equal(rolledBack.data.status, 'draft');
+  assert.equal(rolledBack.data.accepted_snapshot.total, 100);
+
+  assert.equal((await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  })).status, 400);
+
+  const final = (await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data;
+  assert.equal(final.accepted_snapshot.total, 100);
+  assert.equal(final.signer_name, 'Pat');
+});
+
 test('invoice from job autofills estimate + approved COs, balance due, job rollup', async t => {
   const { request, register } = await fixture(t);
   const a = await register('inv@example.com');

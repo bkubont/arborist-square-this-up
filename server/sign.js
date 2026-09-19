@@ -195,9 +195,8 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
 
     const record = await getRecord(tx, link.owner_id, link.entity, link.record_id);
     if (record.status === 'void' || record.status === 'rejected') throw fail(400, 'This document can no longer be signed');
-    if (record.status === 'accepted' || record.status === 'approved') {
-      throw fail(400, 'This document was already signed');
-    }
+    // Freeze on accepted_snapshot (not live status) — status stays editable after sign.
+    if (record.accepted_snapshot) throw fail(400, 'This document was already signed');
 
     const [usage] = await tx.all('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE owner_id = ?', [link.owner_id]);
     if (Number(usage.total) + png.length > Number(env.ACCOUNT_STORAGE_MB || 100) * 1024 * 1024) {
