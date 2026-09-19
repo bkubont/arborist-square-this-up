@@ -24,6 +24,16 @@
     --attention-muted-foreground: 36 55% 28%;
     --attention-border: 43 55% 70%;
 
+    /* Global status semantics (mirror src/lib/statusColors.js) */
+    --status-brand: 225 73% 47%;
+    --status-sky: 199 89% 48%;
+    --status-blue: 221 83% 53%;
+    --status-attention: 43 74% 42%;
+    --status-success: 160 84% 30%;
+    --status-closed: 215 16% 47%;
+    --status-neutral: 220 12% 42%;
+    --status-danger: 0 72% 51%;
+
     --primary: 225 73% 47%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 25% 93%;

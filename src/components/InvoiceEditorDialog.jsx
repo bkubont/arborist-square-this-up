@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
 import { invoiceTotals, deriveInvoiceStatus } from "@/lib/documentMapping";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
+import StatusSelect from "@/components/StatusSelect";
 
 function emptyMaterial() {
   return { description: "", qty: "", unit_price: "" };
@@ -437,14 +437,11 @@ export default function InvoiceEditorDialog({
             </div>
             <div>
               <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {DOCUMENT_STATUSES.Invoice.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <StatusSelect
+                value={form.status}
+                onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
+                statuses={DOCUMENT_STATUSES.Invoice}
+              />
             </div>
             <div>
               <Label>Tax %</Label>

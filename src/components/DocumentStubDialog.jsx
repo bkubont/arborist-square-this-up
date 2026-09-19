@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import StatusSelect from "@/components/StatusSelect";
 import { DOCUMENT_STATUSES, documentTypeLabel } from "@/lib/documents";
 
 /**
@@ -134,18 +134,7 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
             </div>
             <div>
               <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => set("status", v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {statuses.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <StatusSelect value={form.status} onValueChange={(v) => set("status", v)} statuses={statuses} />
             </div>
           </div>
 

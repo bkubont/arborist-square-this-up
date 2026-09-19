@@ -110,10 +110,16 @@ export default function Outstanding() {
               <Link
                 key={`${d.kind}-${d.id}`}
                 to={`/jobs/${d.job_id}`}
-                className="flex items-center gap-3 bg-card rounded-xl border border-border p-4 hover:border-attention transition-colors"
+                className={cn(
+                  "flex items-center gap-3 bg-card rounded-xl border p-4 hover:shadow-sm transition-colors",
+                  statusCardClass(d.status)
+                )}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-attention">{d.kind} · sent</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{d.kind}</span>
+                    <StatusBadge status={d.status} />
+                  </div>
                   <div className="font-semibold text-foreground truncate">{d.number || d.title || d.id}</div>
                 </div>
                 <div className="text-sm font-semibold text-attention tabular-nums">

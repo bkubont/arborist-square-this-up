@@ -13,6 +13,8 @@ export const DOCUMENT_STATUSES = {
   Invoice: ['draft', 'sent', 'partial', 'paid', 'void'],
 };
 
+/** Status colors: use `statusColors` / `StatusBadge` / `StatusSelect` from `@/lib/statusColors` — do not invent per-screen colors. */
+
 export function documentTypeLabel(entity) {
   return DOCUMENT_TYPES.find((t) => t.entity === entity)?.label || entity;
 }
