@@ -154,7 +154,8 @@ export async function loadPublicEstimateSign(db, rawToken) {
 async function acceptedEstimateBaseline(tx, ownerId, jobId) {
   const rows = await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'Estimate', jobId]);
   const estimates = rows.map(decode);
-  const accepted = estimates.find(e => e.status === 'accepted') || estimates.find(e => e.accepted_snapshot);
+  const accepted = estimates.find(e => e.status === 'accepted')
+    || estimates.find(e => e.status !== 'void' && e.accepted_snapshot);
   if (!accepted) return { estimate: null, baseline: 0 };
   const baseline = accepted.accepted_snapshot?.total ?? accepted.total ?? 0;
   return { estimate: accepted, baseline: Number(baseline) || 0 };
@@ -222,6 +223,9 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
         signature_file_url: fileUrl,
         accepted_snapshot: snapshot,
       }, record.id);
+      if (snapshot.total != null) {
+        await saveRecord(tx, link.owner_id, 'Job', { estimate_amount: snapshot.total }, record.job_id);
+      }
       await saveRecord(tx, link.owner_id, 'TimelineEntry', {
         job_id: record.job_id,
         type: 'estimate_signed',

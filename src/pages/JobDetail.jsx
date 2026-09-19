@@ -91,12 +91,20 @@ export default function JobDetail() {
     load();
   };
 
-  const quickAction = async (type, text) => {
+  const logDeposit = async () => {
+    const raw = window.prompt("Deposit amount received?");
+    if (raw == null || raw === "") return;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Enter a positive deposit amount.");
+      return;
+    }
     await api.entities.TimelineEntry.create({
       job_id: id,
-      type,
-      text,
-      category: type.includes("estimate") || type.includes("invoice") || type.includes("deposit") ? "financial" : "note",
+      type: "deposit_received",
+      text: "Deposit received",
+      category: "financial",
+      amount,
     });
     load();
   };
@@ -170,11 +178,11 @@ export default function JobDetail() {
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Actions</div>
             <div className="grid grid-cols-2 gap-2">
-              <QuickBtn label="Deposit" icon={DollarSign} onClick={() => quickAction("deposit_received", "Deposit received")} tint="bg-emerald-50 text-emerald-700 border-emerald-200" />
+              <QuickBtn label="Deposit" icon={DollarSign} onClick={logDeposit} tint="bg-emerald-50 text-emerald-700 border-emerald-200" />
               <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-secondary text-secondary-foreground border-border" />
             </div>
             <p className="text-[11px] text-slate-400 mt-2">
-              Document activity, photos, and status changes appear in Timeline.
+              Document activity, photos, and status changes appear in Timeline. Deposit prompts for an amount.
             </p>
           </div>
 
@@ -212,7 +220,6 @@ export default function JobDetail() {
               job={job}
               documents={documents}
               timeline={entries}
-              onUpdate={updateJob}
               onLogPayment={logPayment}
             />
           </div>

@@ -1,7 +1,9 @@
 /**
  * Document lifecycle helpers: void and revise (Phase 6).
+ * Estimate / Work Order / Invoice are singular — revise is blocked (void then create).
  */
 import { fail, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
+import { SINGLE_DOC_ENTITIES } from './documentRules.js';
 
 const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
 
@@ -76,10 +78,13 @@ export async function voidDocument(tx, ownerId, entity, recordId) {
 
 /**
  * Create a new draft revision from an existing document.
- * Source is left as-is (void separately if needed). Clears accept/sign fields so it can be re-sent.
+ * Blocked for singular Estimate / Work Order / Invoice (one per job).
  */
 export async function reviseDocument(tx, ownerId, entity, recordId) {
   assertDocumentEntity(entity);
+  if (SINGLE_DOC_ENTITIES.has(entity)) {
+    throw fail(400, `Only one ${entity} per job. Void it first if you need to replace it.`);
+  }
   const record = await getRecord(tx, ownerId, entity, recordId);
   const existing = await tx.all(
     'SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?',

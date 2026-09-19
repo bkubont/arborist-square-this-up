@@ -1,9 +1,12 @@
 /**
  * Shared void / revise actions for job documents (Phase 6).
+ * Estimate / Work Order / Invoice are singular per job — revise is disabled (void, then create).
  */
 import React, { useState } from "react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
+
+const NO_REVISE = new Set(["Estimate", "WorkOrder", "Invoice"]);
 
 export default function DocumentLifecycleActions({
   entity,
@@ -11,15 +14,20 @@ export default function DocumentLifecycleActions({
   onSaved,
   onRevised,
   disabled,
+  allowRevise = undefined,
 }) {
   const [busy, setBusy] = useState(false);
   if (!document?.id) return null;
   const isVoid = document.status === "void";
   const isPaid = document.status === "paid";
+  const canRevise = allowRevise !== false && !NO_REVISE.has(entity);
 
   const voidDoc = async () => {
     if (isVoid || isPaid) return;
-    if (!confirm(`Void this ${entity}? It will be excluded from financial rollups. You can still create a revision.`)) return;
+    const tip = canRevise
+      ? "It will be excluded from financial rollups. You can still create a revision."
+      : "It will be excluded from financial rollups. Create a new document afterward if needed.";
+    if (!confirm(`Void this ${entity}? ${tip}`)) return;
     setBusy(true);
     try {
       await api.documents.void(entity, document.id);
@@ -34,6 +42,8 @@ export default function DocumentLifecycleActions({
     try {
       const created = await api.documents.revise(entity, document.id);
       onRevised?.(created) ?? onSaved?.();
+    } catch (e) {
+      alert(e?.message || "Could not revise document.");
     } finally {
       setBusy(false);
     }
@@ -46,9 +56,11 @@ export default function DocumentLifecycleActions({
           Void
         </Button>
       )}
-      <Button type="button" variant="outline" size="sm" onClick={revise} disabled={disabled || busy} title="Create a new draft from this document (clears signature / accept snapshot)">
-        {busy ? "Working…" : "Revise"}
-      </Button>
+      {canRevise && (
+        <Button type="button" variant="outline" size="sm" onClick={revise} disabled={disabled || busy} title="Create a new draft from this document (clears signature / accept snapshot)">
+          {busy ? "Working…" : "Revise"}
+        </Button>
+      )}
     </div>
   );
 }
