@@ -79,14 +79,6 @@
   }
 }
 
-@media print {
-  @page { margin: 0.45in; }
-  body { background: white !important; }
-  .invoice-paper { width: 100% !important; }
-  .invoice-page { min-height: auto !important; }
-  .invoice-paper input, .invoice-paper textarea { border: none !important; box-shadow: none !important; background: transparent !important; resize: none !important; }
-}
-
 
 
 @layer base {

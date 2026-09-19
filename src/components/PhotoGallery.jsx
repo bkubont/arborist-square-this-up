@@ -1,13 +1,14 @@
 import React, { useRef, useState } from "react";
-import { Camera, Loader2, Trash2, ImageOff } from "lucide-react";
+import { Camera, Loader2, Trash2, ImageOff, FileText } from "lucide-react";
 import { api } from "@/api/client";
 import { Image } from "@/components/ui/image";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
-  { key: "before", label: "Before", tint: "border-slate-300 bg-slate-50 text-slate-700" },
-  { key: "after", label: "After", tint: "border-emerald-300 bg-emerald-50 text-emerald-700" },
-  { key: "receipt", label: "Receipts", tint: "border-orange-300 bg-orange-50 text-orange-700" },
+  { key: "before", label: "Before", tint: "border-slate-300 bg-slate-50 text-slate-700", accept: "image/*", type: "photo" },
+  { key: "after", label: "After", tint: "border-emerald-300 bg-emerald-50 text-emerald-700", accept: "image/*", type: "photo" },
+  { key: "receipt", label: "Receipts", tint: "border-orange-300 bg-orange-50 text-orange-700", accept: "image/*", type: "receipt" },
+  { key: "document", label: "Documents", tint: "border-blue-300 bg-blue-50 text-blue-700", accept: "image/*", type: "document", icon: FileText },
 ];
 
 export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) {
@@ -15,7 +16,7 @@ export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) 
   const [busy, setBusy] = useState(null);
 
   const photos = entries.filter(
-    (e) => e.photo_url && ["before", "after", "receipt"].includes(e.category)
+    (e) => e.photo_url && ["before", "after", "receipt", "document"].includes(e.category)
   );
 
   const handleFiles = async (category, type, files) => {
@@ -27,7 +28,7 @@ export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) 
         await api.entities.TimelineEntry.create({
           job_id: jobId,
           type,
-          text: "",
+          text: type === "document" ? file.name || "Document" : "",
           photo_url: file_url,
           category,
         });
@@ -49,7 +50,7 @@ export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) 
   };
 
   return (
-    <div className="grid sm:grid-cols-3 gap-4">
+    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {SECTIONS.map((sec) => {
         const items = photos.filter((p) => p.category === sec.key);
         return (
@@ -73,12 +74,12 @@ export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) 
             <input
               ref={(el) => (fileRefs.current[sec.key] = el)}
               type="file"
-              accept="image/*"
-              capture={sec.key === "receipt" ? undefined : "environment"}
+              accept={sec.accept}
+              capture={sec.key === "receipt" || sec.key === "document" ? undefined : "environment"}
               multiple
               className="hidden"
               onChange={(e) =>
-                handleFiles(sec.key, sec.key === "receipt" ? "receipt" : "photo", Array.from(e.target.files))
+                handleFiles(sec.key, sec.type, Array.from(e.target.files))
               }
             />
             <div className="grid grid-cols-2 gap-1.5">
@@ -93,6 +94,11 @@ export default function PhotoGallery({ jobId, entries, onUploaded, onChanged }) 
                     className="relative group rounded-lg overflow-hidden border border-slate-200 aspect-square"
                   >
                     <Image src={p.photo_url} fittingType="fill" className="w-full h-full" alt={sec.label} />
+                    {p.text && (
+                      <div className="absolute bottom-0 inset-x-0 bg-black/55 text-[10px] text-white px-1 py-0.5 truncate">
+                        {p.text}
+                      </div>
+                    )}
                     <button
                       onClick={() => remove(p)}
                       className="absolute top-1 right-1 bg-black/60 text-white rounded p-1 opacity-0 group-hover:opacity-100 transition-opacity"

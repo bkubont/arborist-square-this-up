@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
-import { ArrowLeft, Phone, Mail, Plus, Pencil, StickyNote, ChevronRight, FileText } from "lucide-react";
+import { ArrowLeft, Phone, Mail, Plus, Pencil, StickyNote, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
 import ClientFormDialog from "@/components/ClientFormDialog";
@@ -69,16 +69,11 @@ export default function ClientDetail() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-bold text-slate-900">Jobs</h2>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => navigate(`/estimates?client_id=${id}`)}>
-            <FileText className="w-4 h-4 mr-1" /> Estimates
-          </Button>
-          <Button size="sm" className="bg-slate-900 hover:bg-slate-800" onClick={() => setJobDialog(true)}>
-            <Plus className="w-4 h-4 mr-1" /> New Job
-          </Button>
-        </div>
+        <Button size="sm" className="bg-slate-900 hover:bg-slate-800" onClick={() => setJobDialog(true)}>
+          <Plus className="w-4 h-4 mr-1" /> New Job
+        </Button>
       </div>
 
       {jobs.length === 0 ? (

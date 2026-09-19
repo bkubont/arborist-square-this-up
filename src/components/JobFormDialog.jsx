@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const STATUSES = ["Estimate", "Accepted", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
+const STATUSES = ["Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
 
 export default function JobFormDialog({ open, onOpenChange, onSave, job = null, clients, defaultClientId = "" }) {
   const [form, setForm] = useState({
@@ -16,22 +16,31 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
     client_id: "",
     start_date: "",
     end_date: "",
-    deposit_amount: "",
+    estimate_amount: "",
     notes: "",
   });
 
   useEffect(() => {
     if (open) {
-      setForm({
-        title: job?.title || "",
-        description: job?.description || "",
-        status: job?.status || "Estimate",
-        client_id: job?.client_id || defaultClientId || "",
-        start_date: job?.start_date || "",
-        end_date: job?.end_date || "",
-        deposit_amount: job?.deposit_amount ?? "",
-        notes: job?.notes || "",
-      });
+      setForm(
+        job
+          ? {
+              ...job,
+              estimate_amount: job.estimate_amount ?? "",
+              start_date: job.start_date || "",
+              end_date: job.end_date || "",
+            }
+          : {
+              title: "",
+              description: "",
+              status: "Estimate",
+              client_id: defaultClientId || "",
+              start_date: "",
+              end_date: "",
+              estimate_amount: "",
+              notes: "",
+            }
+      );
     }
   }, [open, job, defaultClientId]);
 
@@ -40,14 +49,8 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
   const submit = () => {
     if (!form.title?.trim() || !form.client_id) return;
     onSave({
-      title: form.title.trim(),
-      description: form.description,
-      status: form.status,
-      client_id: form.client_id,
-      start_date: form.start_date || undefined,
-      end_date: form.end_date || undefined,
-      deposit_amount: form.deposit_amount ? Number(form.deposit_amount) : undefined,
-      notes: form.notes,
+      ...form,
+      estimate_amount: form.estimate_amount ? Number(form.estimate_amount) : undefined,
     });
   };
 
@@ -98,8 +101,13 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
               </Select>
             </div>
             <div>
-              <Label>Deposit $</Label>
-              <Input type="number" value={form.deposit_amount} onChange={(e) => set("deposit_amount", e.target.value)} placeholder="0" />
+              <Label>Estimate $</Label>
+              <Input
+                type="number"
+                value={form.estimate_amount}
+                onChange={(e) => set("estimate_amount", e.target.value)}
+                placeholder="0"
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

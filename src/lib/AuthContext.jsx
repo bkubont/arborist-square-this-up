@@ -16,6 +16,6 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     await api.auth.logout(); queryClientInstance.clear(); setUser(null); window.location.assign('/login');
   };
-  return <AuthContext.Provider value={{ user, setUser, isAuthenticated: !!user, isLoadingAuth, authChecked: !isLoadingAuth, authError, logout, checkUserAuth }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoadingAuth, authChecked: !isLoadingAuth, authError, logout, checkUserAuth }}>{children}</AuthContext.Provider>;
 }
 export function useAuth() { return useContext(AuthContext); }

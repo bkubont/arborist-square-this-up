@@ -56,25 +56,22 @@ export async function migrate(db) {
   const jsonText = db.dialect === 'mysql' ? 'MEDIUMTEXT' : 'TEXT';
   const suffix = db.dialect === 'mysql' ? ' ENGINE=InnoDB' : '';
   for (const sql of [
-    `CREATE TABLE IF NOT EXISTS users (id VARCHAR(36) PRIMARY KEY, email VARCHAR(254) NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_date VARCHAR(30) NOT NULL, profile TEXT)`,
+    `CREATE TABLE IF NOT EXISTS users (id VARCHAR(36) PRIMARY KEY, email VARCHAR(254) NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_date VARCHAR(30) NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS sessions (token_hash VARCHAR(64) PRIMARY KEY, user_id VARCHAR(36) NOT NULL, expires_at BIGINT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS tokens (token_hash VARCHAR(64) PRIMARY KEY, kind VARCHAR(12) NOT NULL, email VARCHAR(254) NOT NULL, expires_at BIGINT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS records (id VARCHAR(36) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, entity VARCHAR(20) NOT NULL, parent_id VARCHAR(36), data ${jsonText} NOT NULL, created_date VARCHAR(30) NOT NULL, updated_date VARCHAR(30) NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS files (id VARCHAR(36) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, mime VARCHAR(50) NOT NULL, content ${blob} NOT NULL, size INTEGER NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS rate_limits (bucket VARCHAR(64) PRIMARY KEY, attempts INTEGER NOT NULL, expires_at BIGINT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS sign_links (token_hash VARCHAR(64) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, entity VARCHAR(20) NOT NULL, record_id VARCHAR(36) NOT NULL, job_id VARCHAR(36) NOT NULL, channel VARCHAR(12) NOT NULL, recipient VARCHAR(254), expires_at BIGINT NOT NULL, used_at VARCHAR(30), created_date VARCHAR(30) NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
   ]) await db.run(sql + suffix);
   for (const [name, table, columns] of [
     ['records_owner_entity', 'records', 'owner_id, entity, created_date'],
     ['records_owner_parent', 'records', 'owner_id, parent_id'],
     ['files_owner', 'files', 'owner_id'],
     ['sessions_expiry', 'sessions', 'expires_at'],
+    ['sign_links_record', 'sign_links', 'owner_id, entity, record_id'],
   ]) {
     try { await db.run(`CREATE INDEX ${db.dialect === 'sqlite' ? 'IF NOT EXISTS ' : ''}${name} ON ${table} (${columns})`); }
     catch (error) { if (error.code !== 'ER_DUP_KEYNAME') throw error; }
-  }
-  try { await db.run('ALTER TABLE users ADD COLUMN profile TEXT'); }
-  catch (error) {
-    const duplicate = error.code === 'ER_DUP_FIELDNAME' || /duplicate column name/i.test(String(error.message));
-    if (!duplicate) throw error;
   }
 }

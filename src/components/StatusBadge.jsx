@@ -3,7 +3,6 @@ import { cn } from "@/lib/utils";
 
 const STYLES = {
   Estimate: "bg-blue-100 text-blue-800 border-blue-200",
-  Accepted: "bg-cyan-100 text-cyan-800 border-cyan-200",
   Scheduled: "bg-purple-100 text-purple-800 border-purple-200",
   "In Progress": "bg-amber-100 text-amber-800 border-amber-200",
   "Waiting on Materials": "bg-orange-100 text-orange-800 border-orange-200",

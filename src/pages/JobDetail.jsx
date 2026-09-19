@@ -12,9 +12,10 @@ import VoiceRecorder from "@/components/VoiceRecorder";
 import Checklist from "@/components/Checklist";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
-import EstimatePanel from "@/components/EstimatePanel";
+import JobDocuments from "@/components/JobDocuments";
 
-const STATUSES = ["Estimate", "Accepted", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
+const STATUSES = ["Estimate", "Scheduled", "In Progress", "Waiting on Materials", "Completed", "Paid"];
+const DOC_ENTITIES = ["Estimate", "WorkOrder", "ChangeOrder", "Invoice"];
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -22,18 +23,21 @@ export default function JobDetail() {
   const [job, setJob] = useState(null);
   const [client, setClient] = useState(null);
   const [entries, setEntries] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
   const [filter, setFilter] = useState("all");
 
   const load = useCallback(async () => {
-    const [j, e] = await Promise.all([
+    const [j, e, ...docLists] = await Promise.all([
       api.entities.Job.get(id),
       api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 200),
+      ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 100)),
     ]);
     setJob(j);
     setEntries(e);
+    setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
     if (j?.client_id) {
       try {
         setClient(await api.entities.Client.get(j.client_id));
@@ -66,9 +70,7 @@ export default function JobDetail() {
   };
 
   const changeStatus = async (status) => {
-    const approvedChanges = (job.change_orders || []).filter((item) => item.status === "approved").reduce((total, item) => total + Number(item.labor_amount || 0) + Number(item.materials_amount || 0), 0);
-    const estimateTotal = Number(job.estimate_labor_amount || 0) + Number(job.estimate_materials_amount || 0) || Number(job.estimate_amount || 0);
-    await api.entities.Job.update(id, { status, ...(status === "Completed" ? { invoice_amount: estimateTotal + approvedChanges, invoice_finalized: true } : {}) });
+    await api.entities.Job.update(id, { status });
     await api.entities.TimelineEntry.create({
       job_id: id,
       type: "status_change",
@@ -162,12 +164,13 @@ export default function JobDetail() {
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Actions</div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <QuickBtn label="Estimate Sent" icon={Send} onClick={() => quickAction("estimate_sent", "Estimate sent to client")} tint="bg-purple-50 text-purple-700 border-purple-200" />
-              <QuickBtn label="Accepted" icon={CheckCircle2} onClick={() => changeStatus("Accepted")} tint="bg-cyan-50 text-cyan-700 border-cyan-200" />
               <QuickBtn label="Deposit" icon={CheckCircle2} onClick={() => quickAction("deposit_received", "Deposit received")} tint="bg-emerald-50 text-emerald-700 border-emerald-200" />
               <QuickBtn label="Invoice Sent" icon={Send} onClick={() => quickAction("invoice_sent", "Invoice sent to client")} tint="bg-purple-50 text-purple-700 border-purple-200" />
               <QuickBtn label="Mark Paid" icon={CheckCircle2} onClick={() => changeStatus("Paid")} tint="bg-slate-100 text-slate-700 border-slate-200" />
             </div>
           </div>
+
+          <JobDocuments jobId={id} jobTitle={job.title} client={client} documents={documents} onChanged={load} />
 
           {/* Photos */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -213,8 +216,8 @@ export default function JobDetail() {
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="before">Before</SelectItem>
                   <SelectItem value="after">After</SelectItem>
-                  <SelectItem value="work">In Progress</SelectItem>
                   <SelectItem value="receipt">Receipts</SelectItem>
+                  <SelectItem value="document">Documents</SelectItem>
                   <SelectItem value="financial">Financial</SelectItem>
                   <SelectItem value="note">Notes</SelectItem>
                 </SelectContent>
@@ -226,10 +229,9 @@ export default function JobDetail() {
 
         {/* Right: financials */}
         <div className="space-y-4">
-          <EstimatePanel job={job} />
           <div>
             <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Financials</div>
-            <FinancialPanel job={job} entries={entries} onLogPayment={logPayment} />
+            <FinancialPanel job={job} onUpdate={updateJob} onLogPayment={logPayment} />
           </div>
           {job.notes && (
             <div className="bg-white rounded-xl border border-slate-200 p-4">
