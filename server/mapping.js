@@ -553,8 +553,8 @@ export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) 
 
 /**
  * Drop incoming autofill rows already present on other non-void Material Orders.
- * Uses source keys and stable claim identity (description / Line#) — not qty/price —
- * so edited purchases still block a second draft.
+ * Uses source keys and stable claim identity (normalized description) — not qty/price —
+ * so edited purchases and Est→WO transitions still block a second draft.
  */
 export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
   const claimedKeys = new Set();
