@@ -20,7 +20,7 @@ function lineAmount(line) {
 }
 
 /** Lightweight Material Order editor — available from day one on a job. */
-export default function MaterialOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved, onRevised }) {
+export default function MaterialOrderEditorDialog({ open, onOpenChange, document, onSaved, onRevised }) {
   const [form, setForm] = useState({ number: "", status: "draft", date: "", notes: "" });
   const [lines, setLines] = useState([emptyLine()]);
   const [saving, setSaving] = useState(false);
