@@ -8,7 +8,8 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
 import { searchCatalog } from './catalog.js';
-import { createEstimateSignLink, loadPublicEstimateSign, completeEstimateSign } from './sign.js';
+import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
+import { mapEstimateToWorkOrderLines, workOrderTotals } from './mapping.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 
 export async function createApp(db, env = process.env) {
@@ -140,20 +141,25 @@ export async function createApp(db, env = process.env) {
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
 
-  // Public client e-sign (Estimate Phase 2; no login). Rate-limited.
+  // Public client e-sign (Estimate / Change Order; no login). Rate-limited.
   app.get('/api/sign/:token', async (req, res) => {
     if (!await limited(`sign-get:${req.ip}`, 60)) throw fail(429, 'Too many attempts. Try again later.');
-    res.json(await loadPublicEstimateSign(db, req.params.token));
+    res.json(await loadPublicSign(db, req.params.token));
   });
   app.post('/api/sign/:token', async (req, res) => {
     if (!await limited(`sign-post:${req.ip}`, 20)) throw fail(429, 'Too many attempts. Try again later.');
-    const updated = await completeEstimateSign(db, {
+    const updated = await completeSign(db, {
       rawToken: req.params.token,
       signerName: req.body.signer_name,
       signatureDataUrl: req.body.signature_data_url,
       env,
     });
-    res.json({ ok: true, estimate: { id: updated.id, status: updated.status, signed_at: updated.signed_at, signer_name: updated.signer_name } });
+    res.json({
+      ok: true,
+      entity: updated.status === 'approved' ? 'ChangeOrder' : 'Estimate',
+      document: { id: updated.id, status: updated.status, signed_at: updated.signed_at, signer_name: updated.signer_name, revised_contract_total: updated.revised_contract_total },
+      estimate: updated.status === 'accepted' ? { id: updated.id, status: updated.status, signed_at: updated.signed_at, signer_name: updated.signer_name } : undefined,
+    });
   });
 
   app.use('/api', requireUser);
@@ -190,9 +196,10 @@ export async function createApp(db, env = process.env) {
     if (channel === 'sms' && !recipient) throw fail(400, 'Enter a phone number');
     const estimate = await getRecord(db, req.user.id, 'Estimate', req.params.id);
     if (estimate.status === 'void') throw fail(400, 'Cannot send a void estimate');
-    const result = await createEstimateSignLink(db, {
+    const result = await createSignLink(db, {
       ownerId: req.user.id,
-      estimate,
+      entity: 'Estimate',
+      record: estimate,
       channel,
       recipient,
       origin,
@@ -208,6 +215,60 @@ export async function createApp(db, env = process.env) {
       });
     });
     res.status(201).json(result);
+  });
+  app.post('/api/change-orders/:id/send-sign', async (req, res) => {
+    const channel = z.enum(['email', 'sms', 'link']).parse(req.body.channel || 'link');
+    const recipient = req.body.recipient != null && req.body.recipient !== ''
+      ? z.string().trim().max(254).parse(req.body.recipient)
+      : undefined;
+    if (channel === 'email' && !recipient) throw fail(400, 'Enter an email address');
+    if (channel === 'sms' && !recipient) throw fail(400, 'Enter a phone number');
+    const changeOrder = await getRecord(db, req.user.id, 'ChangeOrder', req.params.id);
+    if (changeOrder.status === 'void' || changeOrder.status === 'rejected') throw fail(400, 'Cannot send this change order');
+    const result = await createSignLink(db, {
+      ownerId: req.user.id,
+      entity: 'ChangeOrder',
+      record: changeOrder,
+      channel,
+      recipient,
+      origin,
+      env,
+    });
+    await ownedTransaction(req.user.id, async tx => {
+      if (changeOrder.status === 'draft') await saveRecord(tx, req.user.id, 'ChangeOrder', { status: 'sent' }, changeOrder.id);
+      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+        job_id: changeOrder.job_id,
+        type: 'note',
+        text: `Change order ${changeOrder.number || ''} sign link sent (${channel})`.trim(),
+        category: 'financial',
+      });
+    });
+    res.status(201).json(result);
+  });
+  app.post('/api/work-orders/from-estimate', async (req, res) => {
+    const estimateId = z.string().min(1).max(36).parse(req.body.estimate_id);
+    const estimate = await getRecord(db, req.user.id, 'Estimate', estimateId);
+    if (estimate.status !== 'accepted' && !estimate.accepted_snapshot) {
+      throw fail(400, 'Accept the estimate before creating a work order from it');
+    }
+    const lines = mapEstimateToWorkOrderLines(estimate);
+    const totals = workOrderTotals(lines, estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate);
+    const existing = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
+    const created = await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, 'WorkOrder', {
+      job_id: estimate.job_id,
+      number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
+      related_estimate_id: estimate.id,
+      status: 'draft',
+      tax_rate: estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate,
+      instructions: estimate.accepted_snapshot?.notes || estimate.notes || '',
+      lines,
+      ...totals,
+    }));
+    res.status(201).json(created);
+  });
+  app.get('/api/jobs/:id/authorized-total', async (req, res) => {
+    await getRecord(db, req.user.id, 'Job', req.params.id);
+    res.json(await jobAuthorizedTotal(db, req.user.id, req.params.id));
   });
   app.post('/api/entities/:entity', async (req, res) => res.status(201).json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body))));
   app.patch('/api/entities/:entity/:id', async (req, res) => res.json(await ownedTransaction(req.user.id, tx => saveRecord(tx, req.user.id, req.params.entity, req.body, req.params.id))));

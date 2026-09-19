@@ -330,3 +330,134 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
   assert.equal((await request(after.signature_file_url.replace('/api', ''), { cookie: b.cookie })).status, 404);
   assert.equal((await request(after.signature_file_url.replace('/api', ''), { cookie: a.cookie })).status, 200);
 });
+
+test('work order from accepted estimate maps dual lines with work categories', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('wo@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'WO client' });
+  const job = await create('Job', { title: 'WO job', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-WO',
+    status: 'accepted',
+    tax_rate: 6,
+    lines: [{
+      description: 'Replace faucet',
+      category: 'Plumbing',
+      labor_amount: 110,
+      labor_hours: 2,
+      labor_rate: 55,
+      material_amount: 45,
+    }],
+    subtotal: 155,
+    tax_amount: 9.3,
+    total: 164.3,
+    accepted_snapshot: {
+      number: 'EST-WO',
+      tax_rate: 6,
+      lines: [{
+        description: 'Replace faucet',
+        category: 'Plumbing',
+        labor_amount: 110,
+        labor_hours: 2,
+        labor_rate: 55,
+        material_amount: 45,
+      }],
+      subtotal: 155,
+      tax_amount: 9.3,
+      total: 164.3,
+    },
+  });
+
+  assert.equal((await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  })).status, 201);
+
+  const wo = (await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  })).data;
+  assert.equal(wo.related_estimate_id, estimate.id);
+  assert.ok(wo.lines.some(l => l.kind === 'labor' && l.hours === 2 && l.work_category === 'Plumbing'));
+  assert.ok(wo.lines.some(l => l.kind === 'material' && l.unit_price === 45));
+
+  const patched = await request(`/entities/WorkOrder/${wo.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: { lines: wo.lines.map((l, i) => i === 0 ? { ...l, hours: 3, work_category: 'Plumbing' } : l) },
+  });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.data.lines[0].hours, 3);
+});
+
+test('change order e-sign updates authorized total; draft CO excluded', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('co@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'CO client' });
+  const job = await create('Job', { title: 'CO job', client_id: client.id });
+  await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-CO',
+    status: 'accepted',
+    total: 1000,
+    accepted_snapshot: { total: 1000, lines: [], number: 'EST-CO' },
+  });
+  const draftCo = await create('ChangeOrder', {
+    job_id: job.id, number: 'CO-001', status: 'draft', added_cost: 500, credit: 0, net_change: 500,
+  });
+  const signCo = await create('ChangeOrder', {
+    job_id: job.id, number: 'CO-002', status: 'draft', added_cost: 200, credit: 50, net_change: 150,
+  });
+
+  let auth = (await request(`/jobs/${job.id}/authorized-total`, { cookie: a.cookie })).data;
+  assert.equal(auth.baseline, 1000);
+  assert.equal(auth.authorized_total, 1000);
+  assert.deepEqual(auth.approved_change_order_ids, []);
+
+  const sent = await request(`/change-orders/${signCo.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  });
+  assert.equal(sent.status, 201, sent.data?.message);
+  const token = sent.data.sign_url.split('/').pop();
+  const publicView = await request(`/sign/${token}`);
+  assert.equal(publicView.status, 200);
+  assert.equal(publicView.data.link.entity, 'ChangeOrder');
+  assert.equal(publicView.data.change_order.number, 'CO-002');
+
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const signed = await request(`/sign/${token}`, {
+    method: 'POST', data: { signer_name: 'Alex Client', signature_data_url: png },
+  });
+  assert.equal(signed.status, 200, signed.data?.message);
+  assert.equal(signed.data.document.status, 'approved');
+
+  const approved = (await request(`/entities/ChangeOrder/${signCo.id}`, { cookie: a.cookie })).data;
+  assert.equal(approved.status, 'approved');
+  assert.equal(approved.net_change, 150);
+  assert.equal(approved.revised_contract_total, 1150);
+  assert.ok(approved.accepted_snapshot);
+
+  auth = (await request(`/jobs/${job.id}/authorized-total`, { cookie: a.cookie })).data;
+  assert.equal(auth.authorized_total, 1150);
+  assert.ok(auth.approved_change_order_ids.includes(signCo.id));
+  assert.ok(!auth.approved_change_order_ids.includes(draftCo.id));
+
+  const docs = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data
+    .filter(e => e.category === 'document' && e.photo_url === approved.signature_file_url);
+  assert.equal(docs.length, 1);
+
+  // Still editable after approval
+  const edited = await request(`/entities/ChangeOrder/${signCo.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { notes: 'Post-sign note' },
+  });
+  assert.equal(edited.data.notes, 'Post-sign note');
+  assert.equal(edited.data.status, 'approved');
+});

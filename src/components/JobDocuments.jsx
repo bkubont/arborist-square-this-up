@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
 import DocumentStubDialog from "@/components/DocumentStubDialog";
 import EstimateEditorDialog from "@/components/EstimateEditorDialog";
+import WorkOrderEditorDialog from "@/components/WorkOrderEditorDialog";
+import ChangeOrderEditorDialog from "@/components/ChangeOrderEditorDialog";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
 
@@ -23,6 +25,7 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
         status: "draft",
         notes: "",
       };
+
       if (entity === "Estimate") {
         let tax_rate;
         try {
@@ -31,9 +34,32 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
         } catch { /* optional */ }
         Object.assign(base, { date: today, lines: [], ...(tax_rate != null ? { tax_rate } : {}) });
       }
-      if (entity === "WorkOrder") Object.assign(base, { lines: [] });
-      if (entity === "ChangeOrder") Object.assign(base, { lines: [] });
-      if (entity === "Invoice") Object.assign(base, { date: today, material_lines: [], labor_lines: [], misc_lines: [], billed_change_order_ids: [] });
+
+      if (entity === "WorkOrder") {
+        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        if (accepted) {
+          const created = await api.workOrders.fromEstimate(accepted.id);
+          await onChanged?.();
+          setOpenDoc({ entity: "WorkOrder", document: created });
+          return;
+        }
+        Object.assign(base, { lines: [] });
+      }
+
+      if (entity === "ChangeOrder") {
+        const accepted = documents.find((d) => d.entity === "Estimate" && (d.status === "accepted" || d.accepted_snapshot));
+        Object.assign(base, {
+          lines: [],
+          related_estimate_id: accepted?.id,
+          added_cost: 0,
+          credit: 0,
+          net_change: 0,
+        });
+      }
+
+      if (entity === "Invoice") {
+        Object.assign(base, { date: today, material_lines: [], labor_lines: [], misc_lines: [], billed_change_order_ids: [] });
+      }
 
       const created = await api.entities[entity].create(base);
       await onChanged?.();
@@ -44,6 +70,10 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
   };
 
   const sorted = [...documents].sort((a, b) => (b.created_date || "").localeCompare(a.created_date || ""));
+  const displayMoney = (doc) => {
+    if (doc.entity === "ChangeOrder") return doc.revised_contract_total ?? doc.net_change;
+    return doc.total;
+  };
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -58,6 +88,7 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
               className="h-8 text-xs"
               disabled={!!creating}
               onClick={() => createDraft(t.entity)}
+              title={t.entity === "WorkOrder" ? "Creates from accepted estimate when available" : undefined}
             >
               <Plus className="w-3.5 h-3.5 mr-1" />
               {t.label}
@@ -90,7 +121,7 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
                   </div>
                   <div className="text-xs text-slate-400 mt-0.5">
                     {doc.date || doc.created_date ? shortDate(doc.date || doc.created_date) : "—"}
-                    {doc.total != null ? ` · ${money(doc.total)}` : ""}
+                    {displayMoney(doc) != null ? ` · ${money(displayMoney(doc))}` : ""}
                   </div>
                 </div>
               </button>
@@ -107,12 +138,25 @@ export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) 
         jobTitle={jobTitle}
         onSaved={onChanged}
       />
-
-      <DocumentStubDialog
-        open={!!openDoc && openDoc.entity !== "Estimate"}
+      <WorkOrderEditorDialog
+        open={openDoc?.entity === "WorkOrder"}
         onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        entity={openDoc?.entity !== "Estimate" ? openDoc?.entity : null}
-        document={openDoc?.entity !== "Estimate" ? openDoc?.document : null}
+        document={openDoc?.entity === "WorkOrder" ? openDoc.document : null}
+        jobId={jobId}
+        onSaved={onChanged}
+      />
+      <ChangeOrderEditorDialog
+        open={openDoc?.entity === "ChangeOrder"}
+        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+        document={openDoc?.entity === "ChangeOrder" ? openDoc.document : null}
+        jobId={jobId}
+        onSaved={onChanged}
+      />
+      <DocumentStubDialog
+        open={openDoc?.entity === "Invoice"}
+        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+        entity={openDoc?.entity === "Invoice" ? "Invoice" : null}
+        document={openDoc?.entity === "Invoice" ? openDoc.document : null}
         jobId={jobId}
         onSaved={onChanged}
       />

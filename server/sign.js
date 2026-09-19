@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { fail, getRecord, saveRecord, decode } from './domain.js';
 import { hash, token, emailSchema } from './security.js';
+import { computeAuthorizedTotal, changeOrderNet } from './mapping.js';
 
 const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
 
 export function parsePngDataUrl(dataUrl) {
   const match = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl || ''));
@@ -15,15 +17,18 @@ export function parsePngDataUrl(dataUrl) {
   return bytes;
 }
 
-export async function createEstimateSignLink(db, { ownerId, estimate, channel, recipient, origin, env }) {
+export async function createSignLink(db, { ownerId, entity, record, channel, recipient, origin, env }) {
+  if (!SIGNABLE.has(entity)) throw fail(400, 'E-sign is only available for estimates and change orders');
   const value = token();
   const now = new Date().toISOString();
   const expiresAt = Date.now() + 14 * 24 * 60 * 60 * 1000;
   await db.run(
     'INSERT INTO sign_links (token_hash, owner_id, entity, record_id, job_id, channel, recipient, expires_at, used_at, created_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)',
-    [hash(value), ownerId, 'Estimate', estimate.id, estimate.job_id, channel, recipient || null, expiresAt, now],
+    [hash(value), ownerId, entity, record.id, record.job_id, channel, recipient || null, expiresAt, now],
   );
   const signUrl = `${origin}/sign/${value}`;
+  const label = entity === 'ChangeOrder' ? 'change order' : 'estimate';
+  const number = record.number || '';
 
   let delivery = 'stubbed';
   let message = `Share this sign link with the client: ${signUrl}`;
@@ -41,8 +46,8 @@ export async function createEstimateSignLink(db, { ownerId, estimate, channel, r
         await transport.sendMail({
           from: env.MAIL_FROM,
           to: recipient,
-          subject: `Please sign estimate ${estimate.number || ''}`.trim(),
-          text: `Please review and sign this estimate:\n\n${signUrl}\n\nThis link expires in 14 days.`,
+          subject: `Please sign ${label} ${number}`.trim(),
+          text: `Please review and sign this ${label}:\n\n${signUrl}\n\nThis link expires in 14 days.`,
         });
         delivery = 'sent';
         message = `Sign link emailed to ${recipient}`;
@@ -60,6 +65,11 @@ export async function createEstimateSignLink(db, { ownerId, estimate, channel, r
   return { token: value, sign_url: signUrl, delivery, message, expires_at: new Date(expiresAt).toISOString() };
 }
 
+/** @deprecated use createSignLink */
+export async function createEstimateSignLink(db, opts) {
+  return createSignLink(db, { ...opts, entity: 'Estimate', record: opts.estimate });
+}
+
 export async function getSignLink(db, rawToken) {
   const digest = hash(z.string().regex(/^[a-f0-9]{64}$/).parse(rawToken));
   const [link] = await db.all('SELECT * FROM sign_links WHERE token_hash = ?', [digest]);
@@ -67,48 +77,109 @@ export async function getSignLink(db, rawToken) {
   return link;
 }
 
-export async function loadPublicEstimateSign(db, rawToken) {
-  const link = await getSignLink(db, rawToken);
-  const estimate = await getRecord(db, link.owner_id, 'Estimate', link.record_id);
-  const job = await getRecord(db, link.owner_id, 'Job', estimate.job_id);
+async function partyContext(db, ownerId, jobId) {
+  const job = await getRecord(db, ownerId, 'Job', jobId);
   let company = null;
-  const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [link.owner_id, 'CompanyProfile']);
+  const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [ownerId, 'CompanyProfile']);
   if (profiles[0]) company = decode(profiles[0]);
   let client = null;
-  try { client = await getRecord(db, link.owner_id, 'Client', job.client_id); } catch { /* optional */ }
-
+  try { client = await getRecord(db, ownerId, 'Client', job.client_id); } catch { /* optional */ }
   return {
-    link: {
-      entity: link.entity,
-      channel: link.channel,
-      used: !!link.used_at,
-      expires_at: new Date(link.expires_at).toISOString(),
-    },
     company: company ? { name: company.name, phone: company.phone, email: company.email } : null,
     client: client ? { name: client.name } : null,
-    job: { title: job.title },
-    estimate: {
-      id: estimate.id,
-      number: estimate.number,
-      date: estimate.date,
-      valid_till: estimate.valid_till,
-      notes: estimate.notes,
-      tax_rate: estimate.tax_rate,
-      lines: estimate.lines || [],
-      subtotal: estimate.subtotal,
-      tax_amount: estimate.tax_amount,
-      total: estimate.total,
-      status: estimate.status,
-      signed_at: estimate.signed_at,
-      signer_name: estimate.signer_name,
-    },
+    job: { title: job.title, id: job.id },
   };
 }
 
-export async function completeEstimateSign(db, { rawToken, signerName, signatureDataUrl, env }) {
+export async function loadPublicSign(db, rawToken) {
   const link = await getSignLink(db, rawToken);
-  if (link.entity !== 'Estimate') throw fail(400, 'This link is not for an estimate');
-  if (link.used_at) throw fail(400, 'This estimate was already signed');
+  const parties = await partyContext(db, link.owner_id, link.job_id);
+  const record = await getRecord(db, link.owner_id, link.entity, link.record_id);
+
+  if (link.entity === 'Estimate') {
+    return {
+      link: { entity: link.entity, channel: link.channel, used: !!link.used_at, expires_at: new Date(link.expires_at).toISOString() },
+      ...parties,
+      estimate: {
+        id: record.id,
+        number: record.number,
+        date: record.date,
+        valid_till: record.valid_till,
+        notes: record.notes,
+        tax_rate: record.tax_rate,
+        lines: record.lines || [],
+        subtotal: record.subtotal,
+        tax_amount: record.tax_amount,
+        total: record.total,
+        status: record.status,
+        signed_at: record.signed_at,
+        signer_name: record.signer_name,
+      },
+      document: { kind: 'Estimate', ...record },
+    };
+  }
+
+  if (link.entity === 'ChangeOrder') {
+    return {
+      link: { entity: link.entity, channel: link.channel, used: !!link.used_at, expires_at: new Date(link.expires_at).toISOString() },
+      ...parties,
+      change_order: {
+        id: record.id,
+        number: record.number,
+        reason: record.reason,
+        description: record.description,
+        added_cost: record.added_cost,
+        credit: record.credit,
+        net_change: record.net_change,
+        added_days: record.added_days,
+        revised_contract_total: record.revised_contract_total,
+        notes: record.notes,
+        lines: record.lines || [],
+        status: record.status,
+        signed_at: record.signed_at,
+        signer_name: record.signer_name,
+      },
+      document: { kind: 'ChangeOrder', ...record },
+    };
+  }
+
+  throw fail(400, 'Unsupported sign document');
+}
+
+/** @deprecated */
+export async function loadPublicEstimateSign(db, rawToken) {
+  return loadPublicSign(db, rawToken);
+}
+
+async function acceptedEstimateBaseline(tx, ownerId, jobId) {
+  const rows = await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'Estimate', jobId]);
+  const estimates = rows.map(decode);
+  const accepted = estimates.find(e => e.status === 'accepted') || estimates.find(e => e.accepted_snapshot);
+  if (!accepted) return { estimate: null, baseline: 0 };
+  const baseline = accepted.accepted_snapshot?.total ?? accepted.total ?? 0;
+  return { estimate: accepted, baseline: Number(baseline) || 0 };
+}
+
+async function listJobChangeOrders(tx, ownerId, jobId) {
+  const rows = await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'ChangeOrder', jobId]);
+  return rows.map(decode);
+}
+
+export async function jobAuthorizedTotal(db, ownerId, jobId) {
+  const { baseline } = await acceptedEstimateBaseline(db, ownerId, jobId);
+  const cos = await listJobChangeOrders(db, ownerId, jobId);
+  return {
+    baseline,
+    approved_net: cos.filter(c => c.status === 'approved').reduce((s, c) => s + changeOrderNet(c), 0),
+    authorized_total: computeAuthorizedTotal(baseline, cos),
+    approved_change_order_ids: cos.filter(c => c.status === 'approved').map(c => c.id),
+  };
+}
+
+export async function completeSign(db, { rawToken, signerName, signatureDataUrl, env }) {
+  const link = await getSignLink(db, rawToken);
+  if (!SIGNABLE.has(link.entity)) throw fail(400, 'Unsupported sign document');
+  if (link.used_at) throw fail(400, 'This document was already signed');
 
   const name = z.string().trim().min(1).max(200).parse(signerName);
   const png = parsePngDataUrl(signatureDataUrl);
@@ -119,11 +190,11 @@ export async function completeEstimateSign(db, { rawToken, signerName, signature
   return db.transaction(async tx => {
     await tx.all('SELECT id FROM users WHERE id = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [link.owner_id]);
     const [fresh] = await tx.all('SELECT * FROM sign_links WHERE token_hash = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [link.token_hash]);
-    if (!fresh || fresh.used_at) throw fail(400, 'This estimate was already signed');
+    if (!fresh || fresh.used_at) throw fail(400, 'This document was already signed');
     if (fresh.expires_at < Date.now()) throw fail(404, 'Sign link is invalid or expired');
 
-    const estimate = await getRecord(tx, link.owner_id, 'Estimate', link.record_id);
-    if (estimate.status === 'void') throw fail(400, 'This estimate can no longer be signed');
+    const record = await getRecord(tx, link.owner_id, link.entity, link.record_id);
+    if (record.status === 'void' || record.status === 'rejected') throw fail(400, 'This document can no longer be signed');
 
     const [usage] = await tx.all('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE owner_id = ?', [link.owner_id]);
     if (Number(usage.total) + png.length > Number(env.ACCOUNT_STORAGE_MB || 100) * 1024 * 1024) {
@@ -131,32 +202,80 @@ export async function completeEstimateSign(db, { rawToken, signerName, signature
     }
     await tx.run('INSERT INTO files (id, owner_id, mime, content, size) VALUES (?, ?, ?, ?, ?)', [fileId, link.owner_id, 'image/png', png, png.length]);
 
-    const snapshot = {
-      number: estimate.number,
-      notes: estimate.notes,
-      tax_rate: estimate.tax_rate,
-      lines: estimate.lines || [],
-      subtotal: estimate.subtotal,
-      tax_amount: estimate.tax_amount,
-      total: estimate.total,
-    };
-    const updated = await saveRecord(tx, link.owner_id, 'Estimate', {
-      status: 'accepted',
-      signed_at: signedAt,
-      signer_name: name,
-      signature_file_url: fileUrl,
-      accepted_snapshot: snapshot,
-    }, estimate.id);
-
-    await saveRecord(tx, link.owner_id, 'TimelineEntry', {
-      job_id: estimate.job_id,
-      type: 'document',
-      category: 'document',
-      text: `Signed estimate ${estimate.number || ''} — ${name}`.trim(),
-      photo_url: fileUrl,
-    });
+    let updated;
+    if (link.entity === 'Estimate') {
+      const snapshot = {
+        number: record.number,
+        notes: record.notes,
+        tax_rate: record.tax_rate,
+        lines: record.lines || [],
+        subtotal: record.subtotal,
+        tax_amount: record.tax_amount,
+        total: record.total,
+      };
+      updated = await saveRecord(tx, link.owner_id, 'Estimate', {
+        status: 'accepted',
+        signed_at: signedAt,
+        signer_name: name,
+        signature_file_url: fileUrl,
+        accepted_snapshot: snapshot,
+      }, record.id);
+      await saveRecord(tx, link.owner_id, 'TimelineEntry', {
+        job_id: record.job_id,
+        type: 'document',
+        category: 'document',
+        text: `Signed estimate ${record.number || ''} — ${name}`.trim(),
+        photo_url: fileUrl,
+      });
+    } else {
+      const { baseline } = await acceptedEstimateBaseline(tx, link.owner_id, record.job_id);
+      const cos = await listJobChangeOrders(tx, link.owner_id, record.job_id);
+      const others = cos.filter(c => c.id !== record.id);
+      const thisNet = changeOrderNet(record);
+      const provisional = [...others, { ...record, status: 'approved', net_change: thisNet }];
+      const revised = computeAuthorizedTotal(baseline, provisional);
+      const snapshot = {
+        reason: record.reason,
+        description: record.description,
+        added_cost: record.added_cost,
+        credit: record.credit,
+        net_change: thisNet,
+        added_days: record.added_days,
+        revised_contract_total: revised,
+        lines: record.lines || [],
+        notes: record.notes,
+      };
+      updated = await saveRecord(tx, link.owner_id, 'ChangeOrder', {
+        status: 'approved',
+        net_change: thisNet,
+        revised_contract_total: revised,
+        signed_at: signedAt,
+        signer_name: name,
+        signature_file_url: fileUrl,
+        accepted_snapshot: snapshot,
+      }, record.id);
+      await saveRecord(tx, link.owner_id, 'TimelineEntry', {
+        job_id: record.job_id,
+        type: 'document',
+        category: 'document',
+        text: `Signed change order ${record.number || ''} — ${name} (revised total ${revised})`.trim(),
+        photo_url: fileUrl,
+      });
+      await saveRecord(tx, link.owner_id, 'TimelineEntry', {
+        job_id: record.job_id,
+        type: 'note',
+        category: 'financial',
+        text: `Authorized total updated to $${revised.toFixed(2)} (approved CO ${record.number || ''})`.trim(),
+        amount: Math.max(0, revised),
+      });
+    }
 
     await tx.run('UPDATE sign_links SET used_at = ? WHERE token_hash = ?', [signedAt, link.token_hash]);
     return updated;
   });
+}
+
+/** @deprecated */
+export async function completeEstimateSign(db, opts) {
+  return completeSign(db, opts);
 }

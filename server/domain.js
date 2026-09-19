@@ -33,6 +33,7 @@ const workOrderLine = z.object({
   rate: money.optional(),
   work_category: text.optional(),
   notes: text.optional(),
+  catalog_id: z.string().max(200).optional(),
 });
 
 const invoiceMaterialLine = z.object({
@@ -129,6 +130,7 @@ export const schemas = {
   ChangeOrder: z.object({
     job_id: id,
     number: docNumber,
+    related_estimate_id: id.optional(),
     reason: text.optional(),
     description: text.optional(),
     added_cost: money.optional(),
@@ -139,6 +141,18 @@ export const schemas = {
     notes: text.optional(),
     status: z.enum(['draft', 'sent', 'approved', 'rejected', 'void']).default('draft'),
     lines: z.array(changeOrderLine).max(2000).default([]),
+    /** Frozen copy at client approval; live fields stay editable (Decision #7). */
+    accepted_snapshot: z.object({
+      reason: text.optional(),
+      description: text.optional(),
+      added_cost: money.optional(),
+      credit: money.optional(),
+      net_change: signedMoney.optional(),
+      added_days: z.number().finite().min(0).max(3650).optional(),
+      revised_contract_total: money.optional(),
+      lines: z.array(changeOrderLine).max(2000).default([]),
+      notes: text.optional(),
+    }).optional(),
     ...signMeta,
   }),
   Invoice: z.object({

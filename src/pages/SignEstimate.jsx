@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { money } from "@/lib/format";
 import { lineTotal } from "@/lib/estimateMath";
 
-/** Public client e-sign page for Estimates (no app login). */
+/** Public client e-sign page for Estimates and Change Orders (no app login). */
 export default function SignEstimate() {
   const { token } = useParams();
   const canvasRef = useRef(null);
@@ -26,7 +26,11 @@ export default function SignEstimate() {
         const payload = await api.sign.get(token);
         if (!cancelled) {
           setData(payload);
-          if (payload.link?.used || payload.estimate?.status === "accepted") setDone(true);
+          const entity = payload.link?.entity;
+          const signed = payload.link?.used
+            || (entity === "Estimate" && payload.estimate?.status === "accepted")
+            || (entity === "ChangeOrder" && payload.change_order?.status === "approved");
+          if (signed) setDone(true);
         }
       } catch (e) {
         if (!cancelled) setError(e.message || "Sign link is invalid or expired");
@@ -140,10 +144,16 @@ export default function SignEstimate() {
   }
 
   if (!data) {
-    return <div className="min-h-screen bg-slate-100 flex items-center justify-center text-slate-400">Loading estimate…</div>;
+    return <div className="min-h-screen bg-slate-100 flex items-center justify-center text-slate-400">Loading…</div>;
   }
 
-  const { estimate, job, company, client } = data;
+  const entity = data.link?.entity || "Estimate";
+  const isCO = entity === "ChangeOrder";
+  const estimate = data.estimate;
+  const changeOrder = data.change_order;
+  const { job, company, client } = data;
+  const docNumber = isCO ? changeOrder?.number : estimate?.number;
+  const signer = (isCO ? changeOrder?.signer_name : estimate?.signer_name) || signerName;
 
   if (done) {
     return (
@@ -151,9 +161,12 @@ export default function SignEstimate() {
         <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full text-center space-y-2">
           <h1 className="text-xl font-bold text-slate-900">Thank you</h1>
           <p className="text-sm text-slate-600">
-            Estimate {estimate.number || ""} was signed
-            {estimate.signer_name || signerName ? ` by ${estimate.signer_name || signerName}` : ""}.
+            {isCO ? "Change order" : "Estimate"} {docNumber || ""} was signed
+            {signer ? ` by ${signer}` : ""}.
           </p>
+          {isCO && changeOrder?.revised_contract_total != null && (
+            <p className="text-sm text-slate-500">Revised contract total {money(changeOrder.revised_contract_total)}</p>
+          )}
           <p className="text-xs text-slate-400">You can close this page.</p>
         </div>
       </div>
@@ -164,46 +177,63 @@ export default function SignEstimate() {
     <div className="min-h-screen bg-slate-100 py-8 px-4">
       <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 p-5 sm:p-6 space-y-4">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Estimate signature</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            {isCO ? "Change order signature" : "Estimate signature"}
+          </div>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">{company?.name || "Jobsite Notebook"}</h1>
           <p className="text-sm text-slate-500 mt-1">
             {job?.title}
             {client?.name ? ` · ${client.name}` : ""}
-            {estimate.number ? ` · ${estimate.number}` : ""}
+            {docNumber ? ` · ${docNumber}` : ""}
           </p>
         </div>
 
-        <div className="rounded-lg border border-slate-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="text-left px-3 py-2">Description</th>
-                <th className="text-right px-3 py-2">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(estimate.lines || []).length === 0 ? (
-                <tr><td colSpan={2} className="px-3 py-4 text-slate-400">No line items</td></tr>
-              ) : (
-                estimate.lines.map((line, i) => (
-                  <tr key={i} className="border-t border-slate-100">
-                    <td className="px-3 py-2 text-slate-800">{line.description || "—"}</td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">{money(lineTotal(line))}</td>
-                  </tr>
-                ))
+        {isCO ? (
+          <div className="space-y-2 text-sm">
+            {changeOrder.reason && <div><span className="text-slate-500">Reason:</span> {changeOrder.reason}</div>}
+            {changeOrder.description && <p className="text-slate-700 whitespace-pre-wrap">{changeOrder.description}</p>}
+            <div className="rounded-lg border border-slate-200 p-3 space-y-1 max-w-sm ml-auto">
+              <div className="flex justify-between"><span className="text-slate-500">Added cost</span><span>{money(changeOrder.added_cost)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Credit</span><span>{money(changeOrder.credit)}</span></div>
+              <div className="flex justify-between font-semibold border-t border-slate-100 pt-1"><span>Net change</span><span>{money(changeOrder.net_change)}</span></div>
+              {changeOrder.revised_contract_total != null && (
+                <div className="flex justify-between"><span className="text-slate-500">Revised total</span><span>{money(changeOrder.revised_contract_total)}</span></div>
               )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="text-sm space-y-1 max-w-xs ml-auto">
-          <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{money(estimate.subtotal)}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">Tax</span><span>{money(estimate.tax_amount)}</span></div>
-          <div className="flex justify-between font-semibold border-t border-slate-200 pt-1"><span>Total</span><span>{money(estimate.total)}</span></div>
-        </div>
-
-        {estimate.notes && (
-          <p className="text-sm text-slate-600 whitespace-pre-wrap border-t border-slate-100 pt-3">{estimate.notes}</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="rounded-lg border border-slate-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="text-left px-3 py-2">Description</th>
+                    <th className="text-right px-3 py-2">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(estimate.lines || []).length === 0 ? (
+                    <tr><td colSpan={2} className="px-3 py-4 text-slate-400">No line items</td></tr>
+                  ) : (
+                    estimate.lines.map((line, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="px-3 py-2 text-slate-800">{line.description || "—"}</td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">{money(lineTotal(line))}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-sm space-y-1 max-w-xs ml-auto">
+              <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{money(estimate.subtotal)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Tax</span><span>{money(estimate.tax_amount)}</span></div>
+              <div className="flex justify-between font-semibold border-t border-slate-200 pt-1"><span>Total</span><span>{money(estimate.total)}</span></div>
+            </div>
+            {estimate.notes && (
+              <p className="text-sm text-slate-600 whitespace-pre-wrap border-t border-slate-100 pt-3">{estimate.notes}</p>
+            )}
+          </>
         )}
 
         <div>
@@ -225,7 +255,7 @@ export default function SignEstimate() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <Button className="w-full bg-slate-900 hover:bg-slate-800" onClick={submit} disabled={submitting}>
-          {submitting ? "Submitting…" : "Sign & accept estimate"}
+          {submitting ? "Submitting…" : isCO ? "Sign & approve change order" : "Sign & accept estimate"}
         </Button>
       </div>
     </div>

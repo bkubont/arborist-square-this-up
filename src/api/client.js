@@ -57,6 +57,15 @@ export const api = {
   estimates: {
     sendSign(id, data) { return post(`/estimates/${encodeURIComponent(id)}/send-sign`, data); },
   },
+  changeOrders: {
+    sendSign(id, data) { return post(`/change-orders/${encodeURIComponent(id)}/send-sign`, data); },
+  },
+  workOrders: {
+    fromEstimate(estimateId) { return post('/work-orders/from-estimate', { estimate_id: estimateId }); },
+  },
+  jobs: {
+    authorizedTotal(id) { return request(`/jobs/${encodeURIComponent(id)}/authorized-total`); },
+  },
   sign: {
     get(token) { return request(`/sign/${encodeURIComponent(token)}`); },
     submit(token, data) { return post(`/sign/${encodeURIComponent(token)}`, data); },
