@@ -4,10 +4,11 @@ import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
 import DocumentStubDialog from "@/components/DocumentStubDialog";
+import EstimateEditorDialog from "@/components/EstimateEditorDialog";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
 
-export default function JobDocuments({ jobId, documents, onChanged }) {
+export default function JobDocuments({ jobId, jobTitle, documents, onChanged }) {
   const [openDoc, setOpenDoc] = useState(null);
   const [creating, setCreating] = useState(null);
 
@@ -22,7 +23,14 @@ export default function JobDocuments({ jobId, documents, onChanged }) {
         status: "draft",
         notes: "",
       };
-      if (entity === "Estimate") Object.assign(base, { date: today, lines: [] });
+      if (entity === "Estimate") {
+        let tax_rate;
+        try {
+          const profiles = await api.entities.CompanyProfile.list("-created_date", 1);
+          if (profiles[0]?.default_tax_rate != null) tax_rate = profiles[0].default_tax_rate;
+        } catch { /* optional */ }
+        Object.assign(base, { date: today, lines: [], ...(tax_rate != null ? { tax_rate } : {}) });
+      }
       if (entity === "WorkOrder") Object.assign(base, { lines: [] });
       if (entity === "ChangeOrder") Object.assign(base, { lines: [] });
       if (entity === "Invoice") Object.assign(base, { date: today, material_lines: [], labor_lines: [], misc_lines: [], billed_change_order_ids: [] });
@@ -60,7 +68,7 @@ export default function JobDocuments({ jobId, documents, onChanged }) {
 
       {sorted.length === 0 ? (
         <div className="text-sm text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">
-          No documents yet. Create a draft Estimate or Invoice to get started.
+          Every job needs an estimate. Create a draft Estimate to start quoting — use the catalog for small jobs.
         </div>
       ) : (
         <ul className="divide-y divide-slate-100">
@@ -91,11 +99,20 @@ export default function JobDocuments({ jobId, documents, onChanged }) {
         </ul>
       )}
 
-      <DocumentStubDialog
-        open={!!openDoc}
+      <EstimateEditorDialog
+        open={openDoc?.entity === "Estimate"}
         onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        entity={openDoc?.entity}
-        document={openDoc?.document}
+        document={openDoc?.entity === "Estimate" ? openDoc.document : null}
+        jobId={jobId}
+        jobTitle={jobTitle}
+        onSaved={onChanged}
+      />
+
+      <DocumentStubDialog
+        open={!!openDoc && openDoc.entity !== "Estimate"}
+        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+        entity={openDoc?.entity !== "Estimate" ? openDoc?.entity : null}
+        document={openDoc?.entity !== "Estimate" ? openDoc?.document : null}
         jobId={jobId}
         onSaved={onChanged}
       />

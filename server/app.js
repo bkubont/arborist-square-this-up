@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
+import { searchCatalog } from './catalog.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 
 export async function createApp(db, env = process.env) {
@@ -137,6 +138,14 @@ export async function createApp(db, env = process.env) {
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
   app.use('/api', requireUser);
+  app.get('/api/catalog', async (req, res) => {
+    const q = z.string().max(200).optional().parse(req.query.q);
+    const category = z.string().max(200).optional().parse(req.query.category);
+    const maintenance = z.string().max(40).optional().parse(req.query.maintenance);
+    const source = z.enum(['everyday', 'less_frequent', '']).optional().parse(req.query.source || '');
+    const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 40);
+    res.json(searchCatalog({ q: q || '', category: category || '', maintenance: maintenance || '', source: source || '', limit }));
+  });
   app.param('entity', (req, res, next, entity) => { if (!Object.hasOwn(schemas, entity)) return next(fail(404, 'Unknown record type')); next(); });
   app.get('/api/entities/:entity', async (req, res) => {
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);

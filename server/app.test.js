@@ -192,3 +192,62 @@ test('job documents: create draft Estimate/Invoice stubs, list by job, and enfor
   assert.equal((await request(`/entities/Invoice/${invoice.id}`, { cookie: a.cookie })).status, 404);
   assert.equal((await request(`/entities/TimelineEntry/${note.id}`, { cookie: a.cookie })).status, 404);
 });
+
+test('catalog search and estimate line fill with recomputed totals', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('catalog@example.com');
+  assert.equal((await request('/catalog?q=filter')).status, 401);
+
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+
+  await create('CompanyProfile', { name: 'Square This Up', default_tax_rate: 6 });
+  const catalog = await request('/catalog?q=hvac%20air%20filter&limit=10', { cookie: a.cookie });
+  assert.equal(catalog.status, 200);
+  assert.ok(catalog.data.items.length >= 1);
+  const hit = catalog.data.items.find(item => /air filter/i.test(item.task));
+  assert.ok(hit);
+  assert.ok(hit.hours_mid > 0);
+  assert.ok(hit.est_labor_cost > 0);
+
+  const byCategory = await request('/catalog?category=Plumbing&limit=20', { cookie: a.cookie });
+  assert.ok(byCategory.data.items.every(item => /plumbing/i.test(item.category)));
+
+  const client = await create('Client', { name: 'Catalog client' });
+  const job = await create('Job', { title: 'Small faucet job', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-010',
+    tax_rate: 6,
+    lines: [{
+      description: hit.task,
+      category: hit.category,
+      labor_amount: hit.est_labor_cost,
+      labor_hours: hit.hours_mid,
+      labor_rate: hit.labor_rate,
+      catalog_id: hit.id,
+      material_amount: 12.5,
+    }, {
+      description: 'Manual trip fee',
+      equipment_amount: 25,
+    }],
+  });
+  assert.equal(estimate.lines.length, 2);
+  assert.equal(estimate.lines[0].labor_hours, hit.hours_mid);
+  assert.equal(estimate.lines[0].material_amount, 12.5);
+
+  const subtotal = hit.est_labor_cost + 12.5 + 25;
+  const tax = Math.round(subtotal * 0.06 * 100) / 100;
+  const total = Math.round((subtotal + tax) * 100) / 100;
+  const updated = await request(`/entities/Estimate/${estimate.id}`, {
+    method: 'PATCH',
+    cookie: a.cookie,
+    data: { subtotal: Math.round(subtotal * 100) / 100, tax_amount: tax, total, lines: estimate.lines.map(line => ({ ...line, labor_amount: line.labor_amount ? line.labor_amount + 1 : line.labor_amount })) },
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.data.lines[0].labor_amount, hit.est_labor_cost + 1);
+  assert.equal(updated.data.total, total);
+});

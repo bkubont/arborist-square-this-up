@@ -170,7 +170,7 @@ export default function JobDetail() {
             </div>
           </div>
 
-          <JobDocuments jobId={id} documents={documents} onChanged={load} />
+          <JobDocuments jobId={id} jobTitle={job.title} documents={documents} onChanged={load} />
 
           {/* Photos */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">

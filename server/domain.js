@@ -15,8 +15,13 @@ const estimateLine = z.object({
   material_amount: money.optional(),
   labor_amount: money.optional(),
   equipment_amount: money.optional(),
+  /** Stored for WO mapping after catalog fill (Decision #2 / #5). */
+  labor_hours: money.optional(),
+  labor_rate: money.optional(),
   category: text.optional(),
   notes: text.optional(),
+  tools: text.optional(),
+  catalog_id: z.string().max(200).optional(),
 });
 
 const workOrderLine = z.object({

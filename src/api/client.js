@@ -45,6 +45,15 @@ export const api = {
     ChangeOrder: entity('ChangeOrder'),
     Invoice: entity('Invoice'),
   },
+  catalog: {
+    search(filters = {}) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) {
+        if (value != null && value !== '' && value !== 'all') params.set(key, String(value));
+      }
+      return request(`/catalog?${params}`);
+    },
+  },
   auth: {
     me: () => request('/auth/me'),
     loginViaEmailPassword: (email, password) => post('/auth/login', { email, password }),
