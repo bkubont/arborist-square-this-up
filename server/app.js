@@ -11,6 +11,7 @@ import { searchCatalog } from './catalog.js';
 import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
 import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
+import { syncDraftMaterialOrder } from './materialOrderSync.js';
 import { voidDocument, reviseDocument, assertDocumentEntity } from './documents.js';
 import {
   assertSingularDocument,
@@ -27,6 +28,17 @@ import {
 } from './documentRules.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE, resolveSalesTaxRate } from './salesTax.js';
+
+const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'WorkOrder', 'ChangeOrder']);
+
+async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
+  if (!jobId) return null;
+  const synced = await syncDraftMaterialOrder(tx, ownerId, jobId, opts);
+  if (synced?.job_id) {
+    await refreshJobDocumentRollups(tx, ownerId, synced.job_id, { saveRecord, sumActiveInvoiceTotals });
+  }
+  return synced;
+}
 
 export async function createApp(db, env = process.env) {
   const app = express();
@@ -322,6 +334,7 @@ export async function createApp(db, env = process.env) {
         text: `Work Order ${wo.number || ''} created from estimate ${estimate.number || ''}`.trim(),
         category: 'document',
       });
+      await maybeSyncMaterialOrder(tx, req.user.id, estimate.job_id);
       return { created: wo };
     });
     if (result.existing) {
@@ -397,6 +410,10 @@ export async function createApp(db, env = process.env) {
     const entity = assertDocumentEntity(req.params.entity);
     const updated = await ownedTransaction(req.user.id, async tx => {
       const voided = await voidDocument(tx, req.user.id, entity, req.params.id);
+      // Drop voided Estimate / WO / CO materials from draft MOs + rollup
+      if (MATERIAL_SYNC_ENTITIES.has(entity) && voided.job_id) {
+        await maybeSyncMaterialOrder(tx, req.user.id, voided.job_id);
+      }
       if (['Invoice', 'Estimate', 'MaterialOrder'].includes(entity) && voided.job_id) {
         await refreshJobDocumentRollups(tx, req.user.id, voided.job_id, { saveRecord, sumActiveInvoiceTotals });
       }
@@ -418,7 +435,24 @@ export async function createApp(db, env = process.env) {
         await assertSingularDocument(tx, req.user.id, entity, body.job_id);
         if (entity === 'Invoice') await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
       }
-      return saveRecord(tx, req.user.id, entity, body);
+      let record = await saveRecord(tx, req.user.id, entity, body);
+      if (entity === 'MaterialOrder' && record.job_id) {
+        const hasLines = Array.isArray(record.lines)
+          && record.lines.some((l) => l.description || l.qty || l.unit_price);
+        if (!hasLines) {
+          const synced = await maybeSyncMaterialOrder(tx, req.user.id, record.job_id, {
+            preferId: record.id,
+            createIfMissing: false,
+          });
+          if (synced) record = synced;
+        } else {
+          await refreshJobDocumentRollups(tx, req.user.id, record.job_id, { saveRecord, sumActiveInvoiceTotals });
+        }
+      }
+      if (MATERIAL_SYNC_ENTITIES.has(entity) && record.job_id) {
+        await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
+      }
+      return record;
     });
     res.status(201).json(created);
   });
@@ -479,6 +513,12 @@ export async function createApp(db, env = process.env) {
       await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       if (movingJob && previous.job_id) {
         await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      }
+    }
+    if (MATERIAL_SYNC_ENTITIES.has(entity) && updated.job_id) {
+      await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, updated.job_id));
+      if (movingJob && previous.job_id) {
+        await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, previous.job_id));
       }
     }
     if (movingJob && SINGLE_DOC_ENTITIES.has(entity) && entity !== 'Estimate' && entity !== 'Invoice' && previous?.job_id) {

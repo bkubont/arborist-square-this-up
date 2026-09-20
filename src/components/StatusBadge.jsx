@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
+import { statusLabel } from "@/lib/documents";
 import { statusColors } from "@/lib/statusColors";
 
 export default function StatusBadge({ status, entity = undefined, className = "" }) {
@@ -13,7 +14,7 @@ export default function StatusBadge({ status, entity = undefined, className = ""
       )}
     >
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", colors.swatch)} aria-hidden="true" />
-      {status}
+      {entity ? statusLabel(status) : status}
     </span>
   );
 }

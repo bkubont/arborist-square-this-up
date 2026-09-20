@@ -11,6 +11,14 @@ import {
   isOverAuthorized,
   deriveInvoiceStatus,
   sumActiveInvoiceTotals,
+  materialLinesFromEstimate,
+  materialLinesFromWorkOrder,
+  materialLinesFromChangeOrder,
+  collectJobMaterialLines,
+  mergeMaterialOrderLines,
+  materialOrderTotals,
+  selectChangeOrdersForMaterials,
+  filterIncomingNotClaimedElsewhere,
 } from './mapping.js';
 
 test('estimate lines map to WO labor/material/equipment rows', () => {
@@ -175,4 +183,190 @@ test('deriveInvoiceStatus supports partial and paid without promoting drafts', (
   assert.equal(deriveInvoiceStatus({ status: 'sent', balance_due: 100, payments_applied: 50, deposits_applied: 0 }), 'partial');
   assert.equal(deriveInvoiceStatus({ status: 'sent', balance_due: 0, payments_applied: 100 }), 'paid');
   assert.equal(deriveInvoiceStatus({ status: 'void', balance_due: 0 }), 'void');
+});
+
+test('material order lines from estimate / WO / CO; WO Line# is 1-based', () => {
+  const est = materialLinesFromEstimate({
+    id: 'est-1',
+    status: 'draft',
+    lines: [
+      { description: 'Faucet', category: 'Plumbing', material_amount: 45, notes: 'chrome' },
+      { description: 'Labor only', labor_amount: 100 },
+    ],
+  });
+  assert.equal(est.length, 1);
+  assert.equal(est[0].unit_price, 45);
+  assert.equal(est[0].qty, 1);
+  assert.equal(est[0].source_entity, 'Estimate');
+  assert.equal(est[0].source_line_index, 0);
+  assert.equal(est[0].wo_line_number, undefined);
+  assert.equal(est[0].line_status, undefined);
+
+  const wo = materialLinesFromWorkOrder({
+    id: 'wo-1',
+    status: 'draft',
+    lines: [
+      { kind: 'labor', description: 'Labor', hours: 2, rate: 55 },
+      { kind: 'material', description: 'Cartridge', qty: 2, unit_price: 12, work_category: 'Plumbing' },
+    ],
+  });
+  assert.equal(wo.length, 1);
+  assert.equal(wo[0].wo_line_number, 2);
+  assert.equal(wo[0].qty, 2);
+  assert.equal(wo[0].unit_price, 12);
+
+  const co = materialLinesFromChangeOrder({
+    id: 'co-1',
+    status: 'draft',
+    lines: [
+      { description: 'Extra tile', amount: 80 },
+      { description: 'Credit', amount: -20 },
+    ],
+  });
+  assert.equal(co.length, 1);
+  assert.equal(co[0].unit_price, 80);
+});
+
+test('collectJobMaterialLines prefers WO materials over estimate; merge preserves user fields', () => {
+  const estimate = {
+    id: 'est-1', status: 'accepted',
+    lines: [{ description: 'From est', material_amount: 10 }],
+  };
+  const workOrder = {
+    id: 'wo-1', status: 'draft',
+    lines: [
+      { kind: 'material', description: 'From WO', qty: 1, unit_price: 22 },
+    ],
+  };
+  const collected = collectJobMaterialLines({ estimate, workOrder, changeOrders: [] });
+  assert.equal(collected.length, 1);
+  assert.equal(collected[0].description, 'From WO');
+  assert.equal(collected[0].wo_line_number, 1);
+
+  const withoutWo = collectJobMaterialLines({ estimate, workOrder: null, changeOrders: [] });
+  assert.equal(withoutWo[0].description, 'From est');
+
+  const merged = mergeMaterialOrderLines(
+    [{ ...collected[0], supplier: 'Home Depot', on_hand: true, line_status: 'backorder', notes: 'mine' }],
+    [{ ...collected[0], description: 'From WO updated', notes: 'from source' }],
+  );
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].description, 'From WO updated');
+  assert.equal(merged[0].supplier, 'Home Depot');
+  assert.equal(merged[0].on_hand, true);
+  assert.equal(merged[0].line_status, 'backorder');
+  assert.equal(merged[0].notes, 'mine');
+
+  const withManual = mergeMaterialOrderLines(
+    [{ description: 'Extra bag', qty: 1, unit_price: 5 }],
+    collected,
+  );
+  assert.equal(withManual.length, 2);
+  assert.ok(withManual.some((l) => l.description === 'Extra bag'));
+
+  assert.equal(materialOrderTotals([{ qty: 2, unit_price: 10.5 }]).total, 21);
+});
+
+test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claimed filter skips purchased', () => {
+  const incoming = [{
+    description: 'Pipe', qty: 1, unit_price: 30,
+    source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+  }];
+  const merged = mergeMaterialOrderLines(
+    [{ description: 'Pipe', qty: 1, unit_price: 30, supplier: 'Home Depot' }],
+    incoming,
+  );
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].source_entity, 'Estimate');
+  assert.equal(merged[0].supplier, 'Home Depot');
+
+  // Description-only match with different qty/price must not overwrite manual
+  const keepManual = mergeMaterialOrderLines(
+    [{ description: 'Pipe', qty: 5, unit_price: 12 }],
+    incoming,
+  );
+  assert.equal(keepManual.length, 1);
+  assert.equal(keepManual[0].qty, 5);
+  assert.equal(keepManual[0].unit_price, 12);
+  assert.equal(keepManual[0].source_entity, undefined);
+
+  const cos = selectChangeOrdersForMaterials([
+    { id: 'co1', number: 'CO-001', status: 'sent', lines: [{ description: 'Tile', amount: 50 }] },
+    { id: 'co2', number: 'CO-001-R2', status: 'draft', lines: [{ description: 'Tile', amount: 50 }] },
+    { id: 'co3', number: 'CO-002', status: 'approved', lines: [{ description: 'Paint', amount: 20 }] },
+  ]);
+  assert.equal(cos.length, 2);
+  assert.ok(cos.some((c) => c.id === 'co2'));
+  assert.ok(cos.some((c) => c.id === 'co3'));
+  assert.ok(!cos.some((c) => c.id === 'co1'));
+
+  const collected = collectJobMaterialLines({
+    estimate: null,
+    workOrder: null,
+    changeOrders: [
+      { id: 'co1', number: 'CO-001', status: 'sent', lines: [{ description: 'Tile', amount: 50 }] },
+      { id: 'co2', number: 'CO-001-R2', status: 'draft', lines: [{ description: 'Tile', amount: 55 }] },
+    ],
+  });
+  assert.equal(collected.length, 1);
+  assert.equal(collected[0].source_id, 'co2');
+  assert.equal(collected[0].unit_price, 55);
+
+  const filtered = filterIncomingNotClaimedElsewhere(incoming, [
+    { status: 'purchased', lines: [{ description: 'Pipe', qty: 1, unit_price: 30 }] },
+  ]);
+  assert.equal(filtered.length, 0);
+
+  // Same sourced line with edited qty/price still claims (source key, ignore qty/price)
+  const editedSameSource = filterIncomingNotClaimedElsewhere(
+    [{
+      description: 'Pipe', qty: 2, unit_price: 99,
+      source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+    }],
+    [{
+      status: 'purchased',
+      lines: [{
+        description: 'Pipe', qty: 1, unit_price: 30,
+        source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+      }],
+    }],
+  );
+  assert.equal(editedSameSource.length, 0);
+
+  // Purchased Est-keyed line claims later WO autofill by description (no double draft)
+  const woAfterPurchase = filterIncomingNotClaimedElsewhere(
+    [{
+      description: 'Pipe (materials)', qty: 2, unit_price: 40, wo_line_number: 1,
+      source_entity: 'WorkOrder', source_id: 'wo-1', source_line_index: 0,
+    }],
+    [{
+      status: 'purchased',
+      lines: [{
+        description: 'Pipe', qty: 1, unit_price: 30,
+        source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+      }],
+    }],
+  );
+  assert.equal(woAfterPurchase.length, 0);
+
+  // Draft MO does not description-claim keyed lines — distinct CO source can autofill
+  const draftDoesNotClaimDesc = filterIncomingNotClaimedElsewhere(
+    [{
+      description: 'Pipe', qty: 1, unit_price: 50,
+      source_entity: 'ChangeOrder', source_id: 'co-1', source_line_index: 0,
+    }],
+    [{
+      status: 'draft',
+      lines: [{
+        description: 'Pipe', qty: 1, unit_price: 30,
+        source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
+      }],
+    }],
+  );
+  assert.equal(draftDoesNotClaimDesc.length, 1);
+
+  const filteredKeyed = filterIncomingNotClaimedElsewhere(incoming, [
+    { status: 'quote', lines: [{ ...incoming[0] }] },
+  ]);
+  assert.equal(filteredKeyed.length, 0);
 });

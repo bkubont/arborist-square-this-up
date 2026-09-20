@@ -360,3 +360,233 @@ export function buildInvoiceAutofill({
     over_authorized: prior_invoiced + totals.total > billing_ceiling + 0.009,
   };
 }
+
+/** Stable key for MO lines synced from Estimate / WO / CO. */
+export function materialOrderSourceKey(line = {}) {
+  if (!line.source_entity || line.source_id == null || line.source_line_index == null) return null;
+  return `${line.source_entity}:${line.source_id}:${line.source_line_index}`;
+}
+
+export function normalizeMaterialDescription(description = '') {
+  return String(description || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s*\((materials|equipment)\)\s*$/i, '');
+}
+
+export function materialOrderLineFingerprint(line = {}) {
+  const desc = normalizeMaterialDescription(line.description);
+  if (!desc) return null;
+  const qty = num(line.qty);
+  const price = num(line.unit_price);
+  return `${desc}|${qty ?? ''}|${price ?? ''}`;
+}
+
+/** Prefer source key; description fallback only for legacy unkeyed rows. */
+export function materialOrderClaimIdentity(line = {}) {
+  const key = materialOrderSourceKey(line);
+  if (key) return `src:${key}`;
+  const desc = normalizeMaterialDescription(line.description);
+  if (!desc) return null;
+  return `desc:${desc}`;
+}
+
+/** Estimate material $ → MO lines (qty 1 × unit_price). Does not invent prices. */
+export function materialLinesFromEstimate(estimate) {
+  if (!estimate?.id) return [];
+  const source = estimate.accepted_snapshot || estimate;
+  const lines = source.lines || [];
+  return lines.flatMap((line, index) => {
+    const material = num(line.material_amount);
+    if (material == null || material <= 0) return [];
+    return [{
+      description: line.description || 'Materials',
+      qty: 1,
+      unit_price: material,
+      category: line.category || undefined,
+      notes: line.notes || undefined,
+      source_entity: 'Estimate',
+      source_id: estimate.id,
+      source_line_index: index,
+      on_hand: false,
+    }];
+  });
+}
+
+/** WO material lines → MO lines; Line# = 1-based WO line index. */
+export function materialLinesFromWorkOrder(workOrder) {
+  if (!workOrder?.id) return [];
+  return (workOrder.lines || []).flatMap((line, index) => {
+    if (line.kind !== 'material') return [];
+    const qty = num(line.qty);
+    const unit_price = num(line.unit_price);
+    if (!line.description && qty == null && unit_price == null) return [];
+    return [{
+      description: line.description || 'Materials',
+      qty,
+      unit_price,
+      category: line.work_category || undefined,
+      notes: line.notes || undefined,
+      wo_line_number: index + 1,
+      source_entity: 'WorkOrder',
+      source_id: workOrder.id,
+      source_line_index: index,
+      on_hand: false,
+    }];
+  });
+}
+
+/** Change Order amount lines → MO materials (credits skipped). */
+export function materialLinesFromChangeOrder(changeOrder) {
+  if (!changeOrder?.id) return [];
+  return (changeOrder.lines || []).flatMap((line, index) => {
+    const amount = num(line.amount);
+    if (amount != null && amount < 0) return [];
+    if (!line.description && (amount == null || amount === 0)) return [];
+    return [{
+      description: line.description || 'Change order materials',
+      qty: 1,
+      unit_price: amount != null && amount > 0 ? amount : undefined,
+      source_entity: 'ChangeOrder',
+      source_id: changeOrder.id,
+      source_line_index: index,
+      on_hand: false,
+    }];
+  });
+}
+
+/**
+ * Collect job materials for MO autofill.
+ * Prefer active WO materials when present; otherwise estimate materials.
+ * Change orders: latest revision per number stem only (avoids original + revise draft dupes).
+ * @param {{ estimate?: object|null, workOrder?: object|null, changeOrders?: object[] }} [args]
+ */
+export function collectJobMaterialLines({ estimate = null, workOrder = null, changeOrders = [] } = {}) {
+  const out = [];
+  const woActive = workOrder && workOrder.status !== 'void';
+  const woMaterials = woActive ? materialLinesFromWorkOrder(workOrder) : [];
+  if (woMaterials.length) {
+    out.push(...woMaterials);
+  } else if (estimate && estimate.status !== 'void') {
+    out.push(...materialLinesFromEstimate(estimate));
+  }
+  for (const co of selectChangeOrdersForMaterials(changeOrders)) {
+    out.push(...materialLinesFromChangeOrder(co));
+  }
+  return out;
+}
+
+/** Latest non-void / non-rejected CO per number stem (CO-001 vs CO-001-R2 → R2 only). */
+export function selectChangeOrdersForMaterials(changeOrders = []) {
+  const live = (changeOrders || []).filter((co) => co && co.status !== 'void' && co.status !== 'rejected');
+  const byStem = new Map();
+  for (const co of live) {
+    const number = String(co.number || co.id || '');
+    const match = /^(.*?)(?:-R(\d+))?$/.exec(number);
+    const stem = match?.[1] || number || co.id;
+    const rev = match?.[2] ? Number(match[2]) : 1;
+    const prev = byStem.get(stem);
+    if (!prev || rev > prev.rev) byStem.set(stem, { co, rev });
+  }
+  return [...byStem.values()].map((row) => row.co);
+}
+
+/**
+ * Merge incoming source lines into an MO line list.
+ * Adopts legacy unkeyed rows only on strong match (description + qty + price).
+ * Same description with different qty/price keeps the manual row and skips autofill.
+ */
+export function mergeMaterialOrderLines(existingLines = [], incomingLines = []) {
+  const remaining = existingLines.map((line, index) => ({ line, index }));
+  const synced = [];
+
+  for (const incoming of incomingLines) {
+    const key = materialOrderSourceKey(incoming);
+    let matchIdx = -1;
+    if (key) {
+      matchIdx = remaining.findIndex(({ line }) => materialOrderSourceKey(line) === key);
+    }
+    if (matchIdx < 0) {
+      const fp = materialOrderLineFingerprint(incoming);
+      if (fp) {
+        matchIdx = remaining.findIndex(({ line }) => (
+          !materialOrderSourceKey(line) && materialOrderLineFingerprint(line) === fp
+        ));
+      }
+    }
+    if (matchIdx < 0) {
+      const desc = normalizeMaterialDescription(incoming.description);
+      if (desc) {
+        const weakIdx = remaining.findIndex(({ line }) => (
+          !materialOrderSourceKey(line) && normalizeMaterialDescription(line.description) === desc
+        ));
+        if (weakIdx >= 0) continue;
+      }
+      synced.push({ ...incoming, on_hand: incoming.on_hand ?? false });
+      continue;
+    }
+
+    const [{ line: prev }] = remaining.splice(matchIdx, 1);
+    synced.push({
+      ...incoming,
+      supplier: prev.supplier || incoming.supplier,
+      on_hand: prev.on_hand ?? false,
+      line_status: prev.line_status || incoming.line_status,
+      notes: prev.notes || incoming.notes,
+    });
+  }
+
+  const manual = remaining
+    .filter(({ line }) => !materialOrderSourceKey(line))
+    .map(({ line }) => line);
+  return [...synced, ...manual];
+}
+
+/**
+ * Drop incoming autofill rows already present on other non-void Material Orders.
+ * Source keys always claim. Past-draft MOs (quote|purchased|partial|received) and
+ * legacy unkeyed rows also claim by normalized description (Est→WO after purchase).
+ * Draft keyed lines do not description-claim, so new distinct sources can autofill.
+ */
+export function filterIncomingNotClaimedElsewhere(incomingLines = [], otherOrders = []) {
+  const CLAIM_DESC_STATUSES = new Set(['quote', 'purchased', 'partial', 'received']);
+  const claimedKeys = new Set();
+  const claimedDescs = new Set();
+  const claimedLineNos = new Set();
+
+  for (const order of otherOrders) {
+    if (!order || order.status === 'void') continue;
+    const claimByDesc = CLAIM_DESC_STATUSES.has(order.status);
+    for (const line of order.lines || []) {
+      const key = materialOrderSourceKey(line);
+      if (key) claimedKeys.add(key);
+      const desc = normalizeMaterialDescription(line.description);
+      const unkeyed = !key;
+      if (desc && (unkeyed || claimByDesc)) {
+        claimedDescs.add(desc);
+        const lineNo = num(line.wo_line_number);
+        if (lineNo != null && lineNo > 0) claimedLineNos.add(`${lineNo}|${desc}`);
+      }
+    }
+  }
+
+  return incomingLines.filter((line) => {
+    const key = materialOrderSourceKey(line);
+    if (key && claimedKeys.has(key)) return false;
+    const desc = normalizeMaterialDescription(line.description);
+    if (!desc) return true;
+    const lineNo = num(line.wo_line_number);
+    if (lineNo != null && lineNo > 0 && claimedLineNos.has(`${lineNo}|${desc}`)) return false;
+    if (claimedDescs.has(desc)) return false;
+    return true;
+  });
+}
+
+export function materialOrderLineAmount(line = {}) {
+  return round2((num(line.qty) || 0) * (num(line.unit_price) || 0));
+}
+
+export function materialOrderTotals(lines = []) {
+  const subtotal = round2(lines.reduce((sum, line) => sum + materialOrderLineAmount(line), 0));
+  return { subtotal, total: subtotal };
+}
