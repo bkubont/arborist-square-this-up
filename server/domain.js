@@ -92,6 +92,16 @@ export const schemas = {
     /** When set, ties a receipt/photo to a specific Material Order (same job). */
     related_material_order_id: id.optional(),
   }),
+  /** Account-owned spend — optional job link and receipt photo (unassigned inbox OK). */
+  Expense: z.object({
+    amount: money.default(0),
+    date: date.optional(),
+    category: text.optional(),
+    vendor: text.optional(),
+    note: text.optional(),
+    job_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+    photo_url: z.string().max(200).optional(),
+  }),
   CompanyProfile: z.object({
     name: z.string().trim().max(250).default(''),
     address: text.optional(),
@@ -251,6 +261,7 @@ export function assertClientAddressComplete(data = {}) {
 function parentFor(entity, data) {
   if (entity === 'Job') return { parentId: data.client_id, parentEntity: 'Client' };
   if (entity === 'TimelineEntry' || JOB_DOCUMENT_ENTITIES.includes(entity)) return { parentId: data.job_id, parentEntity: 'Job' };
+  if (entity === 'Expense' && data.job_id) return { parentId: data.job_id, parentEntity: 'Job' };
   return { parentId: null, parentEntity: null };
 }
 

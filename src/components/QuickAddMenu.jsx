@@ -23,11 +23,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import JobFormDialog from "@/components/JobFormDialog";
 import ClientFormDialog from "@/components/ClientFormDialog";
+import ExpenseFormDialog from "@/components/ExpenseFormDialog";
+import ReceiptCaptureDialog from "@/components/ReceiptCaptureDialog";
 import { toast } from "@/components/ui/use-toast";
 
 /**
  * Persistent Quick Add — Estimate / Job / Expense / Receipt / Customer / Note.
- * Wires existing create flows; Expenses & Receipts are labeled coming soon.
  */
 export default function QuickAddMenu() {
   const navigate = useNavigate();
@@ -37,6 +38,8 @@ export default function QuickAddMenu() {
   const [clientDialog, setClientDialog] = useState(false);
   const [estimatePick, setEstimatePick] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const [noteJobId, setNoteJobId] = useState("");
   const [noteText, setNoteText] = useState("");
   const [estimateJobId, setEstimateJobId] = useState("");
@@ -129,13 +132,19 @@ export default function QuickAddMenu() {
           >
             <Briefcase className="w-4 h-4" /> Job
           </DropdownMenuItem>
-          <DropdownMenuItem disabled className="opacity-60">
+          <DropdownMenuItem
+            onSelect={() => {
+              loadLists().then(() => setExpenseOpen(true));
+            }}
+          >
             <Wallet className="w-4 h-4" /> Expense
-            <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">Soon</span>
           </DropdownMenuItem>
-          <DropdownMenuItem disabled className="opacity-60">
+          <DropdownMenuItem
+            onSelect={() => {
+              loadLists().then(() => setReceiptOpen(true));
+            }}
+          >
             <Receipt className="w-4 h-4" /> Receipt
-            <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">Soon</span>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setClientDialog(true)}>
             <UserPlus className="w-4 h-4" /> Customer
@@ -156,6 +165,21 @@ export default function QuickAddMenu() {
 
       <JobFormDialog open={jobDialog} onOpenChange={setJobDialog} onSave={saveJob} clients={clients} />
       <ClientFormDialog open={clientDialog} onOpenChange={setClientDialog} onSave={saveClient} />
+      <ExpenseFormDialog
+        open={expenseOpen}
+        onOpenChange={setExpenseOpen}
+        jobs={jobs}
+        onSaved={(saved) => {
+          if (saved?.job_id) navigate(`/jobs/${saved.job_id}`);
+          else navigate("/expenses");
+        }}
+      />
+      <ReceiptCaptureDialog
+        open={receiptOpen}
+        onOpenChange={setReceiptOpen}
+        jobs={jobs}
+        onSaved={() => navigate("/receipts")}
+      />
 
       <Dialog open={estimatePick} onOpenChange={setEstimatePick}>
         <DialogContent className="max-w-md">

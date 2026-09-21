@@ -1454,3 +1454,108 @@ test('material order sync: purchased MO claims sources; no draft recreate', asyn
   assert.ok(coDraft, 'distinct CO description should autofill a draft');
   assert.equal(coDraft.lines.some((l) => l.description === 'Extra fasteners'), true);
 });
+
+test('Expense entity: create unassigned and job-linked; ownership enforced; job delete cascades', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('expense-a@example.com');
+  const b = await register('expense-b@example.com');
+  const create = async (entity, data, cookie = a.cookie) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+
+  const client = await create('Client', { name: 'Expense Client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Expense Job', client_id: client.id });
+
+  const unassigned = await create('Expense', {
+    amount: 42.5,
+    date: '2026-09-21',
+    category: 'Fuel',
+    vendor: 'Shell',
+    note: 'Trip to site',
+  });
+  assert.equal(unassigned.amount, 42.5);
+  assert.equal(unassigned.job_id, undefined);
+  assert.equal(unassigned.category, 'Fuel');
+
+  const linked = await create('Expense', {
+    amount: 18,
+    date: '2026-09-20',
+    category: 'Materials',
+    job_id: job.id,
+    note: 'Screws',
+  });
+  assert.equal(linked.job_id, job.id);
+
+  const listed = (await request('/entities/Expense', { cookie: a.cookie })).data;
+  assert.equal(listed.length, 2);
+
+  const byJob = (await request(`/entities/Expense?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(byJob.length, 1);
+  assert.equal(byJob[0].id, linked.id);
+
+  // Cross-account isolation
+  assert.deepEqual((await request('/entities/Expense', { cookie: b.cookie })).data, []);
+  assert.equal((await request(`/entities/Expense/${linked.id}`, { cookie: b.cookie })).status, 404);
+  assert.equal((await request(`/entities/Expense/${linked.id}`, { method: 'PATCH', cookie: b.cookie, data: { amount: 1 } })).status, 404);
+  assert.equal((await request('/entities/Expense', { method: 'POST', cookie: b.cookie, data: { amount: 9, job_id: job.id } })).status, 404);
+
+  // Assign unassigned expense to job
+  const patched = await request(`/entities/Expense/${unassigned.id}`, {
+    method: 'PATCH',
+    cookie: a.cookie,
+    data: { job_id: job.id },
+  });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.data.job_id, job.id);
+
+  // Reject foreign job link
+  const bClient = await create('Client', { name: 'B', ...CLIENT_ADDR }, b.cookie);
+  const bJob = await create('Job', { title: 'B job', client_id: bClient.id }, b.cookie);
+  assert.equal((await request('/entities/Expense', {
+    method: 'POST',
+    cookie: a.cookie,
+    data: { amount: 5, job_id: bJob.id },
+  })).status, 404);
+
+  // Job delete cascades job-linked expenses
+  assert.equal((await request(`/entities/Job/${job.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+  assert.equal((await request(`/entities/Expense/${linked.id}`, { cookie: a.cookie })).status, 404);
+  assert.equal((await request(`/entities/Expense/${unassigned.id}`, { cookie: a.cookie })).status, 404);
+});
+
+test('Expense with receipt photo requires owned file; export includes Expense', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('expense-photo@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+
+  assert.equal((await request('/entities/Expense', {
+    method: 'POST',
+    cookie: a.cookie,
+    data: { amount: 10, photo_url: '/api/files/00000000-0000-4000-8000-000000000099' },
+  })).status, 400);
+
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from('89504e470d0a1a0a', 'hex')], { type: 'image/png' }), 'receipt.png');
+  const file = await request('/files', { method: 'POST', cookie: a.cookie, form });
+  assert.equal(file.status, 201);
+
+  const expense = await create('Expense', {
+    amount: 25,
+    category: 'Materials',
+    photo_url: file.data.file_url,
+    note: 'Unassigned receipt',
+  });
+  assert.equal(expense.photo_url, file.data.file_url);
+
+  const exported = (await request('/export', { cookie: a.cookie })).data;
+  assert.ok(exported.records.some((r) => r.entity === 'Expense' && r.amount === 25));
+
+  assert.equal((await request(`/entities/Expense/${expense.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+  assert.equal((await request(file.data.file_url.replace('/api', ''), { cookie: a.cookie })).status, 404);
+});

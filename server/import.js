@@ -9,7 +9,7 @@ import { saveRecord, schemas, JOB_DOCUMENT_ENTITIES } from './domain.js';
 // Offline import only: never fetch arbitrary URLs from an uploaded export.
 // Base44 exports can be normalized to { Client: [], Job: [], TimelineEntry: [], files: [] }.
 // Files use { id, mime, content: base64, source_url? }; source_url maps old photo URLs.
-const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', ...JOB_DOCUMENT_ENTITIES, 'TimelineEntry'];
+const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', ...JOB_DOCUMENT_ENTITIES, 'Expense', 'TimelineEntry'];
 
 export async function importData(db, email, input) {
   const [user] = await db.all('SELECT id FROM users WHERE email = ?', [emailSchema.parse(email)]);
@@ -55,6 +55,10 @@ export async function importData(db, email, input) {
         if (entity === 'TimelineEntry' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
           data.job_id = ids.get(`Job:${record.job_id}`);
           if (!data.job_id) throw new Error(`${entity} references a missing job`);
+        }
+        if (entity === 'Expense' && record.job_id) {
+          data.job_id = ids.get(`Job:${record.job_id}`);
+          if (!data.job_id) throw new Error('Expense references a missing job');
         }
         if (record.related_estimate_id) {
           data.related_estimate_id = ids.get(`Estimate:${record.related_estimate_id}`);

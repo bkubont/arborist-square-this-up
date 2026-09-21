@@ -2,7 +2,6 @@ import { NAV_ICONS } from "@/lib/navIcons";
 
 /**
  * Application shell sidebar — groups from Square This Up Application Design Guide.
- * Existing working routes stay reachable; new destinations use placeholder pages.
  */
 export const NAV_GROUPS = [
   {
@@ -16,7 +15,7 @@ export const NAV_GROUPS = [
     items: [
       { to: "/jobs/active", label: "Jobs", icon: NAV_ICONS.jobs },
       { to: "/clients", label: "Customers", icon: NAV_ICONS.customers },
-      { to: "/schedule", label: "Schedule", icon: NAV_ICONS.schedule, placeholder: true },
+      { to: "/schedule", label: "Schedule", icon: NAV_ICONS.schedule },
     ],
   },
   {
@@ -25,14 +24,14 @@ export const NAV_GROUPS = [
     items: [
       { to: "/estimates", label: "Estimates", icon: NAV_ICONS.estimates },
       { to: "/jobs/outstanding", label: "Invoices", icon: NAV_ICONS.invoices },
-      { to: "/expenses", label: "Expenses", icon: NAV_ICONS.expenses, placeholder: true },
-      { to: "/receipts", label: "Receipts", icon: NAV_ICONS.receipts, placeholder: true },
+      { to: "/expenses", label: "Expenses", icon: NAV_ICONS.expenses },
+      { to: "/receipts", label: "Receipts", icon: NAV_ICONS.receipts },
     ],
   },
   {
     id: "business",
     label: "Business",
-    items: [{ to: "/reports", label: "Reports", icon: NAV_ICONS.reports, placeholder: true }],
+    items: [{ to: "/reports", label: "Reports", icon: NAV_ICONS.reports }],
   },
   {
     id: "system",
