@@ -7,6 +7,12 @@ import {
   Building2,
   ListTodo,
   Columns3,
+  CalendarDays,
+  FileText,
+  Receipt,
+  Wallet,
+  BarChart3,
+  Settings,
 } from "lucide-react";
 
 /**
@@ -15,13 +21,26 @@ import {
  */
 export const NAV_ICONS = {
   dashboard: LayoutGrid,
+  jobs: Briefcase,
+  /** @deprecated alias — prefer jobs */
   activeJobs: Briefcase,
+  customers: UsersRound,
+  /** @deprecated alias — prefer customers */
+  clients: UsersRound,
+  schedule: CalendarDays,
+  estimates: FileText,
+  invoices: CircleDollarSign,
+  /** @deprecated alias — prefer invoices */
   money: CircleDollarSign,
-  /** @deprecated alias — prefer money */
+  /** @deprecated alias — prefer invoices */
   outstanding: CircleDollarSign,
+  expenses: Wallet,
+  receipts: Receipt,
+  reports: BarChart3,
+  settings: Settings,
+  /** @deprecated alias — prefer settings */
+  company: Building2,
   allJobs: Layers,
   actionItems: ListTodo,
   board: Columns3,
-  clients: UsersRound,
-  company: Building2,
 };

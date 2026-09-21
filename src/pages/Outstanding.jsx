@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
+import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money } from "@/lib/format";
 import {
@@ -14,7 +15,7 @@ import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-const MoneyIcon = NAV_ICONS.money;
+const MoneyIcon = NAV_ICONS.invoices;
 
 export default function Outstanding() {
   const [jobs, setJobs] = useState([]);
@@ -66,12 +67,19 @@ export default function Outstanding() {
 
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Money</h1>
-        <p className="text-sm text-muted-foreground">
-          Invoiced, received, outstanding, waiting for approval, and waiting on payment
-        </p>
-      </div>
+      <PageHeader
+        title="Invoices"
+        description={
+          loading
+            ? "Invoiced, received, outstanding, and waiting buckets"
+            : `${unpaid.length} with balance · ${buckets.waitingPaymentCount} awaiting payment · ${buckets.waitingDocCount} awaiting approval`
+        }
+        secondary={
+          <Link to="/estimates" className="text-sm font-medium text-primary hover:underline px-2">
+            Estimates
+          </Link>
+        }
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
         <SummaryCard label="Invoiced" value={loading ? "…" : money(buckets.invoiced)} />

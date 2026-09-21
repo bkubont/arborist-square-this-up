@@ -1,0 +1,49 @@
+import { NAV_ICONS } from "@/lib/navIcons";
+
+/**
+ * Application shell sidebar — groups from Square This Up Application Design Guide.
+ * Existing working routes stay reachable; new destinations use placeholder pages.
+ */
+export const NAV_GROUPS = [
+  {
+    id: "home",
+    label: null,
+    items: [{ to: "/", label: "Dashboard", icon: NAV_ICONS.dashboard, end: true }],
+  },
+  {
+    id: "work",
+    label: "Work",
+    items: [
+      { to: "/jobs/active", label: "Jobs", icon: NAV_ICONS.jobs },
+      { to: "/clients", label: "Customers", icon: NAV_ICONS.customers },
+      { to: "/schedule", label: "Schedule", icon: NAV_ICONS.schedule, placeholder: true },
+    ],
+  },
+  {
+    id: "money",
+    label: "Money",
+    items: [
+      { to: "/estimates", label: "Estimates", icon: NAV_ICONS.estimates },
+      { to: "/jobs/outstanding", label: "Invoices", icon: NAV_ICONS.invoices },
+      { to: "/expenses", label: "Expenses", icon: NAV_ICONS.expenses, placeholder: true },
+      { to: "/receipts", label: "Receipts", icon: NAV_ICONS.receipts, placeholder: true },
+    ],
+  },
+  {
+    id: "business",
+    label: "Business",
+    items: [{ to: "/reports", label: "Reports", icon: NAV_ICONS.reports, placeholder: true }],
+  },
+  {
+    id: "system",
+    label: "System",
+    items: [{ to: "/settings", label: "Settings", icon: NAV_ICONS.settings }],
+  },
+];
+
+/** Deep-link destinations kept working but not in primary sidebar groups. */
+export const SECONDARY_DESTINATIONS = [
+  { to: "/jobs", label: "All Jobs", end: true },
+  { to: "/jobs/board", label: "Board" },
+  { to: "/jobs/action-items", label: "Action items" },
+];

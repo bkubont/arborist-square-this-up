@@ -1,27 +1,36 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { api } from "@/api/client";
+import PageHeader from "@/components/PageHeader";
+import JobFormDialog from "@/components/JobFormDialog";
 import StatusBadge from "@/components/StatusBadge";
+import { Button } from "@/components/ui/button";
 import { money, shortDate } from "@/lib/format";
 import { isActiveJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-const ActiveIcon = NAV_ICONS.activeJobs;
+const ActiveIcon = NAV_ICONS.jobs;
 
 export default function ActiveJobs() {
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
+  const [clients, setClients] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [jobDialog, setJobDialog] = useState(false);
 
   useEffect(() => {
     Promise.all([
       api.entities.Job.list("-created_date", 300),
+      api.entities.Client.list("-created_date", 200),
       api.entities.TimelineEntry.list("-created_date", 1000),
     ])
-      .then(([j, tl]) => {
+      .then(([j, c, tl]) => {
         setJobs(j.filter(isActiveJob));
+        setClients(c);
         setTimeline(tl);
       })
       .finally(() => setLoading(false));
@@ -29,12 +38,40 @@ export default function ActiveJobs() {
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
 
+  const saveJob = async (form) => {
+    const created = await api.entities.Job.create(form);
+    setJobDialog(false);
+    navigate(`/jobs/${created.id}`);
+  };
+
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Active Jobs</h1>
-        <p className="text-sm text-muted-foreground">Estimate, Scheduled, In Progress, or Waiting on Materials</p>
-      </div>
+      <PageHeader
+        title="Jobs"
+        description={
+          loading
+            ? "Estimate, Scheduled, In Progress, or Waiting on Materials"
+            : `${jobs.length} active · Estimate, Scheduled, In Progress, or Waiting on Materials`
+        }
+        primaryAction={
+          <Button
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => setJobDialog(true)}
+          >
+            <Plus className="w-4 h-4 mr-1" /> New Job
+          </Button>
+        }
+        secondary={
+          <>
+            <Link to="/jobs" className="text-sm font-medium text-primary hover:underline px-2">
+              All Jobs
+            </Link>
+            <Link to="/jobs/board" className="text-sm font-medium text-primary hover:underline px-2">
+              Board
+            </Link>
+          </>
+        }
+      />
 
       {loading ? (
         <p className="text-muted-foreground">Loading…</p>
@@ -72,6 +109,8 @@ export default function ActiveJobs() {
           })}
         </div>
       )}
+
+      <JobFormDialog open={jobDialog} onOpenChange={setJobDialog} onSave={saveJob} clients={clients} />
     </div>
   );
 }

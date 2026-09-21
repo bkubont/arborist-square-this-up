@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
+import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -35,38 +36,44 @@ export default function AllJobs() {
 
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-foreground">All Jobs</h1>
-        <div className="flex items-center gap-2">
-          <Link to="/jobs/board" className="text-sm font-medium text-primary hover:underline px-2">
-            Board
-          </Link>
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger
-              className={cn(
-                "w-52 font-medium border-2",
-                filterColors ? cn(filterColors.border, filterColors.badge) : "border-border"
-              )}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="All">All statuses</SelectItem>
-              {JOB_STATUSES.map((s) => {
-                const c = statusColors(s);
-                return (
-                  <SelectItem key={s} value={s} className={cn("font-medium", c.select)}>
-                    <span className="inline-flex items-center gap-2">
-                      <span className={cn("w-2 h-2 rounded-full shrink-0", c.swatch)} aria-hidden="true" />
-                      {s}
-                    </span>
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      <PageHeader
+        title="All Jobs"
+        description={loading ? undefined : `${shown.length} shown`}
+        secondary={
+          <>
+            <Link to="/jobs/active" className="text-sm font-medium text-primary hover:underline px-2">
+              Active
+            </Link>
+            <Link to="/jobs/board" className="text-sm font-medium text-primary hover:underline px-2">
+              Board
+            </Link>
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger
+                className={cn(
+                  "w-52 font-medium border-2",
+                  filterColors ? cn(filterColors.border, filterColors.badge) : "border-border"
+                )}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All statuses</SelectItem>
+                {JOB_STATUSES.map((s) => {
+                  const c = statusColors(s);
+                  return (
+                    <SelectItem key={s} value={s} className={cn("font-medium", c.select)}>
+                      <span className="inline-flex items-center gap-2">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", c.swatch)} aria-hidden="true" />
+                        {s}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
 
       {loading ? (
         <p className="text-muted-foreground">Loading…</p>

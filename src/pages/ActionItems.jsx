@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
+import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { collectActionItems } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
@@ -36,12 +37,19 @@ export default function ActionItems() {
 
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Action items</h1>
-        <p className="text-sm text-muted-foreground">
-          Jobs blocked by materials or waiting on estimate / change-order approval
-        </p>
-      </div>
+      <PageHeader
+        title="Action items"
+        description={
+          loading
+            ? "Jobs blocked by materials or waiting on estimate / change-order approval"
+            : `${items.length} item${items.length === 1 ? "" : "s"} · materials or approval`
+        }
+        secondary={
+          <Link to="/jobs/outstanding" className="text-sm font-medium text-primary hover:underline px-2">
+            Invoices
+          </Link>
+        }
+      />
 
       {loading ? (
         <p className="text-muted-foreground">Loading…</p>

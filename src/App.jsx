@@ -19,6 +19,8 @@ import Outstanding from '@/pages/Outstanding';
 import ActionItems from '@/pages/ActionItems';
 import JobBoard from '@/pages/JobBoard';
 import CompanySettings from '@/pages/CompanySettings';
+import Estimates from '@/pages/Estimates';
+import { SchedulePage, ExpensesPage, ReceiptsPage, ReportsPage } from '@/pages/ShellPlaceholders';
 import SignEstimate from '@/pages/SignEstimate';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
@@ -56,6 +58,11 @@ const AuthenticatedApp = () => {
           <Route path="/jobs/board" element={<JobBoard />} />
           <Route path="/jobs" element={<AllJobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
+          <Route path="/estimates" element={<Estimates />} />
+          <Route path="/schedule" element={<SchedulePage />} />
+          <Route path="/expenses" element={<ExpensesPage />} />
+          <Route path="/receipts" element={<ReceiptsPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<CompanySettings />} />
         </Route>
       </Route>

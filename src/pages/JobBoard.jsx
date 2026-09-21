@@ -2,14 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { api } from "@/api/client";
+import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
 import { JOB_STATUSES, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
-import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
-
-const BoardIcon = NAV_ICONS.board;
 
 export default function JobBoard() {
   const [jobs, setJobs] = useState([]);
@@ -81,18 +79,16 @@ export default function JobBoard() {
 
   return (
     <div className="p-4 lg:p-6 h-full flex flex-col min-h-0">
-      <div className="mb-4 flex items-start justify-between gap-3 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <BoardIcon className="w-6 h-6 text-primary" strokeWidth={1.75} />
-            Board
-          </h1>
-          <p className="text-sm text-muted-foreground">Drag a job to change its status</p>
-        </div>
-        <Link to="/jobs" className="text-sm font-medium text-primary hover:underline shrink-0">
-          List view
-        </Link>
-      </div>
+      <PageHeader
+        className="mb-4 shrink-0"
+        title="Board"
+        description="Drag a job to change its status"
+        secondary={
+          <Link to="/jobs" className="text-sm font-medium text-primary hover:underline shrink-0">
+            List view
+          </Link>
+        }
+      />
 
       {loading ? (
         <p className="text-muted-foreground">Loading…</p>

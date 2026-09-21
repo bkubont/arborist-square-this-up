@@ -5,6 +5,7 @@ import { api } from "@/api/client";
 import { Plus, Phone, Mail, MapPin, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ClientFormDialog from "@/components/ClientFormDialog";
+import PageHeader from "@/components/PageHeader";
 
 export default function Clients() {
   const [clients, setClients] = useState([]);
@@ -42,18 +43,21 @@ export default function Clients() {
 
   return (
     <div className="p-4 lg:p-8 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Clients</h1>
-        <Button
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={() => {
-            setEditing(null);
-            setDialog(true);
-          }}
-        >
-          <Plus className="w-4 h-4 mr-1" /> New Client
-        </Button>
-      </div>
+      <PageHeader
+        title="Customers"
+        description={loading ? undefined : `${clients.length} customer${clients.length === 1 ? "" : "s"}`}
+        primaryAction={
+          <Button
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => {
+              setEditing(null);
+              setDialog(true);
+            }}
+          >
+            <Plus className="w-4 h-4 mr-1" /> New Customer
+          </Button>
+        }
+      />
 
       {loading ? (
         <p className="text-slate-400">Loading…</p>

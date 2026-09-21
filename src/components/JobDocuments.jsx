@@ -24,9 +24,25 @@ import { loadAccountTaxRate } from "@/lib/salesTax";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-export default function JobDocuments({ jobId, jobTitle, client, documents, onChanged }) {
+export default function JobDocuments({
+  jobId,
+  jobTitle,
+  client,
+  documents,
+  onChanged,
+  /** Limit to these entity types (default: all document types). */
+  entities = null,
+  title = "Documents",
+  emptyHint = null,
+  className = "",
+}) {
   const [openDoc, setOpenDoc] = useState(null);
   const [creating, setCreating] = useState(null);
+
+  const allowedTypes = entities
+    ? DOCUMENT_TYPES.filter((t) => entities.includes(t.entity))
+    : DOCUMENT_TYPES;
+  const allowedSet = new Set(allowedTypes.map((t) => t.entity));
 
   const openRevised = async (entity, created) => {
     await onChanged?.();
@@ -129,23 +145,30 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
     }
   };
 
-  const sorted = [...documents].sort((a, b) => (b.created_date || "").localeCompare(a.created_date || ""));
+  const filtered = documents.filter((d) => allowedSet.has(d.entity));
+  const sorted = [...filtered].sort((a, b) => (b.created_date || "").localeCompare(a.created_date || ""));
   const displayMoney = (doc) => {
     if (doc.entity === "ChangeOrder") return doc.revised_contract_total ?? doc.net_change;
     return doc.total;
   };
   const accepted = hasAcceptedEstimate(documents);
   const woComplete = hasCompleteWorkOrder(documents);
+  const showStageHints = !entities || entities.includes("Estimate") || entities.includes("WorkOrder") || entities.includes("Invoice");
+
+  const defaultEmpty =
+    allowedSet.has("Estimate") && sorted.length === 0
+      ? "Every job needs an estimate. Create a draft Estimate to start quoting — type in the description to fill from the catalog."
+      : "No documents in this section yet.";
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
+    <div className={cn("bg-white rounded-xl border border-slate-200 p-4", className)}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Documents</div>
+        <div className="text-sm font-semibold text-slate-500 uppercase tracking-wide">{title}</div>
         <div className="flex flex-wrap gap-1.5">
-          {DOCUMENT_TYPES.map((t) => {
+          {allowedTypes.map((t) => {
             const gate = documentCreateAvailability(t.entity, documents);
             const singular = SINGLE_DOC_ENTITIES.has(t.entity);
-            const label = gate.openExisting ? t.label : t.label;
+            const label = t.label;
             return (
               <Button
                 key={t.entity}
@@ -170,21 +193,21 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         </div>
       </div>
 
-      {!accepted && (
+      {showStageHints && !accepted && allowedSet.has("Estimate") && (
         <p className="text-xs text-slate-500 mb-3">
-          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> if needed).
+          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> under Costs if needed).
           One Estimate, Work Order, and Invoice per job. Work Order unlocks after accept; Invoice after the Work Order is complete.
         </p>
       )}
-      {accepted && !woComplete && (
+      {showStageHints && accepted && !woComplete && (allowedSet.has("WorkOrder") || allowedSet.has("Invoice")) && (
         <p className="text-xs text-slate-500 mb-3">
-          Work Order and Change Orders are available. Invoice unlocks when the Work Order status is <strong>complete</strong>.
+          Work Order and Change Orders are available under Costs. Invoice unlocks when the Work Order status is <strong>complete</strong>.
         </p>
       )}
 
       {sorted.length === 0 ? (
         <div className="text-sm text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">
-          Every job needs an estimate. Create a draft Estimate to start quoting — type in the description to fill from the catalog.
+          {emptyHint || defaultEmpty}
         </div>
       ) : (
         <ul className="divide-y divide-slate-100">
@@ -218,49 +241,59 @@ export default function JobDocuments({ jobId, jobTitle, client, documents, onCha
         </ul>
       )}
 
-      <EstimateEditorDialog
-        open={openDoc?.entity === "Estimate"}
-        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        document={openDoc?.entity === "Estimate" ? openDoc.document : null}
-        jobId={jobId}
-        jobTitle={jobTitle}
-        onSaved={onChanged}
-        onRevised={(created) => openRevised("Estimate", created)}
-      />
-      <MaterialOrderEditorDialog
-        open={openDoc?.entity === "MaterialOrder"}
-        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        document={openDoc?.entity === "MaterialOrder" ? openDoc.document : null}
-        jobId={jobId}
-        onSaved={onChanged}
-        onRevised={(created) => openRevised("MaterialOrder", created)}
-      />
-      <WorkOrderEditorDialog
-        open={openDoc?.entity === "WorkOrder"}
-        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        document={openDoc?.entity === "WorkOrder" ? openDoc.document : null}
-        jobId={jobId}
-        onSaved={onChanged}
-        onRevised={(created) => openRevised("WorkOrder", created)}
-      />
-      <ChangeOrderEditorDialog
-        open={openDoc?.entity === "ChangeOrder"}
-        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        document={openDoc?.entity === "ChangeOrder" ? openDoc.document : null}
-        jobId={jobId}
-        onSaved={onChanged}
-        onRevised={(created) => openRevised("ChangeOrder", created)}
-      />
-      <InvoiceEditorDialog
-        open={openDoc?.entity === "Invoice"}
-        onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-        document={openDoc?.entity === "Invoice" ? openDoc.document : null}
-        jobId={jobId}
-        jobTitle={jobTitle}
-        client={client}
-        onSaved={onChanged}
-        onRevised={(created) => openRevised("Invoice", created)}
-      />
+      {allowedSet.has("Estimate") && (
+        <EstimateEditorDialog
+          open={openDoc?.entity === "Estimate"}
+          onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+          document={openDoc?.entity === "Estimate" ? openDoc.document : null}
+          jobId={jobId}
+          jobTitle={jobTitle}
+          onSaved={onChanged}
+          onRevised={(created) => openRevised("Estimate", created)}
+        />
+      )}
+      {allowedSet.has("MaterialOrder") && (
+        <MaterialOrderEditorDialog
+          open={openDoc?.entity === "MaterialOrder"}
+          onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+          document={openDoc?.entity === "MaterialOrder" ? openDoc.document : null}
+          jobId={jobId}
+          onSaved={onChanged}
+          onRevised={(created) => openRevised("MaterialOrder", created)}
+        />
+      )}
+      {allowedSet.has("WorkOrder") && (
+        <WorkOrderEditorDialog
+          open={openDoc?.entity === "WorkOrder"}
+          onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+          document={openDoc?.entity === "WorkOrder" ? openDoc.document : null}
+          jobId={jobId}
+          onSaved={onChanged}
+          onRevised={(created) => openRevised("WorkOrder", created)}
+        />
+      )}
+      {allowedSet.has("ChangeOrder") && (
+        <ChangeOrderEditorDialog
+          open={openDoc?.entity === "ChangeOrder"}
+          onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+          document={openDoc?.entity === "ChangeOrder" ? openDoc.document : null}
+          jobId={jobId}
+          onSaved={onChanged}
+          onRevised={(created) => openRevised("ChangeOrder", created)}
+        />
+      )}
+      {allowedSet.has("Invoice") && (
+        <InvoiceEditorDialog
+          open={openDoc?.entity === "Invoice"}
+          onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
+          document={openDoc?.entity === "Invoice" ? openDoc.document : null}
+          jobId={jobId}
+          jobTitle={jobTitle}
+          client={client}
+          onSaved={onChanged}
+          onRevised={(created) => openRevised("Invoice", created)}
+        />
+      )}
     </div>
   );
 }

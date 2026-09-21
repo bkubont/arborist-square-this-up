@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import PageHeader from "@/components/PageHeader";
 import { DEFAULT_SALES_TAX_RATE } from "@/lib/salesTax";
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
@@ -77,10 +78,18 @@ export default function CompanySettings() {
 
   return (
     <div className="p-4 lg:p-8 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">Company profile</h1>
-      <p className="text-sm text-slate-500 mb-6">
-        Used on estimates, work orders, change orders, and invoices. One profile per account.
-      </p>
+      <PageHeader
+        title="Settings"
+        description="Company profile for estimates, work orders, change orders, and invoices"
+        primaryAction={
+          <div className="flex items-center gap-3">
+            {saved && <span className="text-sm text-emerald-600">Saved</span>}
+            <Button onClick={save} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary/90">
+              {saving ? "Saving…" : "Save profile"}
+            </Button>
+          </div>
+        }
+      />
       <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
         <div>
           <Label>Company name</Label>
@@ -122,12 +131,6 @@ export default function CompanySettings() {
             <Label>Default payment terms</Label>
             <Input value={form.default_payment_terms} onChange={(e) => set("default_payment_terms", e.target.value)} placeholder="Due upon receipt" />
           </div>
-        </div>
-        <div className="flex items-center gap-3 pt-2">
-          <Button onClick={save} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary/90">
-            {saving ? "Saving…" : "Save profile"}
-          </Button>
-          {saved && <span className="text-sm text-emerald-600">Saved</span>}
         </div>
       </div>
     </div>

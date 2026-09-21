@@ -1,28 +1,13 @@
 import React, { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LogOut, Menu, X } from "lucide-react";
-import { useAuth } from "@/lib/AuthContext";
-import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { BRAND_ASSETS, PRODUCT_NAME } from "@/lib/brand";
-import { NAV_ICONS } from "@/lib/navIcons";
-
-/** Expanded side menu — destinations under the single Dashboard CTA (not a second Dashboard row). */
-const nav = [
-  { to: "/jobs/action-items", label: "Action items", icon: NAV_ICONS.actionItems, attention: true },
-  { to: "/jobs/outstanding", label: "Money", icon: NAV_ICONS.money, attention: true },
-  { to: "/jobs/active", label: "Active Jobs", icon: NAV_ICONS.activeJobs },
-  { to: "/jobs/board", label: "Board", icon: NAV_ICONS.board },
-  { to: "/jobs", label: "All Jobs", icon: NAV_ICONS.allJobs, end: true },
-  { to: "/clients", label: "Clients", icon: NAV_ICONS.clients },
-  { to: "/settings", label: "Company", icon: NAV_ICONS.company },
-];
+import { NAV_GROUPS } from "@/lib/navConfig";
+import AppTopBar from "@/components/AppTopBar";
 
 export default function AppLayout() {
-  const { user, logout } = useAuth();
   const location = useLocation();
   const [open, setOpen] = useState(false);
-  const DashboardIcon = NAV_ICONS.dashboard;
 
   const isActive = (item) => {
     if (item.end) return location.pathname === item.to;
@@ -37,104 +22,66 @@ export default function AppLayout() {
         to={item.to}
         onClick={() => setOpen(false)}
         className={cn(
-          "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
+          "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
           active
             ? "bg-sidebar-primary text-sidebar-primary-foreground"
             : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         )}
       >
-        <Icon
-          className={cn("w-5 h-5 shrink-0", !active && item.attention && "text-attention")}
-          strokeWidth={1.75}
-          aria-hidden="true"
-        />
-        {item.label}
+        <Icon className="w-4 h-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+        <span className="truncate">{item.label}</span>
+        {item.placeholder && !active ? (
+          <span className="ml-auto text-[10px] uppercase tracking-wide text-sidebar-muted">Soon</span>
+        ) : null}
       </Link>
     );
   };
 
   return (
-    <div className="min-h-screen bg-page flex">
-      <aside
-        className={cn(
-          "fixed lg:static inset-y-0 left-0 z-40 w-64 bg-sidebar text-sidebar-foreground flex flex-col transition-transform lg:translate-x-0 border-r border-sidebar-border",
-          open ? "translate-x-0" : "-translate-x-full"
+    <div className="min-h-screen bg-page flex flex-col">
+      <AppTopBar onOpenSidebar={() => setOpen(true)} />
+
+      <div className="flex flex-1 min-h-0">
+        <aside
+          className={cn(
+            "fixed lg:static inset-y-0 top-12 lg:top-0 left-0 z-40 w-56 bg-sidebar text-sidebar-foreground flex flex-col transition-transform lg:translate-x-0 border-r border-sidebar-border lg:h-[calc(100vh-3rem)]",
+            open ? "translate-x-0" : "-translate-x-full"
+          )}
+        >
+          <div className="lg:hidden flex items-center justify-end px-3 py-2 border-b border-sidebar-border">
+            <button
+              type="button"
+              className="text-sidebar-muted"
+              onClick={() => setOpen(false)}
+              aria-label="Close menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.id}>
+                {group.label ? (
+                  <div className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">
+                    {group.label}
+                  </div>
+                ) : null}
+                <div className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <NavLink key={item.to} item={item} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </nav>
+        </aside>
+
+        {open && (
+          <div className="fixed inset-0 top-12 bg-black/50 z-30 lg:hidden" onClick={() => setOpen(false)} />
         )}
-      >
-        <div className="px-5 py-5 flex items-center justify-between">
-          <Link to="/" onClick={() => setOpen(false)} className="flex items-center gap-2.5 min-w-0">
-            <img
-              src={BRAND_ASSETS.markLight}
-              alt=""
-              className="w-10 h-10 rounded-lg object-contain shrink-0 bg-black"
-              width={40}
-              height={40}
-            />
-            <div className="min-w-0">
-              <div className="text-white font-bold leading-tight truncate text-sm tracking-wide uppercase">
-                Square
-              </div>
-              <div className="text-attention font-semibold leading-tight truncate text-[11px] tracking-wider uppercase">
-                This Up
-              </div>
-            </div>
-          </Link>
-          <button type="button" className="lg:hidden text-sidebar-muted shrink-0" onClick={() => setOpen(false)} aria-label="Close menu">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        <div className="px-3 pb-3">
-          <Link
-            to="/"
-            onClick={() => setOpen(false)}
-            className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold transition-colors",
-              location.pathname === "/"
-                ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                : "bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground"
-            )}
-          >
-            <DashboardIcon className="w-4 h-4" strokeWidth={2} aria-hidden="true" />
-            Dashboard
-          </Link>
-        </div>
-
-        <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          {nav.map((item) => (
-            <NavLink key={item.to} item={item} />
-          ))}
-        </nav>
-
-        <div className="p-3 border-t border-sidebar-border">
-          <div className="px-2 pb-2 text-xs text-sidebar-muted truncate">{user?.email}</div>
-          <a href="/api/export" download className="block px-2 py-2 text-sm text-sidebar-foreground hover:text-sidebar-accent-foreground">
-            Download backup
-          </a>
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"
-            onClick={() => logout()}
-          >
-            <LogOut className="w-4 h-4 mr-2" strokeWidth={1.75} /> Sign out
-          </Button>
-        </div>
-      </aside>
-
-      {open && <div className="fixed inset-0 bg-black/50 z-30 lg:hidden" onClick={() => setOpen(false)} />}
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="lg:hidden flex items-center justify-between bg-sidebar text-sidebar-foreground px-4 py-3 sticky top-0 z-20 border-b border-sidebar-border">
-          <button type="button" className="text-sidebar-accent-foreground" onClick={() => setOpen(true)} aria-label="Open menu">
-            <Menu className="w-6 h-6" />
-          </button>
-          <Link to="/" className="flex items-center gap-2 min-w-0 px-2">
-            <img src={BRAND_ASSETS.markLight} alt="" className="w-8 h-8 rounded-md object-contain bg-black shrink-0" width={32} height={32} />
-            <span className="text-white font-bold truncate text-sm">{PRODUCT_NAME}</span>
-          </Link>
-          <div className="w-6" />
-        </header>
-        <main className="flex-1 overflow-y-auto min-h-0">
+        <main className="flex-1 overflow-y-auto min-h-0 min-w-0">
           <Outlet />
         </main>
       </div>
