@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Camera, Inbox } from "lucide-react";
 import { api } from "@/api/client";
+import { BrokenSquareEmpty } from "@/components/BrokenSquareMark";
 import PageHeader from "@/components/PageHeader";
 import ReceiptCaptureDialog from "@/components/ReceiptCaptureDialog";
 import ExpenseFormDialog from "@/components/ExpenseFormDialog";
@@ -9,9 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Image } from "@/components/ui/image";
 import { isPhotoEntry } from "@/lib/photoCategories";
 import { money, shortDate } from "@/lib/format";
-import { NAV_ICONS } from "@/lib/navIcons";
-
-const ReceiptsIcon = NAV_ICONS.receipts;
 
 function isReceiptEntry(entry) {
   return (
@@ -127,10 +125,9 @@ export default function Receipts() {
               <Inbox className="w-4 h-4" /> Unassigned inbox
             </h2>
             {inbox.length === 0 ? (
-              <div className="text-center py-10 text-muted-foreground border border-dashed border-border rounded-xl">
-                <ReceiptsIcon className="w-10 h-10 mx-auto mb-2 opacity-40" strokeWidth={1.5} />
-                <p className="text-sm">No unassigned receipts. Capture one without a job to park it here.</p>
-              </div>
+              <BrokenSquareEmpty title="Inbox clear" state="closed" className="py-10">
+                No unassigned receipts. Capture one without a job to park it here.
+              </BrokenSquareEmpty>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {inbox.map((expense) => (
@@ -154,9 +151,9 @@ export default function Receipts() {
           <section>
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">By job</h2>
             {byJob.length === 0 ? (
-              <div className="text-center py-10 text-muted-foreground border border-dashed border-border rounded-xl">
-                <p className="text-sm">No job receipts yet. Scan a receipt and pick a job, or upload from a Material Order.</p>
-              </div>
+              <BrokenSquareEmpty title="No job receipts yet" state="open" className="py-10">
+                Scan a receipt and pick a job, or upload from a Material Order.
+              </BrokenSquareEmpty>
             ) : (
               <div className="space-y-6">
                 {byJob.map(({ job, jobId, items }) => (

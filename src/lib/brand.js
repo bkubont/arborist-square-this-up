@@ -25,3 +25,5 @@ export const BRAND_ASSETS = {
   wordmark: "/brand/wordmark.png",
   wordmarkAlt: "/brand/wordmark-alt.png",
 };
+
+/** Restrained UI geometry (not full logo): see `BrokenSquareMark` — open = unfinished, closed = squared up. */
