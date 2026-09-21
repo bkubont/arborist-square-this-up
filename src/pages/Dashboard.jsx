@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
-import { Calendar, AlertTriangle } from "lucide-react";
+import { Calendar, AlertTriangle, Inbox } from "lucide-react";
+import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMark";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate, timeAgo } from "@/lib/format";
@@ -50,6 +51,7 @@ export default function Dashboard() {
   const [changeOrders, setChangeOrders] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -59,13 +61,15 @@ export default function Dashboard() {
       api.entities.ChangeOrder.list("-updated_date", 300),
       api.entities.Invoice.list("-updated_date", 300),
       api.entities.TimelineEntry.list("-created_date", 1000),
+      api.entities.Expense.list("-created_date", 400),
     ])
-      .then(([j, e, c, inv, tl]) => {
+      .then(([j, e, c, inv, tl, ex]) => {
         setJobs(j);
         setEstimates(e);
         setChangeOrders(c);
         setInvoices(inv);
         setTimeline(tl);
+        setExpenses(ex);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -89,8 +93,31 @@ export default function Dashboard() {
     [jobs, estimates, changeOrders]
   );
 
+  const unassignedReceipts = useMemo(
+    () => expenses.filter((e) => e.photo_url && !e.job_id),
+    [expenses]
+  );
+
   const attentionRows = useMemo(() => {
     const rows = [];
+
+    if (unassignedReceipts.length > 0) {
+      const sample = unassignedReceipts[0];
+      const amountHint = sample.amount != null ? ` · latest ${money(sample.amount)}` : "";
+      rows.push({
+        id: "receipts-inbox",
+        to: "/receipts",
+        title:
+          unassignedReceipts.length === 1
+            ? "1 receipt needs a job"
+            : `${unassignedReceipts.length} receipts need a job`,
+        detail: `Unassigned in Receipts inbox${amountHint}`,
+        cta: "Open Receipts",
+        status: null,
+        tone: "receipt",
+      });
+    }
+
     for (const { job, reasons } of actionItems) {
       rows.push({
         id: `action-${job.id}`,
@@ -127,7 +154,7 @@ export default function Dashboard() {
       });
     }
     return rows;
-  }, [actionItems, invoices, jobs, today, tomorrow]);
+  }, [actionItems, invoices, jobs, today, tomorrow, unassignedReceipts]);
 
   const recentActivity = useMemo(() => {
     const jobById = Object.fromEntries(jobs.map((j) => [j.id, j]));
@@ -175,7 +202,9 @@ export default function Dashboard() {
         {loading ? (
           <Loading />
         ) : attentionRows.length === 0 ? (
-          <Empty text="Nothing needs attention right now." />
+          <BrokenSquareEmpty title="All squared up" state="closed" className="py-8">
+            Nothing needs attention right now.
+          </BrokenSquareEmpty>
         ) : (
           <div className="space-y-2">
             {attentionRows.slice(0, 8).map((row) => (
@@ -186,7 +215,15 @@ export default function Dashboard() {
                 +{attentionRows.length - 8} more — see{" "}
                 <Link to="/jobs/action-items" className="text-primary hover:underline">
                   Action items
-                </Link>{" "}
+                </Link>
+                {unassignedReceipts.length > 0 ? (
+                  <>
+                    ,{" "}
+                    <Link to="/receipts" className="text-primary hover:underline">
+                      Receipts
+                    </Link>
+                  </>
+                ) : null}{" "}
                 or{" "}
                 <Link to="/jobs/outstanding" className="text-primary hover:underline">
                   Invoices
@@ -224,7 +261,16 @@ export default function Dashboard() {
           <SummaryLink
             to="/jobs"
             label="By status"
-            value={loading ? "…" : String(statusCounts.Estimate + statusCounts.Scheduled + statusCounts["In Progress"] + statusCounts["Waiting on Materials"])}
+            value={
+              loading
+                ? "…"
+                : String(
+                    statusCounts.Estimate +
+                      statusCounts.Scheduled +
+                      statusCounts["In Progress"] +
+                      statusCounts["Waiting on Materials"]
+                  )
+            }
             hint={
               loading
                 ? undefined
@@ -238,6 +284,9 @@ export default function Dashboard() {
           </Link>
           <Link to="/jobs/action-items" className="hover:text-primary hover:underline">
             Action items →
+          </Link>
+          <Link to="/receipts" className="hover:text-primary hover:underline">
+            Receipts{!loading && unassignedReceipts.length > 0 ? ` (${unassignedReceipts.length})` : ""} →
           </Link>
           <Link to="/jobs/board" className="hover:text-primary hover:underline">
             Board →
@@ -301,9 +350,11 @@ function AttentionRow({ row }) {
   const toneClass =
     row.tone === "payment"
       ? "border-attention-payment-border bg-attention-payment-muted/30"
-      : row.tone === "schedule"
-        ? "border-border bg-card"
-        : "border-attention-border bg-attention-muted/20";
+      : row.tone === "receipt"
+        ? "border-attention-border bg-attention-muted/25"
+        : row.tone === "schedule"
+          ? "border-border bg-card"
+          : "border-attention-border bg-attention-muted/20";
   return (
     <Link
       to={row.to}
@@ -324,6 +375,8 @@ function AttentionRow({ row }) {
           <Calendar className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
         ) : row.tone === "payment" ? (
           <AlertTriangle className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
+        ) : row.tone === "receipt" ? (
+          <Inbox className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
         ) : (
           <Icon className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
         )}
@@ -338,6 +391,12 @@ function AttentionRow({ row }) {
         >
           {row.detail}
         </div>
+        {row.cta ? (
+          <div className="text-xs font-semibold text-primary mt-1 inline-flex items-center gap-1">
+            {row.cta}
+            <BrokenSquareMark state="open" size={11} tone="brand" className="opacity-80" />
+          </div>
+        ) : null}
       </div>
       {row.status ? <StatusBadge status={row.status} className="shrink-0" /> : null}
     </Link>
@@ -437,7 +496,12 @@ function ActivityRow({ entry, job }) {
 }
 
 function Loading() {
-  return <div className="text-muted-foreground text-sm py-6">Loading…</div>;
+  return (
+    <div className="text-muted-foreground text-sm py-6 flex items-center gap-2">
+      <BrokenSquareMark state="open" size={14} tone="muted" className="opacity-50 animate-pulse" />
+      Loading…
+    </div>
+  );
 }
 function Empty({ text }) {
   return <div className="text-muted-foreground text-sm py-6">{text}</div>;

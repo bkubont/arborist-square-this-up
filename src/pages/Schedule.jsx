@@ -1,16 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, List } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Clock, List, Sun } from "lucide-react";
 import { api } from "@/api/client";
+import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMark";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { shortDate } from "@/lib/format";
-import { NAV_ICONS } from "@/lib/navIcons";
-import { statusCardClass } from "@/lib/statusColors";
+import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
-
-const ScheduleIcon = NAV_ICONS.schedule;
 
 function dayKey(date) {
   const y = date.getFullYear();
@@ -19,21 +17,71 @@ function dayKey(date) {
   return `${y}-${m}-${d}`;
 }
 
-function startOfWeek(offset = 0) {
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  today.setDate(today.getDate() - today.getDay() + offset * 7);
-  return today;
+function parseDay(key) {
+  const [y, m, d] = String(key).split("-").map(Number);
+  const date = new Date(y, m - 1, d, 12, 0, 0, 0);
+  return date;
+}
+
+function startOfWeek(fromDate) {
+  const date = new Date(fromDate);
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() - date.getDay());
+  return date;
+}
+
+function addDays(date, n) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + n);
+  return next;
 }
 
 /**
- * Schedule — week grid + agenda list from job start_date (no separate calendar backend).
+ * Compact job chip — status edge + title/client + jump affordance.
+ */
+function JobChip({ job, dense = false }) {
+  const colors = statusColors(job.status);
+  return (
+    <Link
+      to={`/jobs/${job.id}`}
+      className={cn(
+        "group flex items-start gap-2 rounded-lg border border-border bg-card hover:border-primary/40 transition-colors",
+        statusCardClass(job.status),
+        dense ? "p-2" : "p-3"
+      )}
+    >
+      <span className={cn("mt-1.5 w-1.5 h-1.5 rounded-full shrink-0", colors.swatch)} aria-hidden="true" />
+      <div className="flex-1 min-w-0">
+        <div className={cn("font-semibold text-foreground truncate", dense ? "text-xs" : "text-sm")}>
+          {job.title || "Untitled job"}
+        </div>
+        <div className={cn("text-muted-foreground truncate", dense ? "text-[10px]" : "text-xs")}>
+          {job.client_name || "—"}
+        </div>
+        {!dense ? (
+          <div className="mt-1.5 flex items-center gap-2">
+            <StatusBadge status={job.status} />
+            <span className="text-[11px] font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-0.5">
+              Open job <ArrowRight className="w-3 h-3" />
+            </span>
+          </div>
+        ) : null}
+      </div>
+      {dense ? (
+        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5 group-hover:text-primary" aria-hidden="true" />
+      ) : null}
+    </Link>
+  );
+}
+
+/**
+ * Schedule — day / week / agenda from job start_date (no separate calendar backend).
  */
 export default function Schedule() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [view, setView] = useState("week"); // week | agenda
+  const [view, setView] = useState("week"); // day | week | agenda
+  const [focusKey, setFocusKey] = useState(() => dayKey(new Date()));
 
   useEffect(() => {
     api.entities.Job.list("-updated_date", 400)
@@ -41,14 +89,12 @@ export default function Schedule() {
       .finally(() => setLoading(false));
   }, []);
 
-  const days = useMemo(() => {
-    const start = startOfWeek(weekOffset);
-    return Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(start);
-      date.setDate(start.getDate() + index);
-      return date;
-    });
-  }, [weekOffset]);
+  const focusDate = useMemo(() => parseDay(focusKey), [focusKey]);
+
+  const weekDays = useMemo(() => {
+    const start = startOfWeek(focusDate);
+    return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  }, [focusDate]);
 
   const jobsByDay = useMemo(
     () =>
@@ -69,152 +115,264 @@ export default function Schedule() {
   );
 
   const todayKey = dayKey(new Date());
-  const weekLabel = days.length
-    ? `${shortDate(dayKey(days[0]))} – ${shortDate(dayKey(days[6]))}`
+  const dayJobs = jobsByDay[focusKey] || [];
+  const weekLabel = weekDays.length
+    ? `${shortDate(dayKey(weekDays[0]))} – ${shortDate(dayKey(weekDays[6]))}`
     : "";
+
+  const dayLabel = focusDate.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+
+  const description = loading
+    ? "Jobs by start date"
+    : view === "day"
+      ? `${dayJobs.length} job${dayJobs.length === 1 ? "" : "s"} · ${dayLabel}`
+      : `${scheduled.length} dated job${scheduled.length === 1 ? "" : "s"} · ${weekLabel}`;
+
+  function goToday() {
+    setFocusKey(todayKey);
+  }
+
+  function shiftFocus(days) {
+    setFocusKey(dayKey(addDays(focusDate, days)));
+  }
+
+  function openDay(key) {
+    setFocusKey(key);
+    setView("day");
+  }
+
+  const viewToggle = (
+    <div className="flex items-center gap-1">
+      {[
+        { id: "day", label: "Day", Icon: Sun },
+        { id: "week", label: "Week", Icon: CalendarDays },
+        { id: "agenda", label: "Agenda", Icon: List },
+      ].map(({ id, label, Icon }) => (
+        <Button
+          key={id}
+          type="button"
+          variant={view === id ? "default" : "outline"}
+          size="sm"
+          className={view === id ? "bg-primary text-primary-foreground" : undefined}
+          onClick={() => setView(id)}
+        >
+          <Icon className="w-4 h-4 mr-1" /> {label}
+        </Button>
+      ))}
+    </div>
+  );
+
+  const navControls =
+    view === "agenda" ? null : (
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={view === "day" ? "Previous day" : "Previous week"}
+          onClick={() => shiftFocus(view === "day" ? -1 : -7)}
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={goToday}>
+          Today
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={view === "day" ? "Next day" : "Next week"}
+          onClick={() => shiftFocus(view === "day" ? 1 : 7)}
+        >
+          <ChevronRight className="w-5 h-5" />
+        </Button>
+      </div>
+    );
 
   return (
     <div className="p-4 lg:p-8 max-w-5xl mx-auto">
-      <PageHeader
-        title="Schedule"
-        description={
-          loading
-            ? "Jobs by start date"
-            : `${scheduled.length} dated job${scheduled.length === 1 ? "" : "s"} · ${weekLabel}`
-        }
-        primaryAction={
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant={view === "week" ? "default" : "outline"}
-              size="sm"
-              className={view === "week" ? "bg-primary text-primary-foreground" : undefined}
-              onClick={() => setView("week")}
-            >
-              <CalendarDays className="w-4 h-4 mr-1" /> Week
-            </Button>
-            <Button
-              type="button"
-              variant={view === "agenda" ? "default" : "outline"}
-              size="sm"
-              className={view === "agenda" ? "bg-primary text-primary-foreground" : undefined}
-              onClick={() => setView("agenda")}
-            >
-              <List className="w-4 h-4 mr-1" /> Agenda
-            </Button>
-          </div>
-        }
-        secondary={
-          view === "week" ? (
-            <div className="flex items-center gap-1">
-              <Button type="button" variant="ghost" size="icon" aria-label="Previous week" onClick={() => setWeekOffset((v) => v - 1)}>
-                <ChevronLeft className="w-5 h-5" />
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setWeekOffset(0)}>
-                Today
-              </Button>
-              <Button type="button" variant="ghost" size="icon" aria-label="Next week" onClick={() => setWeekOffset((v) => v + 1)}>
-                <ChevronRight className="w-5 h-5" />
-              </Button>
-            </div>
-          ) : null
-        }
-      />
+      <PageHeader title="Schedule" description={description} primaryAction={viewToggle} secondary={navControls} />
 
       {loading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-muted-foreground flex items-center gap-2">
+          <BrokenSquareMark state="open" size={16} tone="muted" className="opacity-60 animate-pulse" />
+          Loading…
+        </p>
+      ) : view === "day" ? (
+        <DayView
+          focusKey={focusKey}
+          todayKey={todayKey}
+          dayLabel={dayLabel}
+          dayJobs={dayJobs}
+          onBackToWeek={() => setView("week")}
+        />
       ) : view === "week" ? (
-        <div className="grid gap-3 md:grid-cols-7">
-          {days.map((date) => {
-            const key = dayKey(date);
-            const dayJobs = jobsByDay[key] || [];
-            const isToday = key === todayKey;
-            return (
-              <section
-                key={key}
-                className={cn(
-                  "min-h-40 rounded-xl border p-3",
-                  isToday ? "border-primary/50 bg-primary/5" : "border-border bg-card"
-                )}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase text-muted-foreground">
-                      {date.toLocaleDateString(undefined, { weekday: "short" })}
-                    </div>
-                    <div className={cn("text-lg font-bold", isToday ? "text-primary" : "text-foreground")}>
-                      {date.getDate()}
-                    </div>
-                  </div>
-                  {dayJobs.length > 0 ? <span className="text-xs text-muted-foreground">{dayJobs.length}</span> : null}
-                </div>
-                <div className="space-y-2">
-                  {dayJobs.map((job) => (
-                    <Link
-                      key={job.id}
-                      to={`/jobs/${job.id}`}
-                      className={cn(
-                        "block rounded-lg border border-border p-2 hover:border-primary/40 transition-colors",
-                        statusCardClass(job.status)
-                      )}
-                    >
-                      <div className="text-sm font-semibold text-foreground truncate">{job.title}</div>
-                      <div className="text-xs text-muted-foreground truncate">{job.client_name || "—"}</div>
-                      <div className="mt-1">
-                        <StatusBadge status={job.status} />
-                      </div>
-                    </Link>
-                  ))}
-                  {!dayJobs.length ? <div className="text-xs text-muted-foreground/60">Open</div> : null}
-                </div>
-              </section>
-            );
-          })}
+        <WeekView
+          days={weekDays}
+          jobsByDay={jobsByDay}
+          todayKey={todayKey}
+          focusKey={focusKey}
+          onOpenDay={openDay}
+          empty={scheduled.length === 0}
+        />
+      ) : (
+        <AgendaView scheduled={scheduled} />
+      )}
+    </div>
+  );
+}
+
+function DayView({ focusKey, todayKey, dayLabel, dayJobs, onBackToWeek }) {
+  const isToday = focusKey === todayKey;
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {isToday ? "Today" : shortDate(focusKey)}
+          </div>
+          <h2 className={cn("text-xl font-bold", isToday ? "text-primary" : "text-foreground")}>{dayLabel}</h2>
         </div>
+        <Button type="button" variant="ghost" size="sm" onClick={onBackToWeek}>
+          Week view
+        </Button>
+      </div>
+
+      {dayJobs.length === 0 ? (
+        <BrokenSquareEmpty title="Nothing on this day" state="open">
+          <p>
+            No jobs with a start date of {shortDate(focusKey)}. Set a start date on a job, or pick another day from
+            Week.
+          </p>
+        </BrokenSquareEmpty>
       ) : (
         <div className="space-y-2">
-          {scheduled.length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground border border-dashed border-border rounded-xl">
-              <ScheduleIcon className="w-12 h-12 mx-auto mb-3 opacity-40" strokeWidth={1.5} />
-              <p className="font-medium text-foreground mb-1">No dated jobs yet</p>
-              <p className="text-sm max-w-sm mx-auto">
-                Set a start date on a job to see it here. Open any job and edit its schedule fields.
-              </p>
-            </div>
-          ) : (
-            scheduled.map((job) => (
-              <Link
-                key={job.id}
-                to={`/jobs/${job.id}`}
-                className={cn(
-                  "flex items-center gap-3 rounded-xl border p-4 hover:border-primary/40 transition-colors",
-                  statusCardClass(job.status)
-                )}
-              >
-                <div className="shrink-0 w-16 text-center">
-                  <div className="text-xs uppercase text-muted-foreground">{shortDate(job.start_date)}</div>
-                  {job.end_date ? <div className="text-[10px] text-muted-foreground">→ {shortDate(job.end_date)}</div> : null}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-foreground truncate">{job.title}</div>
-                  <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
-                    <Clock className="w-3 h-3 shrink-0" />
-                    {job.client_name || "—"}
-                  </div>
-                </div>
-                <StatusBadge status={job.status} />
-              </Link>
-            ))
-          )}
+          {dayJobs.map((job) => (
+            <JobChip key={job.id} job={job} />
+          ))}
         </div>
       )}
+    </div>
+  );
+}
 
-      {!loading && view === "week" && scheduled.length === 0 ? (
-        <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
-          <CalendarDays className="w-4 h-4" />
-          Schedule jobs from their detail page — set a start date.
+function WeekView({ days, jobsByDay, todayKey, focusKey, onOpenDay, empty }) {
+  return (
+    <>
+      <div className="grid gap-3 md:grid-cols-7">
+        {days.map((date) => {
+          const key = dayKey(date);
+          const dayJobs = jobsByDay[key] || [];
+          const isToday = key === todayKey;
+          const isFocus = key === focusKey;
+          return (
+            <section
+              key={key}
+              className={cn(
+                "min-h-40 rounded-xl border p-3 flex flex-col",
+                isToday ? "border-primary/50 bg-primary/5" : "border-border bg-card",
+                isFocus && !isToday ? "ring-1 ring-brand/30" : null
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => onOpenDay(key)}
+                className="flex items-center justify-between mb-3 text-left w-full rounded-md hover:bg-muted/40 -mx-1 px-1 py-0.5 transition-colors"
+                aria-label={`Open ${date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}`}
+              >
+                <div>
+                  <div className="text-xs font-semibold uppercase text-muted-foreground">
+                    {date.toLocaleDateString(undefined, { weekday: "short" })}
+                  </div>
+                  <div className={cn("text-lg font-bold", isToday ? "text-primary" : "text-foreground")}>
+                    {date.getDate()}
+                  </div>
+                </div>
+                {dayJobs.length > 0 ? (
+                  <span className="text-xs font-medium text-muted-foreground tabular-nums">{dayJobs.length}</span>
+                ) : (
+                  <BrokenSquareMark state="open" size={12} tone="muted" className="opacity-30" />
+                )}
+              </button>
+              <div className="space-y-1.5 flex-1">
+                {dayJobs.map((job) => (
+                  <JobChip key={job.id} job={job} dense />
+                ))}
+                {!dayJobs.length ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenDay(key)}
+                    className="w-full text-left text-[11px] text-muted-foreground/70 hover:text-primary py-1"
+                  >
+                    Open day
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      {empty ? (
+        <div className="mt-6">
+          <BrokenSquareEmpty
+            title="No dated jobs yet"
+            state="open"
+            action={
+              <Link to="/jobs" className="text-sm font-medium text-primary hover:underline">
+                Browse jobs →
+              </Link>
+            }
+          >
+            Set a start date on a job to see it on the schedule. Open any job and edit its schedule fields.
+          </BrokenSquareEmpty>
         </div>
       ) : null}
+    </>
+  );
+}
+
+function AgendaView({ scheduled }) {
+  if (scheduled.length === 0) {
+    return (
+      <BrokenSquareEmpty title="No dated jobs yet" state="open">
+        Set a start date on a job to see it here. Open any job and edit its schedule fields.
+      </BrokenSquareEmpty>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {scheduled.map((job) => (
+        <Link
+          key={job.id}
+          to={`/jobs/${job.id}`}
+          className={cn(
+            "group flex items-center gap-3 rounded-xl border p-4 hover:border-primary/40 transition-colors",
+            statusCardClass(job.status)
+          )}
+        >
+          <div className="shrink-0 w-16 text-center">
+            <div className="text-xs uppercase text-muted-foreground">{shortDate(job.start_date)}</div>
+            {job.end_date ? <div className="text-[10px] text-muted-foreground">→ {shortDate(job.end_date)}</div> : null}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-foreground truncate">{job.title}</div>
+            <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
+              <Clock className="w-3 h-3 shrink-0" />
+              {job.client_name || "—"}
+            </div>
+          </div>
+          <StatusBadge status={job.status} />
+          <span className="text-[11px] font-medium text-primary hidden sm:inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            Open <ArrowRight className="w-3 h-3" />
+          </span>
+        </Link>
+      ))}
     </div>
   );
 }

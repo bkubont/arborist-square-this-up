@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS } from "@/lib/navConfig";
 import AppTopBar from "@/components/AppTopBar";
+import BrokenSquareMark from "@/components/BrokenSquareMark";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -30,7 +31,15 @@ export default function AppLayout() {
       >
         <Icon className="w-4 h-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
         <span className="truncate">{item.label}</span>
-        {item.placeholder && !active ? (
+        {active ? (
+          <BrokenSquareMark
+            state="closed"
+            size={12}
+            tone="gold"
+            className="ml-auto opacity-90"
+            title="Current page"
+          />
+        ) : item.placeholder ? (
           <span className="ml-auto text-[10px] uppercase tracking-wide text-sidebar-muted">Soon</span>
         ) : null}
       </Link>
