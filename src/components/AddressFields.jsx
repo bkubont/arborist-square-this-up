@@ -40,7 +40,23 @@ function loadGoogleMaps(key) {
  */
 export default function AddressFields({ value, onChange, idPrefix = "client" }) {
   const form = value || {};
-  const set = (patch) => onChange?.({ ...form, ...patch });
+  const formRef = useRef(form);
+  const onChangeRef = useRef(onChange);
+  formRef.current = form;
+  onChangeRef.current = onChange;
+
+  const applyParsed = (parsed) => {
+    const current = formRef.current || {};
+    onChangeRef.current?.({
+      ...current,
+      address: parsed.address || current.address || "",
+      address_line2: parsed.address_line2 || current.address_line2 || "",
+      city: parsed.city || current.city || "",
+      state: parsed.state || current.state || "",
+      zip: parsed.zip || current.zip || "",
+    });
+  };
+
   const streetRef = useRef(null);
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -61,23 +77,21 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
         return;
       }
       googleReady.current = true;
-      setHint("Start typing — pick a suggestion to fill street, city, state, and ZIP.");
+      setHint("Start typing — pick a street address to fill city, state, and ZIP.");
       autocomplete = new google.maps.places.Autocomplete(streetRef.current, {
-        fields: ["address_components", "formatted_address"],
+        fields: ["address_components", "formatted_address", "name"],
         types: ["address"],
         componentRestrictions: { country: ["us"] },
       });
       listener = autocomplete.addListener("place_changed", () => {
         const place = autocomplete.getPlace();
         if (!place?.address_components) return;
-        const parsed = parseGoogleAddressComponents(place.address_components);
-        set({
-          address: parsed.address || form.address,
-          address_line2: parsed.address_line2 || form.address_line2 || "",
-          city: parsed.city || form.city,
-          state: parsed.state || form.state,
-          zip: parsed.zip || form.zip,
+        const parsed = parseGoogleAddressComponents(place.address_components, {
+          formattedAddress: place.formatted_address || place.name,
         });
+        // Require a street line so locality-only picks do not wipe Address with the city.
+        if (!parsed.address) return;
+        applyParsed(parsed);
         setSuggestions([]);
         setOpen(false);
       });
@@ -89,7 +103,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
         g.maps.event.removeListener(listener);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- attach once when key present
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- attach once when key present; form via refs
   }, []);
 
   useEffect(() => {
@@ -124,13 +138,8 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
 
   const pickSuggestion = (item) => {
     const parsed = item.parsed || parsePhotonFeature(item);
-    set({
-      address: parsed.address || form.address,
-      address_line2: parsed.address_line2 || "",
-      city: parsed.city || form.city,
-      state: parsed.state || form.state,
-      zip: parsed.zip || form.zip,
-    });
+    if (!parsed.address) return;
+    applyParsed(parsed);
     setSuggestions([]);
     setOpen(false);
   };
@@ -145,7 +154,8 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
           autoComplete={GOOGLE_KEY ? "off" : "address-line1"}
           value={form.address || ""}
           onChange={(e) => {
-            set({ address: e.target.value });
+            const next = e.target.value;
+            onChangeRef.current?.({ ...(formRef.current || {}), address: next });
             if (!(GOOGLE_KEY && googleReady.current)) setOpen(true);
           }}
           onFocus={() => { if (suggestions.length) setOpen(true); }}
@@ -175,7 +185,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
           id={`${idPrefix}-address-line2`}
           autoComplete="address-line2"
           value={form.address_line2 || ""}
-          onChange={(e) => set({ address_line2: e.target.value })}
+          onChange={(e) => onChangeRef.current?.({ ...(formRef.current || {}), address_line2: e.target.value })}
           placeholder="Apt / suite"
         />
       </div>
@@ -186,7 +196,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
             id={`${idPrefix}-city`}
             autoComplete="address-level2"
             value={form.city || ""}
-            onChange={(e) => set({ city: e.target.value })}
+            onChange={(e) => onChangeRef.current?.({ ...(formRef.current || {}), city: e.target.value })}
             placeholder="Springfield"
           />
         </div>
@@ -196,7 +206,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
             id={`${idPrefix}-state`}
             autoComplete="address-level1"
             value={form.state || ""}
-            onChange={(e) => set({ state: e.target.value })}
+            onChange={(e) => onChangeRef.current?.({ ...(formRef.current || {}), state: e.target.value })}
             placeholder="IL"
             className={cn("uppercase")}
           />
@@ -207,7 +217,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
             id={`${idPrefix}-zip`}
             autoComplete="postal-code"
             value={form.zip || ""}
-            onChange={(e) => set({ zip: e.target.value })}
+            onChange={(e) => onChangeRef.current?.({ ...(formRef.current || {}), zip: e.target.value })}
             placeholder="62701"
           />
         </div>

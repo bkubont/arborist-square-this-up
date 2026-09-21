@@ -71,7 +71,7 @@ Dictation uses browser SpeechRecognition where supported, with editable text bef
 
 ## Address autocomplete
 
-Add/Edit Client can suggest addresses while typing. Set `VITE_GOOGLE_PLACES_API_KEY` (browser Places key, restrict by HTTP referrer) for Google Places. When unset, the API uses free Photon/OSM suggestions at `/api/address-suggest`, and fields remain fully editable manually. Street, city, state, and ZIP are required; address line 2 (apt/suite) is not.
+Add/Edit Client can suggest addresses while typing. Set `VITE_GOOGLE_PLACES_API_KEY` (browser Places key, restrict by HTTP referrer) for Google Places (`types: address`). When unset, the API uses free Photon/OSM suggestions at `/api/address-suggest`, filtered to house/street results (US) so city/locality hits do not overwrite the street field. Selecting a suggestion fills street, city, state, and ZIP; fields remain fully editable manually. Street, city, state, and ZIP are required; address line 2 (apt/suite) is not.
 
 ## Checks
 
