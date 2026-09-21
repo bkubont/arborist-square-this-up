@@ -6,11 +6,10 @@ import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMa
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate, timeAgo } from "@/lib/format";
+import { buildAttentionItems } from "@/lib/attentionItems";
 import {
   ACTIVE_STATUSES,
-  collectActionItems,
   countByStatus,
-  invoiceBalanceDue,
   jobBalance,
   moneySummary,
   paymentsByJobId,
@@ -88,73 +87,24 @@ export default function Dashboard() {
     () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
     [jobs, estimates, changeOrders, invoices, timeline]
   );
-  const actionItems = useMemo(
-    () => collectActionItems(jobs, estimates, changeOrders),
-    [jobs, estimates, changeOrders]
-  );
-
   const unassignedReceipts = useMemo(
     () => expenses.filter((e) => e.photo_url && !e.job_id),
     [expenses]
   );
 
-  const attentionRows = useMemo(() => {
-    const rows = [];
-
-    if (unassignedReceipts.length > 0) {
-      const sample = unassignedReceipts[0];
-      const amountHint = sample.amount != null ? ` · latest ${money(sample.amount)}` : "";
-      rows.push({
-        id: "receipts-inbox",
-        to: "/receipts",
-        title:
-          unassignedReceipts.length === 1
-            ? "1 receipt needs a job"
-            : `${unassignedReceipts.length} receipts need a job`,
-        detail: `Unassigned in Receipts inbox${amountHint}`,
-        cta: "Open Receipts",
-        status: null,
-        tone: "receipt",
-      });
-    }
-
-    for (const { job, reasons } of actionItems) {
-      rows.push({
-        id: `action-${job.id}`,
-        to: `/jobs/${job.id}`,
-        title: job.title || "Untitled job",
-        detail: reasons.join(" · "),
-        status: job.status,
-        tone: "attention",
-      });
-    }
-    for (const inv of invoices.filter((i) => i.status === "sent" || i.status === "partial")) {
-      const due = invoiceBalanceDue(inv);
-      if (due <= 0) continue;
-      const job = jobs.find((j) => j.id === inv.job_id);
-      rows.push({
-        id: `inv-${inv.id}`,
-        to: inv.job_id ? `/jobs/${inv.job_id}` : "/jobs/outstanding",
-        title: job?.title || inv.number || "Invoice",
-        detail: `${money(due)} waiting on payment`,
-        status: inv.status,
-        tone: "payment",
-      });
-    }
-    for (const job of jobs.filter((j) => j.start_date === today || j.start_date === tomorrow)) {
-      if (rows.some((r) => r.id === `action-${job.id}` || r.id === `sched-${job.id}`)) continue;
-      const when = job.start_date === today ? "Scheduled today" : "Scheduled tomorrow";
-      rows.push({
-        id: `sched-${job.id}`,
-        to: `/jobs/${job.id}`,
-        title: job.title || "Untitled job",
-        detail: when,
-        status: job.status,
-        tone: "schedule",
-      });
-    }
-    return rows;
-  }, [actionItems, invoices, jobs, today, tomorrow, unassignedReceipts]);
+  const attentionRows = useMemo(
+    () =>
+      buildAttentionItems({
+        jobs,
+        estimates,
+        changeOrders,
+        invoices,
+        expenses,
+        today,
+        tomorrow,
+      }),
+    [jobs, estimates, changeOrders, invoices, expenses, today, tomorrow]
+  );
 
   const recentActivity = useMemo(() => {
     const jobById = Object.fromEntries(jobs.map((j) => [j.id, j]));

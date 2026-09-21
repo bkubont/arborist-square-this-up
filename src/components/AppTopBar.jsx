@@ -1,9 +1,11 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Bell, CircleHelp, LogOut, Menu, User } from "lucide-react";
+import { LogOut, Menu, User } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { BRAND_ASSETS, PRODUCT_NAME } from "@/lib/brand";
 import GlobalSearch from "@/components/GlobalSearch";
+import HelpPanel from "@/components/HelpPanel";
+import NotificationsMenu from "@/components/NotificationsMenu";
 import QuickAddMenu from "@/components/QuickAddMenu";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,29 +64,9 @@ export default function AppTopBar({ onOpenSidebar, className }) {
 
         <QuickAddMenu />
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          aria-label="Notifications"
-          title="Notifications — coming soon"
-          disabled
-        >
-          <Bell className="w-4 h-4" strokeWidth={1.75} />
-        </Button>
+        <NotificationsMenu />
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          aria-label="Help"
-          title="Help — coming soon"
-          disabled
-        >
-          <CircleHelp className="w-4 h-4" strokeWidth={1.75} />
-        </Button>
+        <HelpPanel />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
