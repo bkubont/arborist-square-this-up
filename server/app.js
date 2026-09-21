@@ -533,20 +533,27 @@ export async function createApp(db, env = process.env) {
     await ownedTransaction(req.user.id, async tx => {
       const record = await getRecord(tx, req.user.id, req.params.entity, req.params.id);
       const removedEntries = req.params.entity === 'Job'
-        ? (await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', record.id])).map(row => JSON.parse(row.data))
-        : req.params.entity === 'TimelineEntry' ? [record] : [];
+        ? [
+          ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', record.id])).map(row => JSON.parse(row.data)),
+          ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Expense', record.id])).map(row => JSON.parse(row.data)),
+        ]
+        : (req.params.entity === 'TimelineEntry' || req.params.entity === 'Expense') ? [record] : [];
       if (req.params.entity === 'Client' && (await tx.all('SELECT id FROM records WHERE owner_id = ? AND parent_id = ?', [req.user.id, record.id])).length)
         throw fail(409, 'Delete this client’s jobs first');
       if (req.params.entity === 'Job') {
-        for (const child of ['TimelineEntry', ...JOB_DOCUMENT_ENTITIES]) {
+        for (const child of ['TimelineEntry', 'Expense', ...JOB_DOCUMENT_ENTITIES]) {
           await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, child, record.id]);
         }
         await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);
       }
       await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
-      // Remove files no longer referenced by remaining timeline entries.
+      // Remove files no longer referenced by remaining timeline entries or expenses.
       const entries = await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [req.user.id, 'TimelineEntry']);
-      const references = new Set(entries.map(row => JSON.parse(row.data).photo_url));
+      const expenses = await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [req.user.id, 'Expense']);
+      const references = new Set([
+        ...entries.map(row => JSON.parse(row.data).photo_url),
+        ...expenses.map(row => JSON.parse(row.data).photo_url),
+      ]);
       for (const entry of removedEntries) if (entry.photo_url && !references.has(entry.photo_url))
         await tx.run('DELETE FROM files WHERE id = ? AND owner_id = ?', [entry.photo_url.split('/').pop(), req.user.id]);
     });

@@ -49,6 +49,7 @@ export const api = {
     WorkOrder: entity('WorkOrder'),
     ChangeOrder: entity('ChangeOrder'),
     Invoice: entity('Invoice'),
+    Expense: entity('Expense'),
   },
   catalog: {
     search(filters = {}) {
