@@ -76,6 +76,10 @@ export function emptyEstimateLine() {
 export function serializeEstimateLine(line) {
   const num = (v) => (v === "" || v == null ? undefined : Number(v));
   return {
+    // Round-tripped, not editable here yet (stage 3 checklist UI) — must not be dropped on save,
+    // or a signed line's id/steps would silently vanish the next time this estimate is saved.
+    id: line.id || undefined,
+    steps: line.steps || undefined,
     description: line.description || "",
     material_amount: num(line.material_amount),
     labor_amount: num(line.labor_amount),

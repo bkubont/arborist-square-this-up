@@ -14,6 +14,16 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** A signed line's dollar value — what "Bill completed work" snapshots onto its WorkItem. */
+export function estimateLineAmount(line = {}) {
+  return round2((num(line.material_amount) || 0) + (num(line.labor_amount) || 0) + (num(line.equipment_amount) || 0));
+}
+
+/** @see estimateLineAmount */
+export function changeOrderLineAmount(line = {}) {
+  return round2(num(line.amount) || 0);
+}
+
 /** Map one estimate line into zero or more WO lines (labor / material / equipment). */
 export function estimateLineToWorkOrderLines(line = {}) {
   const out = [];

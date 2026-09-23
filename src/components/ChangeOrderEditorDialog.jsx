@@ -8,10 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
-import StatusSelect from "@/components/StatusSelect";
-import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money, shortDate } from "@/lib/format";
 import { changeOrderNet } from "@/lib/documentMapping";
+import { isChangeOrderReadOnly } from "@/lib/documentAvailability";
 import { loadAccountTaxRate } from "@/lib/salesTax";
 
 /** Change Order editor + client e-sign (Phase 4). */
@@ -46,7 +45,7 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
       tax_rate: document.tax_rate ?? "",
     });
     setLines(Array.isArray(document.lines) && document.lines.length
-      ? document.lines.map((l) => ({ description: l.description || "", amount: l.amount ?? "" }))
+      ? document.lines.map((l) => ({ id: l.id, steps: l.steps, description: l.description || "", amount: l.amount ?? "" }))
       : [{ description: "", amount: "" }]);
     api.jobs.authorizedTotal(jobId).then(setAuthorized).catch(() => setAuthorized(null));
     if (document.tax_rate == null || document.tax_rate === "") {
@@ -70,15 +69,19 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
 
   if (!document) return null;
 
+  const readOnly = isChangeOrderReadOnly(document);
+
+  // Status only ever changes through a dedicated action (Send sign link, Void, Decline) —
+  // server/lifecycle.js rejects a status field in a plain edit, so this never sends one.
   const save = async () => {
+    if (readOnly) return;
     setSaving(true);
     try {
       const serializedLines = lines
-        .map((l) => ({ description: l.description || "", amount: l.amount === "" ? undefined : Number(l.amount) }))
+        .map((l) => ({ id: l.id || undefined, steps: l.steps || undefined, description: l.description || "", amount: l.amount === "" ? undefined : Number(l.amount) }))
         .filter((l) => l.description || l.amount != null);
       await api.entities.ChangeOrder.update(document.id, {
         number: form.number || undefined,
-        status: form.status,
         reason: form.reason,
         description: form.description,
         notes: form.notes,
@@ -98,11 +101,12 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
   };
 
   const sendSignLink = async () => {
+    if (readOnly) return;
     setSignBusy(true);
     setSignResult(null);
     try {
       const serializedLines = lines
-        .map((l) => ({ description: l.description || "", amount: l.amount === "" ? undefined : Number(l.amount) }))
+        .map((l) => ({ id: l.id || undefined, steps: l.steps || undefined, description: l.description || "", amount: l.amount === "" ? undefined : Number(l.amount) }))
         .filter((l) => l.description || l.amount != null);
       await api.entities.ChangeOrder.update(document.id, {
         number: form.number || undefined,
@@ -142,7 +146,8 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
             Approved by <strong>{document.signer_name || "client"}</strong>
             {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.
-            Fields stay editable. Snapshot net {money(document.accepted_snapshot?.net_change ?? document.net_change)} · revised {money(document.accepted_snapshot?.revised_contract_total ?? document.revised_contract_total)}.
+            This change order is <strong>print / view only</strong> — content cannot be edited.
+            Snapshot net {money(document.accepted_snapshot?.net_change ?? document.net_change)} · revised {money(document.accepted_snapshot?.revised_contract_total ?? document.revised_contract_total)}.
           </div>
         )}
 
@@ -157,44 +162,40 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
             <Label>Number</Label>
-            <Input value={form.number} onChange={(e) => setForm((f) => ({ ...f, number: e.target.value }))} />
+            <Input value={form.number} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, number: e.target.value }))} />
           </div>
           <div>
             <Label>Status</Label>
-            <StatusSelect
-              value={form.status}
-              onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
-              statuses={DOCUMENT_STATUSES.ChangeOrder}
-              entity="ChangeOrder"
-            />
+            {/* Status only changes via Send sign link / Void / Decline — never a direct edit. */}
+            <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
           </div>
         </div>
 
         <div>
           <Label>Reason</Label>
-          <Input value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
+          <Input value={form.reason} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
         </div>
         <div>
           <Label>Description of change</Label>
-          <Textarea rows={2} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+          <Textarea rows={2} value={form.description} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
             <Label>Added cost</Label>
-            <Input type="number" value={form.added_cost} onChange={(e) => setForm((f) => ({ ...f, added_cost: e.target.value, net_change: "" }))} />
+            <Input type="number" value={form.added_cost} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, added_cost: e.target.value, net_change: "" }))} />
           </div>
           <div>
             <Label>Credit</Label>
-            <Input type="number" value={form.credit} onChange={(e) => setForm((f) => ({ ...f, credit: e.target.value, net_change: "" }))} />
+            <Input type="number" value={form.credit} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, credit: e.target.value, net_change: "" }))} />
           </div>
           <div>
             <Label>Net change</Label>
-            <Input type="number" value={form.net_change === "" ? computedNet : form.net_change} onChange={(e) => setForm((f) => ({ ...f, net_change: e.target.value }))} />
+            <Input type="number" value={form.net_change === "" ? computedNet : form.net_change} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, net_change: e.target.value }))} />
           </div>
           <div>
             <Label>Added days</Label>
-            <Input type="number" value={form.added_days} onChange={(e) => setForm((f) => ({ ...f, added_days: e.target.value }))} />
+            <Input type="number" value={form.added_days} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, added_days: e.target.value }))} />
           </div>
         </div>
 
@@ -204,6 +205,8 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
             <Input
               type="number"
               value={form.tax_rate}
+              readOnly={readOnly}
+              className={readOnly ? "bg-slate-50" : undefined}
               onChange={(e) => setForm((f) => ({ ...f, tax_rate: e.target.value }))}
               placeholder="Account default"
             />
@@ -223,27 +226,38 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
           <div className="space-y-2">
             {lines.map((line, index) => (
               <div key={index} className="flex gap-2">
-                <Input className="flex-1" placeholder="Description" value={line.description} onChange={(e) => setLines((rows) => rows.map((r, i) => i === index ? { ...r, description: e.target.value } : r))} />
-                <Input className="w-28" type="number" placeholder="Amount" value={line.amount} onChange={(e) => setLines((rows) => rows.map((r, i) => i === index ? { ...r, amount: e.target.value } : r))} />
-                <Button type="button" variant="outline" size="icon" className="text-red-600" onClick={() => setLines((rows) => rows.length <= 1 ? [{ description: "", amount: "" }] : rows.filter((_, i) => i !== index))}>
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                {readOnly ? (
+                  <>
+                    <Input className="flex-1 bg-slate-50" value={line.description} readOnly />
+                    <Input className="w-28 bg-slate-50" value={line.amount} readOnly />
+                  </>
+                ) : (
+                  <>
+                    <Input className="flex-1" placeholder="Description" value={line.description} onChange={(e) => setLines((rows) => rows.map((r, i) => i === index ? { ...r, description: e.target.value } : r))} />
+                    <Input className="w-28" type="number" placeholder="Amount" value={line.amount} onChange={(e) => setLines((rows) => rows.map((r, i) => i === index ? { ...r, amount: e.target.value } : r))} />
+                    <Button type="button" variant="outline" size="icon" className="text-red-600" onClick={() => setLines((rows) => rows.length <= 1 ? [{ description: "", amount: "" }] : rows.filter((_, i) => i !== index))}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
               </div>
             ))}
           </div>
-          <div className="mt-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, { description: "", amount: "" }])}>
-              <Plus className="w-3.5 h-3.5 mr-1" /> Line
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className="mt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, { description: "", amount: "" }])}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Line
+              </Button>
+            </div>
+          )}
         </div>
 
         <div>
           <Label>Notes</Label>
-          <Textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+          <Textarea rows={2} value={form.notes} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
         </div>
 
-        {form.status !== "void" && form.status !== "rejected" && (
+        {!readOnly && form.status !== "void" && (
           <div className="rounded-lg border border-slate-200 p-3 space-y-2">
             <div className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
               <Send className="w-4 h-4" /> Send client sign link
@@ -283,7 +297,9 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
           />
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={save} disabled={saving || form.status === "void"}>{saving ? "Saving…" : "Save change order"}</Button>
+            {!readOnly && (
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save change order"}</Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>

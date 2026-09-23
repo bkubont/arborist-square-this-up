@@ -91,8 +91,14 @@ export function documentCreateAvailability(entity, documents = []) {
   return { available: true };
 }
 
-/** Accepted (non-void) estimate is print/view only — no content edits. */
+/** Signed, declined or void estimate is print/view only — no content edits (server/lifecycle.js). */
 export function isEstimateReadOnly(document) {
-  if (!document || document.status === "void") return document?.status === "void";
-  return document.status === "accepted" || !!document.accepted_snapshot;
+  if (!document) return false;
+  return ["accepted", "declined", "void"].includes(document.status) || !!document.accepted_snapshot;
+}
+
+/** Approved, rejected or void change order is print/view only — no content edits (server/lifecycle.js). */
+export function isChangeOrderReadOnly(document) {
+  if (!document) return false;
+  return ["approved", "rejected", "void"].includes(document.status) || !!document.accepted_snapshot;
 }

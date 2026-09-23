@@ -10,8 +10,17 @@ const rate = z.number().finite().min(0).max(100);
 const date = z.string().refine(v => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v))), 'Invalid date');
 const docNumber = z.string().max(100).optional();
 
+/** Internal task breakdown under a line — never sent to the customer (see sign.js's public line shape). */
+const lineStep = z.object({
+  id: z.string().max(64),
+  text,
+  done: z.boolean().default(false),
+});
+
 /** Nested line shapes (Decision #2). Totals are assistive; editors stay free. */
 const estimateLine = z.object({
+  /** Stable id, assigned server-side on first save (see saveRecord). Links a signed line to its WorkItem. */
+  id: z.string().max(64).optional(),
   description: text.default(''),
   material_amount: money.optional(),
   labor_amount: money.optional(),
@@ -23,6 +32,8 @@ const estimateLine = z.object({
   notes: text.optional(),
   tools: text.optional(),
   catalog_id: z.string().max(200).optional(),
+  /** Internal task breakdown; customer never sees this. */
+  steps: z.array(lineStep).max(200).optional(),
 });
 
 const workOrderLine = z.object({
@@ -55,8 +66,12 @@ const invoiceMiscLine = z.object({
 });
 
 const changeOrderLine = z.object({
+  /** Stable id, assigned server-side on first save (see saveRecord). Links a signed line to its WorkItem. */
+  id: z.string().max(64).optional(),
   description: text.default(''),
   amount: signedMoney.optional(),
+  /** Internal task breakdown; customer never sees this. */
+  steps: z.array(lineStep).max(200).optional(),
 });
 
 const signMeta = {
@@ -67,6 +82,10 @@ const signMeta = {
 
 /** Job-linked document entities (parent_id = job_id). */
 export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'WorkOrder', 'ChangeOrder', 'Invoice'];
+/** Estimate/ChangeOrder statuses that mean "the customer decided" or "withdrawn" — the document is frozen. */
+export const SCOPE_TERMINAL_STATUSES = { Estimate: ['accepted', 'declined', 'void'], ChangeOrder: ['approved', 'rejected', 'void'] };
+/** The one status each reaches only through a real customer signature (see server/sign.js). */
+export const SCOPE_SIGNED_STATUS = { Estimate: 'accepted', ChangeOrder: 'approved' };
 
 /** Every field that can hold an uploaded file's URL, across all entities. */
 export const FILE_URL_FIELDS = ['photo_url', 'signature_file_url', 'logo_url'];
@@ -98,7 +117,7 @@ export const schemas = {
     start_date: date.optional(), end_date: date.optional(), estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
-  TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided']),
+  TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided','document_declined']),
     text: text.optional(), photo_url: z.string().max(200).optional(),
     category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery']).default('note'),
     amount: money.optional(),
@@ -125,6 +144,27 @@ export const schemas = {
     note: text.optional(),
     /** Optional: apply to one invoice. Unassigned payments apply to the oldest open invoice. */
     invoice_id: id.optional(),
+  }),
+  /**
+   * One per signed Estimate/ChangeOrder line (source_type set), created at signing — the job's
+   * internal checklist. Also supports free-standing tasks the owner adds with no source.
+   */
+  WorkItem: z.object({
+    job_id: id,
+    source_type: z.enum(['Estimate', 'ChangeOrder']).optional(),
+    source_id: id.optional(),
+    line_id: z.string().max(64).optional(),
+    /** Snapshotted once at signing; the source line can never change after (Decision: signed = immutable). */
+    amount_cents: z.number().int().min(0).max(1e14).optional(),
+    description: text.default(''),
+    category: text.optional(),
+    tools: text.optional(),
+    notes: text.optional(),
+    steps: z.array(lineStep).max(200).optional(),
+    done: z.boolean().default(false),
+    done_at: z.string().max(40).optional(),
+    /** Set once billed via "Bill completed work", so it cannot be billed twice. */
+    billed_invoice_id: id.optional(),
   }),
   CompanyProfile: z.object({
     name: z.string().trim().max(250).default(''),
@@ -284,7 +324,7 @@ export function assertClientAddressComplete(data = {}) {
 
 function parentFor(entity, data) {
   if (entity === 'Job') return { parentId: data.client_id, parentEntity: 'Client' };
-  if (entity === 'TimelineEntry' || entity === 'Payment' || JOB_DOCUMENT_ENTITIES.includes(entity)) return { parentId: data.job_id, parentEntity: 'Job' };
+  if (entity === 'TimelineEntry' || entity === 'Payment' || entity === 'WorkItem' || JOB_DOCUMENT_ENTITIES.includes(entity)) return { parentId: data.job_id, parentEntity: 'Job' };
   if (entity === 'Expense' && data.job_id) return { parentId: data.job_id, parentEntity: 'Job' };
   return { parentId: null, parentEntity: null };
 }
@@ -299,6 +339,11 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   if (!schemas[entity]) throw fail(404, 'Unknown record type');
   const previous = recordId ? await getRecord(db, owner, entity, recordId) : {};
   const data = schemas[entity].parse({ ...previous, ...input });
+  // Every line gets a stable id the first time it's saved with none, so a signed line can be
+  // linked to its WorkItem later. Lines that already carry one (round-tripped by the editor) keep it.
+  if ((entity === 'Estimate' || entity === 'ChangeOrder') && Array.isArray(data.lines)) {
+    data.lines = data.lines.map(line => ({ ...line, id: line.id || randomUUID() }));
+  }
   if (entity === 'Client' && !opts.skipClientAddressCheck) {
     const touchingAddress = !recordId || CLIENT_ADDRESS_KEYS.some((key) => Object.prototype.hasOwnProperty.call(input || {}, key));
     if (touchingAddress) assertClientAddressComplete(data);

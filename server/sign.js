@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { fail, getRecord, saveRecord, decode } from './domain.js';
 import { hash, token, emailSchema } from './security.js';
-import { computeAuthorizedTotal, changeOrderNet } from './mapping.js';
+import { computeAuthorizedTotal, changeOrderNet, pickAcceptedEstimate, estimateLineAmount, changeOrderLineAmount } from './mapping.js';
+import { assertJobHasActiveEstimate } from './lifecycle.js';
+import { toCents } from '../shared/money.js';
 
 const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
@@ -103,13 +105,19 @@ export async function loadPublicSign(db, rawToken) {
   const link = await getSignLink(db, rawToken);
   const parties = await partyContext(db, link.owner_id, link.job_id);
   const record = await getRecord(db, link.owner_id, link.entity, link.record_id);
+  // `used` only means the token was consumed; that happens on a real signature, on void/decline, and
+  // when a live edit pulls a sent document back to draft (server/app.js) — a consumed link with no
+  // accepted_snapshot to show for it means the last of those, so treat it as withdrawn rather than
+  // silently serving whatever the document looks like now.
+  const withdrawn = !!link.used_at && !record.accepted_snapshot;
+  const unavailable = UNSIGNABLE_STATUSES.has(record.status) ? record.status : withdrawn ? 'withdrawn' : null;
 
   if (link.entity === 'Estimate') {
     return {
       link: {
         entity: link.entity, channel: link.channel, used: !!link.used_at,
         signed: record.status === 'accepted',
-        unavailable: UNSIGNABLE_STATUSES.has(record.status) ? record.status : null,
+        unavailable,
         expires_at: new Date(link.expires_at).toISOString(),
       },
       ...parties,
@@ -136,7 +144,7 @@ export async function loadPublicSign(db, rawToken) {
       link: {
         entity: link.entity, channel: link.channel, used: !!link.used_at,
         signed: record.status === 'approved',
-        unavailable: UNSIGNABLE_STATUSES.has(record.status) ? record.status : null,
+        unavailable,
         expires_at: new Date(link.expires_at).toISOString(),
       },
       ...parties,
@@ -169,9 +177,7 @@ export async function loadPublicEstimateSign(db, rawToken) {
 
 async function acceptedEstimateBaseline(tx, ownerId, jobId) {
   const rows = await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'Estimate', jobId]);
-  const estimates = rows.map(decode);
-  const accepted = estimates.find(e => e.status === 'accepted')
-    || estimates.find(e => e.status !== 'void' && e.accepted_snapshot);
+  const accepted = pickAcceptedEstimate(rows.map(decode));
   if (!accepted) return { estimate: null, baseline: 0 };
   const baseline = accepted.accepted_snapshot?.total ?? accepted.total ?? 0;
   return { estimate: accepted, baseline: Number(baseline) || 0 };
@@ -180,6 +186,31 @@ async function acceptedEstimateBaseline(tx, ownerId, jobId) {
 async function listJobChangeOrders(tx, ownerId, jobId) {
   const rows = await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'ChangeOrder', jobId]);
   return rows.map(decode);
+}
+
+/**
+ * One WorkItem per signed line that has a description — the job's internal task list (no UI reads
+ * this yet; stage 3). Blank rows (a line the estimator never filled in) are skipped.
+ */
+async function createWorkItemsForLines(tx, ownerId, { jobId, sourceType, sourceId, lines }) {
+  const lineAmount = sourceType === 'Estimate' ? estimateLineAmount : changeOrderLineAmount;
+  for (const line of lines || []) {
+    if (!line.id || !String(line.description || '').trim()) continue;
+    await saveRecord(tx, ownerId, 'WorkItem', {
+      job_id: jobId,
+      source_type: sourceType,
+      source_id: sourceId,
+      line_id: line.id,
+      // Snapshotted once, here: the source line can never change after signing (stage 2), so this
+      // stays correct forever and "Bill completed work" needs no join back to the source document.
+      amount_cents: Math.max(0, toCents(lineAmount(line))),
+      description: line.description,
+      category: line.category,
+      tools: line.tools,
+      notes: line.notes,
+      steps: line.steps || [],
+    });
+  }
 }
 
 export async function jobAuthorizedTotal(db, ownerId, jobId) {
@@ -197,9 +228,12 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
   const link = await getSignLink(db, rawToken);
   if (!SIGNABLE.has(link.entity)) throw fail(400, 'Unsupported sign document');
   if (link.used_at) {
-    // Voiding also consumes the link (below), so a stale link says why it's dead, not that it was signed.
+    // Voiding/declining and a withdrawing edit also consume the link (below), so a stale link says
+    // why it's dead rather than claiming it was signed.
     const record = await getRecord(db, link.owner_id, link.entity, link.record_id);
-    throw fail(400, UNSIGNABLE_STATUSES.has(record.status) ? 'This document is no longer available to sign' : 'This document was already signed');
+    throw fail(400, UNSIGNABLE_STATUSES.has(record.status) ? 'This document is no longer available to sign'
+      : record.accepted_snapshot ? 'This document was already signed'
+      : 'This document was withdrawn; ask for a new sign link');
   }
 
   const name = z.string().trim().min(1).max(200).parse(signerName);
@@ -216,9 +250,10 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
 
     const record = await getRecord(tx, link.owner_id, link.entity, link.record_id);
     if (UNSIGNABLE_STATUSES.has(record.status)) throw fail(400, 'This document is no longer available to sign');
-    if (fresh.used_at) throw fail(400, 'This document was already signed');
-    // Freeze on accepted_snapshot (not live status) — status stays editable after sign.
+    // Freeze on accepted_snapshot, not live status: it's the one field a sign can set that a
+    // withdrawing edit (server/app.js) never touches, so it cleanly distinguishes the two.
     if (record.accepted_snapshot) throw fail(400, 'This document was already signed');
+    if (fresh.used_at) throw fail(400, 'This document was withdrawn; ask for a new sign link');
 
     const [usage] = await tx.all('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE owner_id = ?', [link.owner_id]);
     if (Number(usage.total) + png.length > Number(env.ACCOUNT_STORAGE_MB || 100) * 1024 * 1024) {
@@ -254,8 +289,10 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
         text: `Estimate ${record.number || ''} signed by ${name}`.trim(),
         photo_url: fileUrl,
       });
+      await createWorkItemsForLines(tx, link.owner_id, { jobId: record.job_id, sourceType: 'Estimate', sourceId: record.id, lines: snapshot.lines });
     } else {
-      const { baseline } = await acceptedEstimateBaseline(tx, link.owner_id, record.job_id);
+      const { estimate: activeEstimate, baseline } = await acceptedEstimateBaseline(tx, link.owner_id, record.job_id);
+      assertJobHasActiveEstimate(!!activeEstimate, 'signing');
       const cos = await listJobChangeOrders(tx, link.owner_id, record.job_id);
       const others = cos.filter(c => c.id !== record.id);
       const thisNet = changeOrderNet(record);
@@ -295,6 +332,7 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
         text: `Authorized total updated to $${revised.toFixed(2)} (approved CO ${record.number || ''})`.trim(),
         amount: Math.max(0, revised),
       });
+      await createWorkItemsForLines(tx, link.owner_id, { jobId: record.job_id, sourceType: 'ChangeOrder', sourceId: record.id, lines: snapshot.lines });
     }
 
     // Consume this token and invalidate any other unused links for the same document

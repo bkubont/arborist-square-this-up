@@ -444,7 +444,7 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
   const edited = await request(`/entities/Estimate/${estimate.id}`, {
     method: 'PATCH', cookie: a.cookie, data: { notes: 'Adjusted after sign', lines: [{ description: 'Labor', labor_amount: 250 }] },
   });
-  assert.equal(edited.status, 400);
+  assert.equal(edited.status, 409);
   const afterFreeze = (await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data;
   assert.equal(afterFreeze.status, 'accepted');
   assert.equal(afterFreeze.accepted_snapshot.total, 220);
@@ -601,12 +601,14 @@ test('change order e-sign updates authorized total; draft CO excluded', async t 
     .filter(e => e.category === 'document' && e.photo_url === approved.signature_file_url);
   assert.equal(docs.length, 1);
 
-  // Still editable after approval
+  // Approved change orders are frozen too, same as an accepted estimate
   const edited = await request(`/entities/ChangeOrder/${signCo.id}`, {
     method: 'PATCH', cookie: a.cookie, data: { notes: 'Post-sign note' },
   });
-  assert.equal(edited.data.notes, 'Post-sign note');
-  assert.equal(edited.data.status, 'approved');
+  assert.equal(edited.status, 409);
+  const stillApproved = (await request(`/entities/ChangeOrder/${signCo.id}`, { cookie: a.cookie })).data;
+  assert.equal(stillApproved.status, 'approved');
+  assert.notEqual(stillApproved.notes, 'Post-sign note');
 });
 
 test('credit change order can sign when revised total goes below baseline', async t => {
@@ -783,7 +785,7 @@ test('status edit cannot bypass accepted_snapshot freeze', async t => {
   const rolledBack = await request(`/entities/Estimate/${estimate.id}`, {
     method: 'PATCH', cookie: a.cookie, data: { status: 'draft', total: 999 },
   });
-  assert.equal(rolledBack.status, 400);
+  assert.equal(rolledBack.status, 409);
 
   assert.equal((await request(`/estimates/${estimate.id}/send-sign`, {
     method: 'POST', cookie: a.cookie, data: { channel: 'link' },
@@ -1146,7 +1148,7 @@ test('document rules: void estimates excluded, deposits sum, freeze snapshot, jo
   assert.equal((await request(`/entities/Estimate/${estimate.id}`, {
     method: 'PATCH', cookie: a.cookie,
     data: { accepted_snapshot: { number: 'HACK', total: 1, lines: [] }, signer_name: 'Attacker' },
-  })).status, 400);
+  })).status, 409);
 
   const wo = (await request('/work-orders/from-estimate', {
     method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
@@ -1354,18 +1356,13 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
   });
   assert.ok((draftMo.lines || []).length >= 1, 'empty draft fills from estimate after purchased voided');
 
-  await request(`/entities/Estimate/${estimate.id}`, {
-    method: 'PATCH', cookie: a.cookie,
-    data: {
-      status: 'accepted',
-      total: 158,
-      accepted_snapshot: {
-        number: 'EST-MO',
-        total: 158,
-        lines: estimate.lines,
-      },
-    },
-  });
+  // Status only changes through the real sign flow now (server/lifecycle.js) — content can still
+  // be patched while the estimate is draft/sent.
+  await request(`/entities/Estimate/${estimate.id}`, { method: 'PATCH', cookie: a.cookie, data: { total: 158 } });
+  const estSent = await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
+  const estToken = estSent.data.sign_url.split('/').pop();
+  const estPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal((await request(`/sign/${estToken}`, { method: 'POST', data: { signer_name: 'MO Signer', signature_data_url: estPng } })).status, 200);
   const wo = (await request('/work-orders/from-estimate', {
     method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
   })).data;
@@ -1490,19 +1487,12 @@ test('material order sync: purchased MO claims sources; no draft recreate', asyn
   assert.equal(empty.lines?.length || 0, 0);
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
 
-  // Accept estimate + create WO — must not fill a draft with WO duplicates or double cost
-  await request(`/entities/Estimate/${estimate.id}`, {
-    method: 'PATCH', cookie: a.cookie,
-    data: {
-      status: 'accepted',
-      total: 99,
-      accepted_snapshot: {
-        number: 'EST-CLAIM',
-        total: 99,
-        lines: [{ description: 'Lumber', category: 'Carpentry', material_amount: 99 }],
-      },
-    },
-  });
+  // Accept estimate (via the real sign flow — status only ever changes that way now) + create WO —
+  // must not fill a draft with WO duplicates or double cost
+  const claimSent = await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
+  const claimToken = claimSent.data.sign_url.split('/').pop();
+  const claimPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal((await request(`/sign/${claimToken}`, { method: 'POST', data: { signer_name: 'Claim Signer', signature_data_url: claimPng } })).status, 200);
   const woRes = await request('/work-orders/from-estimate', {
     method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
   });
@@ -1746,4 +1736,170 @@ test('job/account summary: cents totals from ledger, accepted-estimate baseline,
   assert.equal(account.totals.waiting_payment_count, 1);
   assert.equal(account.waiting_payment[0].id, invoice.id);
   assert.deepEqual((await request('/summaries', { cookie: b.cookie })).data.totals.invoiced_cents, 0);
+});
+
+const SIGN_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/** Send an estimate for signature and complete the signature — used by tests that just need an active estimate. */
+async function signEstimate(request, cookie, estimateId, signerName = 'Signer') {
+  const sent = await request(`/estimates/${estimateId}/send-sign`, { method: 'POST', cookie, data: { channel: 'link' } });
+  assert.equal(sent.status, 201, sent.data?.message);
+  const token = sent.data.sign_url.split('/').pop();
+  const signed = await request(`/sign/${token}`, { method: 'POST', data: { signer_name: signerName, signature_data_url: SIGN_PNG } });
+  assert.equal(signed.status, 200, signed.data?.message);
+  return token;
+}
+
+test('declined estimate / rejected change order are frozen; decline requires sent; sign link reports the real reason', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('decline-a@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Decline client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Decline job', client_id: client.id });
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-DEC', status: 'draft', total: 100, lines: [{ description: 'Labor', labor_amount: 100 }] });
+
+  // Cannot decline a draft — only something out for signature
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/decline`, { method: 'POST', cookie: a.cookie, data: {} })).status, 400);
+
+  const sent = await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
+  const token = sent.data.sign_url.split('/').pop();
+
+  const declined = await request(`/documents/Estimate/${estimate.id}/decline`, { method: 'POST', cookie: a.cookie, data: {} });
+  assert.equal(declined.status, 200, declined.data?.message);
+  assert.equal(declined.data.status, 'declined');
+
+  // Was not previously frozen — this is the gap stage 2 closes.
+  assert.equal((await request(`/entities/Estimate/${estimate.id}`, { method: 'PATCH', cookie: a.cookie, data: { notes: 'sneak in an edit' } })).status, 409);
+  assert.equal((await request(`/entities/Estimate/${estimate.id}`, { method: 'DELETE', cookie: a.cookie })).status, 409);
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/decline`, { method: 'POST', cookie: a.cookie, data: {} })).status, 400, 'already decided, cannot decline again');
+
+  const publicView = await request(`/sign/${token}`);
+  assert.equal(publicView.data.link.signed, false);
+  assert.equal(publicView.data.link.unavailable, 'declined');
+  const attempt = await request(`/sign/${token}`, { method: 'POST', data: { signer_name: 'Too late', signature_data_url: SIGN_PNG } });
+  assert.equal(attempt.status, 400);
+  assert.match(attempt.data.message, /no longer available/);
+
+  // Same for ChangeOrder (rejected), which needs an active estimate first — a fresh job, since the
+  // first job's declined Estimate is still non-void and SINGLE_DOC_ENTITIES allows only one.
+  const job2 = await create('Job', { title: 'Decline job 2', client_id: client.id });
+  const estimate2 = await create('Estimate', { job_id: job2.id, number: 'EST-DEC2', status: 'draft', total: 50, lines: [{ description: 'Labor', labor_amount: 50 }] });
+  await signEstimate(request, a.cookie, estimate2.id);
+  const co = await create('ChangeOrder', { job_id: job2.id, number: 'CO-DEC', status: 'draft', added_cost: 20, credit: 0, net_change: 20 });
+  await request(`/change-orders/${co.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
+  const rejected = await request(`/documents/ChangeOrder/${co.id}/decline`, { method: 'POST', cookie: a.cookie, data: {} });
+  assert.equal(rejected.status, 200);
+  assert.equal(rejected.data.status, 'rejected');
+  assert.equal((await request(`/entities/ChangeOrder/${co.id}`, { method: 'PATCH', cookie: a.cookie, data: { notes: 'x' } })).status, 409);
+  assert.equal((await request(`/entities/ChangeOrder/${co.id}`, { method: 'DELETE', cookie: a.cookie })).status, 409);
+});
+
+test('change order requires an active accepted estimate to create or send', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('co-needs-estimate@example.com');
+  const create = async (entity, data, expectStatus = 201) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, expectStatus, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'CO gate client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'CO gate job', client_id: client.id });
+
+  // No estimate at all yet
+  const blocked = await request('/entities/ChangeOrder', { method: 'POST', cookie: a.cookie, data: { job_id: job.id, number: 'CO-EARLY', status: 'draft' } });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.data.message, /Accept an estimate/);
+
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-GATE', status: 'draft', total: 100, lines: [{ description: 'Labor', labor_amount: 100 }] });
+  await signEstimate(request, a.cookie, estimate.id);
+
+  const co = await create('ChangeOrder', { job_id: job.id, number: 'CO-GATE', status: 'draft', added_cost: 10, credit: 0, net_change: 10 });
+  assert.equal((await request(`/change-orders/${co.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } })).status, 201);
+
+  // Void the only estimate after the CO was created — a later CO create/send must now refuse
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
+  const blockedAfterVoid = await request('/entities/ChangeOrder', { method: 'POST', cookie: a.cookie, data: { job_id: job.id, number: 'CO-LATE', status: 'draft' } });
+  assert.equal(blockedAfterVoid.status, 400);
+});
+
+test('editing a sent estimate withdraws it to draft and invalidates its outstanding sign link', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('withdraw@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Withdraw client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Withdraw job', client_id: client.id });
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-WD', status: 'draft', total: 100, lines: [{ description: 'Labor', labor_amount: 100 }] });
+  const sent = await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
+  const token = sent.data.sign_url.split('/').pop();
+
+  const edited = await request(`/entities/Estimate/${estimate.id}`, { method: 'PATCH', cookie: a.cookie, data: { total: 150 } });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.data.status, 'draft', 'a live edit while sent pulls it back to draft');
+
+  const publicView = await request(`/sign/${token}`);
+  assert.equal(publicView.data.link.signed, false);
+  assert.equal(publicView.data.link.unavailable, 'withdrawn');
+  const attempt = await request(`/sign/${token}`, { method: 'POST', data: { signer_name: 'Late', signature_data_url: SIGN_PNG } });
+  assert.equal(attempt.status, 400);
+  assert.match(attempt.data.message, /withdrawn/);
+
+  // A fresh send-sign issues a new, working link
+  assert.equal((await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } })).status, 201);
+});
+
+test('signing creates a WorkItem per signed line; blank lines skipped; amount snapshotted in cents', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('workitem@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'WorkItem client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'WorkItem job', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id, number: 'EST-WI', status: 'draft', total: 220,
+    lines: [
+      { description: 'Replace faucet', material_amount: 48, labor_amount: 110 },
+      { description: '' }, // blank row — must not become a task
+    ],
+  });
+  await signEstimate(request, a.cookie, estimate.id);
+
+  const items = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(items.length, 1);
+  assert.equal(items[0].description, 'Replace faucet');
+  assert.equal(items[0].source_type, 'Estimate');
+  assert.equal(items[0].amount_cents, 15800);
+  assert.equal(items[0].done, false);
+  const signedEstimate = (await request(`/entities/Estimate/${estimate.id}`, { cookie: a.cookie })).data;
+  assert.equal(items[0].line_id, signedEstimate.lines[0].id);
+  assert.ok(items[0].line_id, 'line got a stable id assigned server-side');
+});
+
+test('a WorkItem from a signed line cannot be deleted; a free-standing one can', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('workitem-delete@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'WI delete client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'WI delete job', client_id: client.id });
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-WID', status: 'draft', total: 100, lines: [{ description: 'Labor', labor_amount: 100 }] });
+  await signEstimate(request, a.cookie, estimate.id);
+  const [sourced] = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal((await request(`/entities/WorkItem/${sourced.id}`, { method: 'DELETE', cookie: a.cookie })).status, 409);
+
+  const freeStanding = await create('WorkItem', { job_id: job.id, description: 'Sweep up' });
+  assert.equal((await request(`/entities/WorkItem/${freeStanding.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
 });

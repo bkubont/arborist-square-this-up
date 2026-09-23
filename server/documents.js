@@ -4,8 +4,18 @@
  */
 import { fail, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
 import { SINGLE_DOC_ENTITIES } from './documentRules.js';
+import { assertScopeDeclinable } from './lifecycle.js';
 
 const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
+
+/** Consume every unused sign link for a document — it's no longer the current copy to sign. */
+export async function invalidateSignLinks(tx, ownerId, entity, recordId) {
+  const now = new Date().toISOString();
+  await tx.run(
+    'UPDATE sign_links SET used_at = COALESCE(used_at, ?) WHERE owner_id = ? AND entity = ? AND record_id = ? AND used_at IS NULL',
+    [now, ownerId, entity, recordId],
+  );
+}
 
 const STRIP_ON_REVISE = new Set([
   'id',
@@ -60,17 +70,30 @@ export async function voidDocument(tx, ownerId, entity, recordId) {
   if (record.status === 'void') return record;
   if (record.status === 'paid') throw fail(400, 'Paid invoices cannot be voided; create a credit revision instead');
   const updated = await saveRecord(tx, ownerId, entity, { status: 'void' }, recordId);
-  if (SIGNABLE.has(entity)) {
-    const now = new Date().toISOString();
-    await tx.run(
-      'UPDATE sign_links SET used_at = COALESCE(used_at, ?) WHERE owner_id = ? AND entity = ? AND record_id = ? AND used_at IS NULL',
-      [now, ownerId, entity, recordId],
-    );
-  }
+  if (SIGNABLE.has(entity)) await invalidateSignLinks(tx, ownerId, entity, recordId);
   await saveRecord(tx, ownerId, 'TimelineEntry', {
     job_id: record.job_id,
     type: 'document_voided',
     text: `${entity} ${record.number || ''} marked void`.trim(),
+    category: 'financial',
+  });
+  return updated;
+}
+
+/**
+ * Mark a sent Estimate/ChangeOrder declined/rejected — the owner recording a "no" the customer gave
+ * by some channel other than the sign link. Invalidates the outstanding link the same way voiding does.
+ */
+export async function declineDocument(tx, ownerId, entity, recordId) {
+  if (!SIGNABLE.has(entity)) throw fail(400, 'Only estimates and change orders can be declined');
+  const record = await getRecord(tx, ownerId, entity, recordId);
+  const status = assertScopeDeclinable(entity, record);
+  const updated = await saveRecord(tx, ownerId, entity, { status }, recordId);
+  await invalidateSignLinks(tx, ownerId, entity, recordId);
+  await saveRecord(tx, ownerId, 'TimelineEntry', {
+    job_id: record.job_id,
+    type: 'document_declined',
+    text: `${entity} ${record.number || ''} marked ${status}`.trim(),
     category: 'financial',
   });
   return updated;

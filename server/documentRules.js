@@ -6,13 +6,6 @@ import { fail, decode } from './domain.js';
 
 export const SINGLE_DOC_ENTITIES = new Set(['Estimate', 'WorkOrder', 'Invoice']);
 
-/** Content + acceptance/signature fields that must not change after an estimate is accepted. */
-export const ESTIMATE_CONTENT_KEYS = [
-  'number', 'date', 'valid_till', 'notes', 'tax_rate', 'lines',
-  'subtotal', 'tax_amount', 'total', 'status',
-  'accepted_snapshot', 'signed_at', 'signer_name', 'signature_file_url',
-];
-
 export function isNonVoid(record) {
   return record && record.status !== 'void';
 }
@@ -68,16 +61,6 @@ export function sumDepositsApplied(job, timeline = []) {
     .filter((e) => e.type === 'deposit_received' && e.amount != null)
     .reduce((sum, e) => sum + Number(e.amount), 0);
   return legacy + logged;
-}
-
-/** Reject content / signature mutations on accepted (or snapshotted non-void) estimates. */
-export function assertEstimateMutable(previous, input = {}) {
-  if (!previous) return;
-  // Voided estimates keep snapshot for history but are not editable either.
-  if (!previous.accepted_snapshot && previous.status !== 'accepted') return;
-  const touching = ESTIMATE_CONTENT_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(input, key));
-  if (!touching.length) return;
-  throw fail(400, 'Accepted estimates are print/view only and cannot be edited. Void it if you need to replace it.');
 }
 
 /** Job money scalars are derived; strip client writes (server rollups still use saveRecord directly). */

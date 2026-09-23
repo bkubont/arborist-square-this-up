@@ -9,8 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CatalogTypeahead from "@/components/CatalogTypeahead";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
-import StatusSelect from "@/components/StatusSelect";
-import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { WORK_CATEGORIES } from "@/lib/documentMapping";
 import { money, shortDate } from "@/lib/format";
 import {
@@ -67,6 +65,8 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     });
     const existing = Array.isArray(document.lines) && document.lines.length
       ? document.lines.map((line) => ({
+          id: line.id,
+          steps: line.steps,
           description: line.description || "",
           material_amount: line.material_amount ?? "",
           labor_amount: line.labor_amount ?? "",
@@ -153,18 +153,18 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     }
   };
 
-  const save = async ({ markSent = false } = {}) => {
+  // Status only ever changes through a dedicated action now (Send sign link, Void, Decline) —
+  // server/lifecycle.js rejects a status field in a plain edit, so this never sends one.
+  const save = async () => {
     if (readOnly) return;
     setSaving(true);
     try {
-      const nextStatus = markSent ? "sent" : form.status;
       const serialized = lines.map(serializeEstimateLine).filter((line) =>
         line.description || line.material_amount || line.labor_amount || line.equipment_amount
       );
       const nextTotals = estimateTotals(serialized, form.tax_rate);
       const payload = {
         number: form.number || undefined,
-        status: nextStatus,
         date: form.date,
         valid_till: form.valid_till,
         notes: form.notes,
@@ -174,20 +174,10 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
         tax_amount: nextTotals.tax_amount,
         total: nextTotals.total,
       };
-      const previousStatus = document.status;
       await api.entities.Estimate.update(document.id, payload);
       try {
         await api.entities.Job.update(jobId, { estimate_amount: nextTotals.total });
       } catch { /* non-blocking */ }
-
-      if (nextStatus === "sent" && previousStatus !== "sent" && previousStatus !== "accepted") {
-        await api.entities.TimelineEntry.create({
-          job_id: jobId,
-          type: "estimate_sent",
-          text: `Estimate ${form.number || ""} sent to client`.trim(),
-          category: "financial",
-        });
-      }
       onSaved?.();
       onOpenChange(false);
     } finally {
@@ -329,16 +319,8 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           <div>
             <Label>Status</Label>
-            {readOnly ? (
-              <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
-            ) : (
-              <StatusSelect
-                value={form.status}
-                onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
-                statuses={DOCUMENT_STATUSES.Estimate}
-                entity="Estimate"
-              />
-            )}
+            {/* Status only changes via Send sign link / Void / Decline — never a direct edit. */}
+            <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
           </div>
           <div>
             <Label>Date</Label>
@@ -531,11 +513,8 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             <Button variant="outline" onClick={printEstimate} disabled={saving}>
               <Printer className="w-4 h-4 mr-1" /> Print
             </Button>
-            {!readOnly && form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
-              <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
-            )}
             {!readOnly && (
-              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving}>
                 {saving ? "Saving…" : "Save estimate"}
               </Button>
             )}

@@ -12,11 +12,10 @@ import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
 import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
 import { syncDraftMaterialOrder } from './materialOrderSync.js';
-import { voidDocument, reviseDocument, assertDocumentEntity } from './documents.js';
+import { voidDocument, reviseDocument, declineDocument, invalidateSignLinks, assertDocumentEntity } from './documents.js';
 import {
   assertSingularDocument,
   assertWorkOrderCompleteForInvoice,
-  assertEstimateMutable,
   stripJobDerivedMoney,
   findActiveJobDocument,
   listJobDocuments,
@@ -26,6 +25,7 @@ import {
   refreshJobDocumentRollups,
   SINGLE_DOC_ENTITIES,
 } from './documentRules.js';
+import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate, assertWorkItemDeletable } from './lifecycle.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE, resolveSalesTaxRate } from './salesTax.js';
 import { jobSummary, accountSummaries } from './summary.js';
@@ -284,6 +284,8 @@ export async function createApp(db, env = process.env) {
     const changeOrder = await getRecord(db, req.user.id, 'ChangeOrder', req.params.id);
     if (changeOrder.status === 'void' || changeOrder.status === 'rejected') throw fail(400, 'Cannot send this change order');
     if (changeOrder.accepted_snapshot) throw fail(400, 'Change order already has an accepted snapshot; create a revision instead of re-signing');
+    // The estimate could have been voided since this change order was created.
+    assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(db, req.user.id, 'Estimate', changeOrder.job_id)), 'sending');
     const result = await createSignLink(db, {
       ownerId: req.user.id,
       entity: 'ChangeOrder',
@@ -445,6 +447,12 @@ export async function createApp(db, env = process.env) {
     });
     res.json(updated);
   });
+  app.post('/api/documents/:entity/:id/decline', async (req, res) => {
+    const entity = req.params.entity;
+    if (entity !== 'Estimate' && entity !== 'ChangeOrder') throw fail(400, 'Only estimates and change orders can be declined');
+    const updated = await ownedTransaction(req.user.id, tx => declineDocument(tx, req.user.id, entity, req.params.id));
+    res.json(updated);
+  });
   app.post('/api/documents/:entity/:id/revise', async (req, res) => {
     const entity = assertDocumentEntity(req.params.entity);
     const created = await ownedTransaction(req.user.id, tx => reviseDocument(tx, req.user.id, entity, req.params.id));
@@ -458,6 +466,7 @@ export async function createApp(db, env = process.env) {
       if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
         await assertSingularDocument(tx, req.user.id, entity, body.job_id);
         if (entity === 'Invoice') await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
+        if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.user.id, 'Estimate', body.job_id)), 'creating');
       }
       let record = await saveRecord(tx, req.user.id, entity, body);
       if (entity === 'MaterialOrder' && record.job_id) {
@@ -489,8 +498,16 @@ export async function createApp(db, env = process.env) {
     const previous = JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'Estimate' || entity === 'Invoice'
       ? await getRecord(db, req.user.id, entity, req.params.id)
       : null;
-    if (entity === 'Estimate' && previous) {
-      assertEstimateMutable(previous, body);
+    // Signed/declined/void Estimate and ChangeOrder are frozen; status only ever changes through
+    // Send, Decline or Void, never a plain edit. Editing a sent one withdraws it back to draft and
+    // kills its outstanding sign link, so a leftover link can't keep pointing at stale content.
+    let withdrawingSignLink = false;
+    if ((entity === 'Estimate' || entity === 'ChangeOrder') && previous) {
+      assertScopeUpdatable(entity, previous, body);
+      if (previous.status === 'sent') {
+        withdrawingSignLink = true;
+        body = { ...body, status: 'draft' };
+      }
     }
     if (entity === 'Invoice' && body && typeof body === 'object' && previous) {
       const merged = { ...previous, ...body };
@@ -517,7 +534,9 @@ export async function createApp(db, env = process.env) {
       } else if (movingJob && entity === 'Invoice') {
         await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
       }
-      return saveRecord(tx, req.user.id, entity, body, req.params.id);
+      const saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
+      if (withdrawingSignLink) await invalidateSignLinks(tx, req.user.id, entity, req.params.id);
+      return saved;
     });
 
     if (entity === 'Invoice' && updated.job_id) {
@@ -556,6 +575,8 @@ export async function createApp(db, env = process.env) {
   app.delete('/api/entities/:entity/:id', async (req, res) => {
     await ownedTransaction(req.user.id, async tx => {
       const record = await getRecord(tx, req.user.id, req.params.entity, req.params.id);
+      if (req.params.entity === 'Estimate' || req.params.entity === 'ChangeOrder') assertScopeDeletable(req.params.entity, record);
+      if (req.params.entity === 'WorkItem') assertWorkItemDeletable(record);
       const removedEntries = req.params.entity === 'Job'
         ? [
           ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', record.id])).map(row => JSON.parse(row.data)),
