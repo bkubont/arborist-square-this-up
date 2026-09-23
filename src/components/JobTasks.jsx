@@ -1,26 +1,35 @@
 import React, { useMemo, useState } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { Plus, X, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Plus, X, Check, ChevronDown, ChevronRight, Clock } from "lucide-react";
 import { api } from "@/api/client";
 import StatusSelect from "@/components/StatusSelect";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
+import TaskNotes from "@/components/TaskNotes";
 import { moneyCents } from "@/lib/format";
-import { TASK_STATUSES, taskStatus, taskStatusLabel, sortTasks, taskSourceVoided } from "@/lib/tasks";
+import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, taskSourceVoided, formatHours, hoursRemaining } from "@/lib/tasks";
 import { statusColors, statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
 /**
  * A job's tasks (WorkItem), as a list or a board. One task per signed Estimate/ChangeOrder line
  * (created at signing; see server/sign.js) plus any the owner adds. Each task has its own status,
- * so one can be waiting on materials while another is done. Clicking a task opens its details
- * (notes, steps, measurements, materials). Never shown to the customer.
+ * so one can be waiting on materials while another is done. Each card shows its expected labor
+ * hours and its notes, each tinted with the status it was written under, with an "Add a note…" box
+ * always there; moving a task to Waiting on Materials, On Hold or Cancelled puts the cursor in it.
+ * Clicking a task opens its details (steps, measurements, materials). Never shown to the customer.
  *
- * @param {{ jobId: string, items: Array, documents?: Array, onChanged: () => void, view?: "list" | "board" }} props
+ * Without a jobId (the Kanban page's Tasks board) it shows every job's tasks, each card naming its
+ * job; new tasks are then added from a job.
+ *
+ * @param {{ jobId?: string, items: Array, documents?: Array, onChanged: () => void, view?: "list" | "board", jobsById?: Record<string, any> }} props
  */
-export default function JobTasks({ jobId, items = [], documents = [], onChanged, view = "list" }) {
+export default function JobTasks({ jobId = undefined, items = [], documents = [], onChanged, view = "list", jobsById = undefined }) {
   const [adding, setAdding] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [openId, setOpenId] = useState(null);
+  // The task whose "Add a note…" box gets the cursor (after a move into a status that needs a reason).
+  const [noteFocusId, setNoteFocusId] = useState(null);
   // Optimistic status/position while a board move saves, so the card doesn't snap back.
   const [pending, setPending] = useState(/** @type {Record<string, { status: string, sort_order: number }>} */ ({}));
 
@@ -41,6 +50,19 @@ export default function JobTasks({ jobId, items = [], documents = [], onChanged,
   };
 
   const patch = (item, data) => run(item.id, () => api.entities.WorkItem.update(item.id, data));
+
+  const changeStatus = (item, status) => {
+    setNoteFocusId(NOTE_PROMPT_STATUSES.includes(status) ? item.id : null);
+    return patch(item, { status });
+  };
+
+  // New notes go up without id/status/time; the server stamps them with the task's current status.
+  const noteProps = (item) => ({
+    focus: noteFocusId === item.id,
+    disabled: busyId === item.id,
+    onAdd: (text) => { setNoteFocusId(null); patch(item, { status_notes: [...(item.status_notes || []), { text }] }); },
+    onRemove: (noteId) => patch(item, { status_notes: (item.status_notes || []).filter((n) => n.id !== noteId) }),
+  });
 
   const addTask = () => {
     const description = adding.trim();
@@ -67,6 +89,7 @@ export default function JobTasks({ jobId, items = [], documents = [], onChanged,
       for (const u of updates) {
         await api.entities.WorkItem.update(u.item.id, u.item.id === draggableId ? { status, sort_order: u.sort_order } : { sort_order: u.sort_order });
       }
+      if (source.droppableId !== status) setNoteFocusId(NOTE_PROMPT_STATUSES.includes(status) ? draggableId : null);
       await onChanged?.();
     } catch (e) {
       alert(e?.message || "Could not move the task.");
@@ -80,7 +103,9 @@ export default function JobTasks({ jobId, items = [], documents = [], onChanged,
   return (
     <div>
       <div className="text-xs text-slate-500 mb-2">
-        {items.length ? `${doneCount}/${items.length} done` : "No tasks yet. Signed estimate and change order lines show up here."}
+        {items.length
+          ? [`${doneCount}/${items.length} done`, formatHours(hoursRemaining(shown)) && `${formatHours(hoursRemaining(shown))} left`].filter(Boolean).join(" · ")
+          : "No tasks yet. Signed estimate and change order lines show up here."}
       </div>
 
       {view === "board" ? (
@@ -94,6 +119,8 @@ export default function JobTasks({ jobId, items = [], documents = [], onChanged,
                 documents={documents}
                 busyId={busyId}
                 onOpen={setOpenId}
+                noteProps={noteProps}
+                jobsById={jobsById}
               />
             ))}
           </div>
@@ -101,11 +128,12 @@ export default function JobTasks({ jobId, items = [], documents = [], onChanged,
       ) : (
         <div className="space-y-2 mb-3">
           {shown.map((item) => (
-            <TaskRow key={item.id} item={item} documents={documents} busy={busyId === item.id} onPatch={patch} onOpen={() => setOpenId(item.id)} />
+            <TaskRow key={item.id} item={item} documents={documents} busy={busyId === item.id} onPatch={patch} onStatus={changeStatus} onOpen={() => setOpenId(item.id)} note={noteProps(item)} />
           ))}
         </div>
       )}
 
+      {jobId && (
       <div className="flex gap-2 mt-3">
         <input
           value={adding}
@@ -118,6 +146,7 @@ export default function JobTasks({ jobId, items = [], documents = [], onChanged,
           <Plus className="w-4 h-4" />
         </button>
       </div>
+      )}
 
       <TaskDetailDialog
         open={!!openItem}
@@ -135,8 +164,10 @@ function TaskTags({ item, documents }) {
   const needed = (item.materials || []).filter((m) => !m.have).length;
   return (
     <>
-      {item.source_type && <Tag tone="brand">{item.source_type === "ChangeOrder" ? "Change order" : "Estimate"}</Tag>}
+      {/* Most tasks come from the estimate, so only work added later by a change order is tagged. */}
+      {item.source_type === "ChangeOrder" && <Tag tone="brand">Change order</Tag>}
       {taskSourceVoided(item, documents) && <Tag tone="void">Voided</Tag>}
+      {formatHours(item.labor_hours) && <Tag><Clock className="inline w-2.5 h-2.5 mr-0.5 -mt-px" aria-hidden="true" />{formatHours(item.labor_hours)}</Tag>}
       {item.amount_cents != null && <Tag tone="money">{moneyCents(item.amount_cents)}{item.billed_invoice_id ? " · billed" : ""}</Tag>}
       {steps.length > 0 && <Tag>{steps.filter((s) => s.done).length}/{steps.length} steps</Tag>}
       {needed > 0 && <Tag tone="materials">{needed} to get</Tag>}
@@ -144,7 +175,7 @@ function TaskTags({ item, documents }) {
   );
 }
 
-function TaskRow({ item, documents, busy, onPatch, onOpen }) {
+function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   const [expanded, setExpanded] = useState(true);
   const status = taskStatus(item);
   const steps = item.steps || [];
@@ -167,7 +198,7 @@ function TaskRow({ item, documents, busy, onPatch, onOpen }) {
         <div className="flex items-center gap-1">
           <StatusSelect
             value={status}
-            onValueChange={(next) => onPatch(item, { status: next })}
+            onValueChange={(next) => onStatus(item, next)}
             statuses={TASK_STATUSES}
             formatLabel={taskStatusLabel}
             triggerClassName="h-7 text-xs w-auto min-w-[7.5rem] px-2"
@@ -177,6 +208,8 @@ function TaskRow({ item, documents, busy, onPatch, onOpen }) {
           </button>
         </div>
       </div>
+
+      <TaskNotes item={item} {...note} className="mt-1.5" />
 
       {expanded && (
         <div className="mt-2 ml-1 space-y-1">
@@ -208,7 +241,7 @@ function TaskRow({ item, documents, busy, onPatch, onOpen }) {
   );
 }
 
-function BoardColumn({ status, items, documents, busyId, onOpen }) {
+function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobsById = undefined }) {
   const colors = statusColors(status);
   return (
     <Droppable droppableId={status}>
@@ -229,7 +262,10 @@ function BoardColumn({ status, items, documents, busyId, onOpen }) {
                 <span className={cn("w-2 h-2 rounded-full", colors.swatch)} aria-hidden="true" />
                 {taskStatusLabel(status)}
               </span>
-              <span className="text-xs font-bold tabular-nums text-foreground">{items.length}</span>
+              <span className="text-xs font-bold tabular-nums text-foreground">
+                {items.length}
+                {formatHours(hoursRemaining(items)) && <span className="ml-1 font-medium text-muted-foreground">· {formatHours(hoursRemaining(items))}</span>}
+              </span>
             </div>
           </div>
           <div className="p-2 space-y-2 min-h-[4rem]">
@@ -249,10 +285,21 @@ function BoardColumn({ status, items, documents, busyId, onOpen }) {
                       busyId === item.id && "opacity-60"
                     )}
                   >
+                    {jobsById && (
+                      <Link
+                        to={`/jobs/${item.job_id}?tab=tasks`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block text-[11px] font-medium text-primary hover:underline truncate mb-0.5"
+                      >
+                        {jobsById[item.job_id]?.title || "Job"}
+                        {jobsById[item.job_id]?.client_name ? ` · ${jobsById[item.job_id].client_name}` : ""}
+                      </Link>
+                    )}
                     <div className="text-sm font-medium text-foreground leading-snug line-clamp-3">{item.description}</div>
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       <TaskTags item={item} documents={documents} />
                     </div>
+                    <TaskNotes item={item} {...noteProps(item)} className="mt-1.5" />
                   </div>
                 )}
               </Draggable>

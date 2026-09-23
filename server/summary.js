@@ -21,12 +21,21 @@ export function summarizeJob({ estimates = [], changeOrders = [], invoices = [],
     payments,
   );
   const recordsById = new Map(invoices.map(invoice => [invoice.id, invoice]));
+  const authorizedCents = toCents(computeAuthorizedTotal(baseline, approved));
+  // Before anything is signed, the job's running total is the estimate still being negotiated.
+  const pending = accepted ? null : [...estimates]
+    .filter(estimate => ['draft', 'sent'].includes(estimate.status))
+    .sort((a, b) => String(b.created_date || '').localeCompare(String(a.created_date || '')))[0];
 
   return {
     has_accepted_estimate: !!accepted,
     estimate_cents: toCents(baseline),
     approved_change_cents: toCents(approvedChangeOrderNet(approved)),
-    authorized_cents: toCents(computeAuthorizedTotal(baseline, approved)),
+    authorized_cents: authorizedCents,
+    /** The job's total so far: signed estimate + approved change orders, or the unsigned estimate. */
+    running_total_cents: accepted ? authorizedCents : pending ? toCents(Number(pending.total) || 0) : 0,
+    /** 'signed' | 'estimate' (unsigned, may change) | 'none' */
+    running_total_basis: accepted ? 'signed' : pending ? 'estimate' : 'none',
     invoiced_cents: books.invoiced_cents,
     paid_cents: books.paid_cents,
     balance_cents: books.balance_cents,

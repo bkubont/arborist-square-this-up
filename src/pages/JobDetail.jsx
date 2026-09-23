@@ -2,7 +2,7 @@ import ClientAddress from "@/components/ClientAddress";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
-import { ArrowLeft, Pencil, StickyNote, CheckCircle2, Trash2, DollarSign } from "lucide-react";
+import { ArrowLeft, Pencil, StickyNote, CheckCircle2, Trash2, DollarSign, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,6 +13,7 @@ import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
 import JobTasks from "@/components/JobTasks";
+import { JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
@@ -36,7 +37,6 @@ function readTaskView() {
 const JOB_TABS = [
   "overview",
   "tasks",
-  "estimate",
   "costs",
   "receipts",
   "photos",
@@ -54,6 +54,7 @@ export default function JobDetail() {
   const [entries, setEntries] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [workItems, setWorkItems] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
@@ -81,15 +82,17 @@ export default function JobDetail() {
   };
 
   const load = useCallback(async () => {
-    const [j, e, items, ...docLists] = await Promise.all([
+    const [j, e, items, money, ...docLists] = await Promise.all([
       api.entities.Job.get(id),
       api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 500),
       api.entities.WorkItem.filter({ job_id: id }, "-created_date", 500),
+      api.summaries.job(id).catch(() => null),
       ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 100)),
     ]);
     setJob(j);
     setEntries(e);
     setWorkItems(items);
+    setSummary(money);
     setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
     if (j?.client_id) {
       try {
@@ -237,14 +240,33 @@ export default function JobDetail() {
             </div>
             {client && (
               <div className="mt-1 space-y-1">
-                <Link to={`/clients/${client.id}`} className="text-sm text-muted-foreground hover:text-primary">
-                  {client.name}
-                </Link>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <Link to={`/clients/${client.id}`} className="text-muted-foreground hover:text-primary">
+                    {client.name}
+                  </Link>
+                  {client.phone && (
+                    <a href={`tel:${client.phone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <Phone className="w-3.5 h-3.5" aria-hidden="true" />
+                      {client.phone}
+                    </a>
+                  )}
+                </div>
                 <ClientAddress client={client} />
               </div>
             )}
           </div>
-          <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
+              <JobQuickAdd job={job} onSaved={load} />
+            </div>
+            {summary && summary.running_total_basis !== "none" && (
+              <div className="text-right">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Job total</div>
+                <JobRunningTotal summary={summary} className="text-lg" />
+              </div>
+            )}
+          </div>
         </div>
         {job.description && <p className="text-sm text-muted-foreground mt-3">{job.description}</p>}
       </div>
@@ -253,7 +275,6 @@ export default function JobDetail() {
         <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/80 p-1 mb-4">
           <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
           <TabsTrigger value="tasks" className="text-xs sm:text-sm">Tasks</TabsTrigger>
-          <TabsTrigger value="estimate" className="text-xs sm:text-sm">Estimate</TabsTrigger>
           <TabsTrigger value="costs" className="text-xs sm:text-sm">Costs</TabsTrigger>
           <TabsTrigger value="receipts" className="text-xs sm:text-sm">Receipts</TabsTrigger>
           <TabsTrigger value="photos" className="text-xs sm:text-sm">Photos</TabsTrigger>
@@ -284,9 +305,19 @@ export default function JobDetail() {
                   />
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-2">
-                  Document work lives under Estimate / Costs / Invoice. Photos and receipts have their own tabs.
+                  The estimate is below. Costs, Invoice, Photos and Receipts have their own tabs.
                 </p>
               </div>
+
+              <JobDocuments
+                jobId={id}
+                jobTitle={job.title}
+                client={client}
+                documents={documents}
+                onChanged={load}
+                entities={["Estimate"]}
+                title="Estimate"
+              />
 
               <div className="bg-card rounded-xl border border-border p-4">
                 <div className="flex items-center justify-between mb-3">
@@ -345,18 +376,6 @@ export default function JobDetail() {
             </div>
             <JobTasks jobId={id} items={workItems} documents={documents} onChanged={load} view={taskView} />
           </div>
-        </TabsContent>
-
-        <TabsContent value="estimate" className="mt-0">
-          <JobDocuments
-            jobId={id}
-            jobTitle={job.title}
-            client={client}
-            documents={documents}
-            onChanged={load}
-            entities={["Estimate"]}
-            title="Estimate"
-          />
         </TabsContent>
 
         <TabsContent value="costs" className="space-y-4 mt-0">

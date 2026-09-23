@@ -7,7 +7,7 @@ const LABELS = {
   waiting_materials: "Waiting on Materials",
   on_hold: "On Hold",
   cancelled: "Cancelled",
-  done: "Done",
+  done: "Completed",
 };
 
 export const taskStatusLabel = (status) => LABELS[status] || status;
@@ -29,3 +29,19 @@ export const taskSourceVoided = (item, documents = []) =>
   !!item?.source_id && documents.some((d) => d.id === item.source_id && d.status === "void");
 
 export const taskDeletable = (item, documents = []) => !item?.source_type || taskSourceVoided(item, documents);
+
+/** Statuses that usually need a reason; moving a task into one opens its card note. */
+export const NOTE_PROMPT_STATUSES = ["waiting_materials", "on_hold", "cancelled"];
+
+/** "6 hrs", "1.5 hrs", "1 hr"; empty when unknown. */
+export function formatHours(hours) {
+  const n = Number(hours);
+  if (hours == null || hours === "" || !Number.isFinite(n) || n <= 0) return "";
+  const shown = Math.round(n * 100) / 100;
+  return `${shown} ${shown === 1 ? "hr" : "hrs"}`;
+}
+
+/** Expected hours still to go: tasks not completed or cancelled. */
+export const hoursRemaining = (items = []) => items
+  .filter((item) => !["done", "cancelled"].includes(taskStatus(item)))
+  .reduce((sum, item) => sum + (Number(item.labor_hours) || 0), 0);

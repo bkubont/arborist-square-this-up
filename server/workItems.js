@@ -8,13 +8,24 @@
  * measurements and materials, and add free-standing tasks of their own, but can never re-point or
  * re-price a signed task.
  */
-import { fail, saveRecord, decode } from './domain.js';
+import { fail, saveRecord, decode, getRecord } from './domain.js';
+import { listJobDocuments } from './documentRules.js';
 import { estimateLineAmount, changeOrderLineAmount } from './mapping.js';
 import { toCents } from '../shared/money.js';
 
 // `done` follows `status` (saveRecord), so it is server-owned too: set status 'done' instead.
 const SERVER_OWNED_FIELDS = ['source_type', 'source_id', 'line_id', 'amount_cents', 'billed_invoice_id', 'done', 'done_at'];
-const EDITABLE_FIELDS = new Set(['description', 'category', 'tools', 'notes', 'steps', 'status', 'sort_order', 'measurements', 'materials']);
+const EDITABLE_FIELDS = new Set(['description', 'category', 'tools', 'notes', 'steps', 'status', 'sort_order', 'measurements', 'materials', 'labor_hours', 'status_notes']);
+
+/** Expected hours for a signed line: its labor_hours, or labor amount ÷ rate when only those are set. */
+export function lineLaborHours(sourceType, line = {}) {
+  const hours = Number(line.labor_hours);
+  if (line.labor_hours != null && Number.isFinite(hours) && hours > 0) return hours;
+  const amount = Number(line.labor_amount);
+  const rate = Number(line.labor_rate);
+  if (amount > 0 && rate > 0) return Math.round((amount / rate) * 100) / 100;
+  return undefined;
+}
 
 /**
  * One WorkItem per signed line that has a description. Blank rows (a line the estimator never
@@ -34,6 +45,7 @@ export async function createWorkItemsForLines(tx, ownerId, { jobId, sourceType, 
       // Snapshotted once, here: the source line can never change after signing, so this stays
       // correct and billing completed work needs no join back to the source document.
       amount_cents: Math.max(0, toCents(lineAmount(line))),
+      labor_hours: lineLaborHours(sourceType, line),
       description: line.description,
       category: line.category,
       tools: line.tools,
@@ -61,7 +73,9 @@ export function prepareWorkItemCreate(input) {
  * @param {object} input the PATCH body
  */
 export function prepareWorkItemUpdate(previous, input) {
-  const body = input && typeof input === 'object' ? input : {};
+  // null clears an optional field (JSON has no undefined): { labor_hours: null } removes the hours.
+  const body = Object.fromEntries(Object.entries(input && typeof input === 'object' ? input : {})
+    .map(([key, value]) => [key, value === null ? undefined : value]));
   assertNoServerOwnedFields(body);
   const other = Object.keys(body).filter(key => !EDITABLE_FIELDS.has(key));
   if (other.length) throw fail(400, `${other.join(', ')} cannot be changed on a checklist task`);
@@ -84,6 +98,31 @@ export function assertWorkItemDeletable(item, source) {
   }
 }
 
+/** Job statuses the automatic "all tasks completed" move never overrides. */
+const JOB_FINISHED_STATUSES = new Set(['Completed', 'Paid']);
+
+/**
+ * When every task on a job is completed (cancelled ones don't count, and there must be at least
+ * one), move the job to Completed and log it. Only ever moves a job forward; reopening a task
+ * afterwards leaves the job's status for the owner to set.
+ * @returns {Promise<object|null>} the updated job, or null when nothing changed
+ */
+export async function completeJobWhenTasksDone(tx, ownerId, jobId) {
+  const tasks = (await listJobDocuments(tx, ownerId, 'WorkItem', jobId))
+    .filter(task => (task.status || (task.done ? 'done' : 'prep')) !== 'cancelled');
+  if (!tasks.length || !tasks.every(task => (task.status || (task.done ? 'done' : 'prep')) === 'done')) return null;
+  const job = await getRecord(tx, ownerId, 'Job', jobId);
+  if (JOB_FINISHED_STATUSES.has(job.status)) return null;
+  const updated = await saveRecord(tx, ownerId, 'Job', { status: 'Completed' }, jobId);
+  await saveRecord(tx, ownerId, 'TimelineEntry', {
+    job_id: jobId,
+    type: 'status_change',
+    text: 'Status changed to Completed (all tasks completed)',
+    category: 'note',
+  });
+  return updated;
+}
+
 const ownerRows = (db, ownerId, entity) => db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ?', [ownerId, entity]);
 
 /**
@@ -92,6 +131,8 @@ const ownerRows = (db, ownerId, entity) => db.all('SELECT * FROM records WHERE o
  * - Job.checklist (free-text tasks, Base44 and early app) becomes free-standing WorkItems, then is cleared.
  * - An estimate or change order signed before signing created WorkItems gets its items now.
  * - A WorkItem saved before tasks had a status gets one from its old done flag.
+ * - A signed-estimate task created before tasks carried hours gets its line's labor hours.
+ * - A task's single card note (status_note) becomes the first entry of its note list.
  * Old WorkOrder rows are left in place untouched; nothing reads them any more.
  */
 export async function carryOverChecklists(db) {
@@ -103,6 +144,18 @@ export async function carryOverChecklists(db) {
       const sourced = new Set(items.map(item => item.source_id).filter(Boolean));
       // saveRecord derives status from done when it is missing.
       for (const item of items.filter(i => !i.status)) await saveRecord(tx, ownerId, 'WorkItem', {}, item.id);
+      for (const item of items.filter(i => i.status_note !== undefined)) {
+        const text = String(item.status_note || '').trim();
+        const moved = text ? [{ text, status: item.status || (item.done ? 'done' : 'prep'), created_at: item.updated_date }] : [];
+        await saveRecord(tx, ownerId, 'WorkItem', { status_notes: [...moved, ...(item.status_notes || [])], status_note: undefined }, item.id);
+      }
+      const estimates = new Map((await ownerRows(tx, ownerId, 'Estimate')).map(decode).map(e => [e.id, e]));
+      for (const item of items.filter(i => i.source_type === 'Estimate' && i.labor_hours === undefined)) {
+        const lines = (estimates.get(item.source_id)?.accepted_snapshot || estimates.get(item.source_id) || {}).lines || [];
+        const line = lines.find((l, index) => (l.id || `line-${index + 1}`) === item.line_id);
+        const hours = line && lineLaborHours('Estimate', line);
+        if (hours !== undefined) await saveRecord(tx, ownerId, 'WorkItem', { labor_hours: hours }, item.id);
+      }
 
       for (const job of (await ownerRows(tx, ownerId, 'Job')).map(decode)) {
         if (!Array.isArray(job.checklist) || !job.checklist.length) continue;

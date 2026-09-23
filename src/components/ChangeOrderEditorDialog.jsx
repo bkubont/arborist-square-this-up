@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Plus, Send, Trash2 } from "lucide-react";
+import { Send } from "lucide-react";
 import { api } from "@/api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -8,19 +8,26 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
+import ScopeLinesEditor from "@/components/ScopeLinesEditor";
 import { money, shortDate } from "@/lib/format";
 import { changeOrderNet } from "@/lib/documentMapping";
 import { isChangeOrderReadOnly } from "@/lib/documentAvailability";
 import { loadAccountTaxRate } from "@/lib/salesTax";
+import { DEFAULT_LABOR_RATE, emptyEstimateLine, isPricedScopeLine, scopeLineToForm, scopeLineTotal, serializeChangeOrderLine } from "@/lib/estimateMath";
 
-/** Change Order editor + client e-sign (Phase 4). */
+/**
+ * Change Order editor + client e-sign. Lines work exactly like estimate lines (shared
+ * ScopeLinesEditor); the change order keeps its own reason, description, credit and added days.
+ * Added cost is the lines' total and net = added − credit (the server enforces the same).
+ */
 export default function ChangeOrderEditorDialog({ open, onOpenChange, document, jobId, onSaved, onRevised }) {
   const [form, setForm] = useState({
     number: "", status: "draft", reason: "", description: "", notes: "",
-    added_cost: "", credit: "", net_change: "", added_days: "", revised_contract_total: "",
+    added_cost: "", credit: "", added_days: "", revised_contract_total: "",
     tax_rate: "",
   });
-  const [lines, setLines] = useState([{ description: "", amount: "" }]);
+  const [lines, setLines] = useState([emptyEstimateLine()]);
+  const [defaultLaborRate, setDefaultLaborRate] = useState(DEFAULT_LABOR_RATE);
   const [authorized, setAuthorized] = useState(null);
   const [saving, setSaving] = useState(false);
   const [signChannel, setSignChannel] = useState("link");
@@ -39,14 +46,16 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
       notes: document.notes || "",
       added_cost: document.added_cost ?? "",
       credit: document.credit ?? "",
-      net_change: document.net_change ?? "",
       added_days: document.added_days ?? "",
       revised_contract_total: document.revised_contract_total ?? "",
       tax_rate: document.tax_rate ?? "",
     });
     setLines(Array.isArray(document.lines) && document.lines.length
-      ? document.lines.map((l) => ({ id: l.id, steps: l.steps, description: l.description || "", amount: l.amount ?? "" }))
-      : [{ description: "", amount: "" }]);
+      ? document.lines.map(scopeLineToForm)
+      : [emptyEstimateLine()]);
+    api.catalog.search({ limit: 1 }).then((data) => {
+      if (data?.default_labor_rate != null) setDefaultLaborRate(Number(data.default_labor_rate) || DEFAULT_LABOR_RATE);
+    }).catch(() => {});
     api.jobs.authorizedTotal(jobId).then(setAuthorized).catch(() => setAuthorized(null));
     if (document.tax_rate == null || document.tax_rate === "") {
       loadAccountTaxRate(api).then((rate) => {
@@ -55,9 +64,16 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
     }
   }, [open, document, jobId]);
 
+  // Priced lines set the added cost (like an estimate's total); without them it stays a typed figure.
+  const pricedLines = lines.some(isPricedScopeLine);
+  const linesTotal = useMemo(
+    () => Math.round(lines.reduce((sum, line) => sum + Math.max(0, scopeLineTotal(line)), 0) * 100) / 100,
+    [lines],
+  );
+  const addedCost = pricedLines ? linesTotal : form.added_cost;
   const computedNet = useMemo(
-    () => changeOrderNet({ added_cost: form.added_cost, credit: form.credit, net_change: form.net_change === "" ? undefined : form.net_change }),
-    [form.added_cost, form.credit, form.net_change],
+    () => changeOrderNet({ added_cost: addedCost, credit: form.credit }),
+    [addedCost, form.credit],
   );
 
   const previewRevised = useMemo(() => {
@@ -78,14 +94,14 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
     setSaving(true);
     try {
       const serializedLines = lines
-        .map((l) => ({ id: l.id || undefined, steps: l.steps || undefined, description: l.description || "", amount: l.amount === "" ? undefined : Number(l.amount) }))
-        .filter((l) => l.description || l.amount != null);
+        .map(serializeChangeOrderLine)
+        .filter((l) => l.description || isPricedScopeLine(l) || l.amount != null);
       await api.entities.ChangeOrder.update(document.id, {
         number: form.number || undefined,
         reason: form.reason,
         description: form.description,
         notes: form.notes,
-        added_cost: form.added_cost === "" ? undefined : Number(form.added_cost),
+        added_cost: addedCost === "" ? undefined : Number(addedCost),
         credit: form.credit === "" ? undefined : Number(form.credit),
         net_change: computedNet,
         added_days: form.added_days === "" ? undefined : Number(form.added_days),
@@ -106,14 +122,14 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
     setSignResult(null);
     try {
       const serializedLines = lines
-        .map((l) => ({ id: l.id || undefined, steps: l.steps || undefined, description: l.description || "", amount: l.amount === "" ? undefined : Number(l.amount) }))
-        .filter((l) => l.description || l.amount != null);
+        .map(serializeChangeOrderLine)
+        .filter((l) => l.description || isPricedScopeLine(l) || l.amount != null);
       await api.entities.ChangeOrder.update(document.id, {
         number: form.number || undefined,
         reason: form.reason,
         description: form.description,
         notes: form.notes,
-        added_cost: form.added_cost === "" ? undefined : Number(form.added_cost),
+        added_cost: addedCost === "" ? undefined : Number(addedCost),
         credit: form.credit === "" ? undefined : Number(form.credit),
         net_change: computedNet,
         added_days: form.added_days === "" ? undefined : Number(form.added_days),
@@ -183,15 +199,19 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
             <Label>Added cost</Label>
-            <Input type="number" value={form.added_cost} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, added_cost: e.target.value, net_change: "" }))} />
+            {pricedLines ? (
+              <Input value={linesTotal} readOnly className="bg-slate-50" title="Total of the lines below" />
+            ) : (
+              <Input type="number" value={form.added_cost} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, added_cost: e.target.value }))} />
+            )}
           </div>
           <div>
             <Label>Credit</Label>
-            <Input type="number" value={form.credit} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, credit: e.target.value, net_change: "" }))} />
+            <Input type="number" value={form.credit} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, credit: e.target.value }))} />
           </div>
           <div>
             <Label>Net change</Label>
-            <Input type="number" value={form.net_change === "" ? computedNet : form.net_change} readOnly={readOnly} className={readOnly ? "bg-slate-50" : undefined} onChange={(e) => setForm((f) => ({ ...f, net_change: e.target.value }))} />
+            <Input value={computedNet} readOnly className="bg-slate-50" title="Added cost − credit" />
           </div>
           <div>
             <Label>Added days</Label>
@@ -221,35 +241,10 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
 
         <div>
           <div className="mb-2">
-            <Label>Optional line breakdown</Label>
+            <Label>Lines</Label>
+            {!readOnly && <p className="text-xs text-slate-500">Priced like estimate lines — the lines total becomes the added cost. Use Credit for work taken out.</p>}
           </div>
-          <div className="space-y-2">
-            {lines.map((line, index) => (
-              <div key={index} className="flex gap-2">
-                {readOnly ? (
-                  <>
-                    <Input className="flex-1 bg-slate-50" value={line.description} readOnly />
-                    <Input className="w-28 bg-slate-50" value={line.amount} readOnly />
-                  </>
-                ) : (
-                  <>
-                    <Input className="flex-1" placeholder="Description" value={line.description} onChange={(e) => setLines((rows) => rows.map((r, i) => i === index ? { ...r, description: e.target.value } : r))} />
-                    <Input className="w-28" type="number" placeholder="Amount" value={line.amount} onChange={(e) => setLines((rows) => rows.map((r, i) => i === index ? { ...r, amount: e.target.value } : r))} />
-                    <Button type="button" variant="outline" size="icon" className="text-red-600" onClick={() => setLines((rows) => rows.length <= 1 ? [{ description: "", amount: "" }] : rows.filter((_, i) => i !== index))}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-          {!readOnly && (
-            <div className="mt-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setLines((r) => [...r, { description: "", amount: "" }])}>
-                <Plus className="w-3.5 h-3.5 mr-1" /> Line
-              </Button>
-            </div>
-          )}
+          <ScopeLinesEditor lines={lines} setLines={setLines} readOnly={readOnly} defaultLaborRate={defaultLaborRate} idPrefix="co" />
         </div>
 
         <div>

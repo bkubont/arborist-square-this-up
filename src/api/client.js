@@ -73,6 +73,11 @@ export const api = {
     void(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/void`, {}); },
     revise(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/revise`, {}); },
   },
+  /** Derived money per job (server/summary.js), incl. running_total_cents. */
+  summaries: {
+    all() { return request('/summaries'); },
+    job(id) { return request(`/jobs/${encodeURIComponent(id)}/summary`); },
+  },
   jobs: {
     authorizedTotal(id) { return request(`/jobs/${encodeURIComponent(id)}/authorized-total`); },
   },

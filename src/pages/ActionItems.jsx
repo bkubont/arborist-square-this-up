@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import { JobCardDataProvider, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import { collectActionItems } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
@@ -11,6 +12,14 @@ import { cn } from "@/lib/utils";
 const ActionIcon = NAV_ICONS.actionItems;
 
 export default function ActionItems() {
+  return (
+    <JobCardDataProvider>
+      <ActionItemsPage />
+    </JobCardDataProvider>
+  );
+}
+
+function ActionItemsPage() {
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
@@ -74,10 +83,14 @@ export default function ActionItems() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-foreground truncate">{job.title}</div>
-                <div className="text-sm text-muted-foreground truncate">{job.client_name || "—"}</div>
+                <JobCustomer job={job} />
                 <div className="text-xs font-medium text-attention mt-1">{reasons.join(" · ")}</div>
               </div>
-              <StatusBadge status={job.status} />
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <StatusBadge status={job.status} />
+                <JobRunningTotal job={job} />
+              </div>
+              <JobQuickAdd job={job} />
             </Link>
           ))}
         </div>

@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import JobFormDialog from "@/components/JobFormDialog";
 import StatusBadge from "@/components/StatusBadge";
+import { useJobCardData, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import { Button } from "@/components/ui/button";
 import { money, shortDate } from "@/lib/format";
 import { isActiveJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
@@ -22,8 +23,10 @@ export default function ActiveJobs() {
   const [loading, setLoading] = useState(true);
   const [jobDialog, setJobDialog] = useState(false);
 
-  useEffect(() => {
-    Promise.all([
+  const { clientsById, summaries, reload } = useJobCardData();
+
+  const load = useCallback(() => {
+    return Promise.all([
       api.entities.Job.list("-created_date", 300),
       api.entities.Client.list("-created_date", 200),
       api.entities.TimelineEntry.list("-created_date", 1000),
@@ -35,6 +38,10 @@ export default function ActiveJobs() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
 
@@ -50,8 +57,8 @@ export default function ActiveJobs() {
         title="Jobs"
         description={
           loading
-            ? "Estimate, Scheduled, In Progress, or Waiting on Materials"
-            : `${jobs.length} active · Estimate, Scheduled, In Progress, or Waiting on Materials`
+            ? "Estimate, Scheduled, In Progress, Waiting on Materials, or On Hold"
+            : `${jobs.length} active · Estimate, Scheduled, In Progress, Waiting on Materials, or On Hold`
         }
         primaryAction={
           <Button
@@ -95,15 +102,17 @@ export default function ActiveJobs() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-foreground truncate">{j.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{j.client_name || "—"}</div>
+                  <JobCustomer job={j} client={clientsById[j.client_id]} />
                 </div>
-                <div className="text-right hidden sm:block">
+                <div className="text-right shrink-0">
+                  <JobRunningTotal summary={summaries[j.id]} />
                   {balance > 0 && (
                     <div className="text-xs font-semibold text-attention">{money(balance)} due</div>
                   )}
-                  {j.start_date && <div className="text-xs text-muted-foreground">{shortDate(j.start_date)}</div>}
+                  {j.start_date && <div className="text-xs text-muted-foreground hidden sm:block">{shortDate(j.start_date)}</div>}
                 </div>
                 <StatusBadge status={j.status} />
+                <JobQuickAdd job={j} onSaved={() => { load(); reload(); }} />
               </Link>
             );
           })}

@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import { useJobCardData, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import { money, shortDate } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NAV_ICONS } from "@/lib/navIcons";
@@ -18,8 +19,10 @@ export default function AllJobs() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
 
-  useEffect(() => {
-    Promise.all([
+  const { clientsById, summaries, reload } = useJobCardData();
+
+  const load = useCallback(() => {
+    return Promise.all([
       api.entities.Job.list("-created_date", 300),
       api.entities.TimelineEntry.list("-created_date", 1000),
     ])
@@ -29,6 +32,10 @@ export default function AllJobs() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
   const shown = filter === "All" ? jobs : jobs.filter((j) => j.status === filter);
@@ -97,13 +104,15 @@ export default function AllJobs() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-foreground truncate">{j.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{j.client_name || "—"}</div>
+                  <JobCustomer job={j} client={clientsById[j.client_id]} />
                 </div>
-                <div className="text-right hidden sm:block">
+                <div className="text-right shrink-0">
+                  <JobRunningTotal summary={summaries[j.id]} />
                   {balance > 0 && <div className="text-xs font-semibold text-attention">{money(balance)} due</div>}
-                  {j.start_date && <div className="text-xs text-muted-foreground">{shortDate(j.start_date)}</div>}
+                  {j.start_date && <div className="text-xs text-muted-foreground hidden sm:block">{shortDate(j.start_date)}</div>}
                 </div>
                 <StatusBadge status={j.status} />
+                <JobQuickAdd job={j} onSaved={() => { load(); reload(); }} />
               </Link>
             );
           })}

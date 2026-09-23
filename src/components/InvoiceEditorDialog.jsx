@@ -377,7 +377,7 @@ export default function InvoiceEditorDialog({
           <DialogTitle>Invoice{form.number ? ` · ${form.number}` : ""}</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-slate-500 -mt-1">
-          Prefill from accepted estimate + approved change orders. Edit lines for progress billing. All fields stay editable. No client e-sign on invoices.
+          Filled from the accepted estimate + approved change orders. Remove any line you're not billing yet, or add your own. All fields stay editable. No client e-sign on invoices.
         </p>
 
         {priorInvoiced > 0 && (
@@ -474,7 +474,7 @@ export default function InvoiceEditorDialog({
                   <div className="text-xs text-right text-slate-600 tabular-nums">
                     {money((Number(row.qty) || 0) * (Number(row.unit_price) || 0))}
                   </div>
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMaterials((r) => (r.length <= 1 ? [emptyMaterial()] : r.filter((_, j) => j !== i)))}>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" aria-label="Remove line" title="Remove line" onClick={() => setMaterials((r) => (r.length <= 1 ? [emptyMaterial()] : r.filter((_, j) => j !== i)))}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -508,7 +508,7 @@ export default function InvoiceEditorDialog({
                     <div className="text-xs text-right text-slate-600 tabular-nums">
                       {money((Number(row.hours) || 0) * (Number(row.rate) || 0))}
                     </div>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLabor((r) => (r.length <= 1 ? [emptyLabor()] : r.filter((_, j) => j !== i)))}>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" aria-label="Remove line" title="Remove line" onClick={() => setLabor((r) => (r.length <= 1 ? [emptyLabor()] : r.filter((_, j) => j !== i)))}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -534,7 +534,7 @@ export default function InvoiceEditorDialog({
                   <div key={i} className="grid grid-cols-[1fr_6rem_2rem] gap-1 items-center">
                     <Input value={row.description} onChange={(e) => patchRow(setMisc, i, { description: e.target.value })} placeholder="Description" />
                     <Input type="number" value={row.amount} onChange={(e) => patchRow(setMisc, i, { amount: e.target.value })} />
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMisc((r) => (r.length <= 1 ? [emptyMisc()] : r.filter((_, j) => j !== i)))}>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" aria-label="Remove line" title="Remove line" onClick={() => setMisc((r) => (r.length <= 1 ? [emptyMisc()] : r.filter((_, j) => j !== i)))}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>

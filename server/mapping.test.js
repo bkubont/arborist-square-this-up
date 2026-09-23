@@ -6,12 +6,10 @@ import {
   buildInvoiceAutofill,
   deriveInvoiceStatus,
   sumActiveInvoiceTotals,
-  materialLinesFromEstimate,
-  materialLinesFromChangeOrder,
+  materialLinesFromWorkItems,
   collectJobMaterialLines,
   mergeMaterialOrderLines,
   materialOrderTotals,
-  selectChangeOrdersForMaterials,
   filterIncomingNotClaimedElsewhere,
   pickAcceptedEstimate,
 } from './mapping.js';
@@ -114,45 +112,30 @@ test('deriveInvoiceStatus supports partial and paid without promoting drafts', (
   assert.equal(deriveInvoiceStatus({ status: 'void', balance_due: 0 }), 'void');
 });
 
-test('material order lines from estimate / CO', () => {
-  const est = materialLinesFromEstimate({
-    id: 'est-1',
-    status: 'draft',
-    lines: [
-      { description: 'Faucet', category: 'Plumbing', material_amount: 45, notes: 'chrome' },
-      { description: 'Labor only', labor_amount: 100 },
-    ],
-  });
-  assert.equal(est.length, 1);
-  assert.equal(est[0].unit_price, 45);
-  assert.equal(est[0].qty, 1);
-  assert.equal(est[0].source_entity, 'Estimate');
-  assert.equal(est[0].source_line_index, 0);
-  assert.equal(est[0].wo_line_number, undefined);
-  assert.equal(est[0].line_status, undefined);
-
-  const co = materialLinesFromChangeOrder({
-    id: 'co-1',
-    status: 'draft',
-    lines: [
-      { description: 'Extra tile', amount: 80 },
-      { description: 'Credit', amount: -20 },
-    ],
-  });
-  assert.equal(co.length, 1);
-  assert.equal(co[0].unit_price, 80);
+test('material order lines come from task materials not on hand, with their price', () => {
+  const lines = materialLinesFromWorkItems([
+    { id: 'wi-1', status: 'in_progress', category: 'Plumbing', materials: [
+      { id: 'm-1', description: 'Faucet', qty: 1, unit_price: 45, unit: 'ea' },
+      { id: 'm-2', description: 'Plumber tape', qty: 1, have: true },
+      { id: 'm-3', description: '' },
+    ] },
+    { id: 'wi-2', status: 'cancelled', materials: [{ id: 'm-4', description: 'Tile', qty: 10 }] },
+  ]);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].description, 'Faucet');
+  assert.equal(lines[0].unit_price, 45);
+  assert.equal(lines[0].category, 'Plumbing');
+  assert.equal(lines[0].source_entity, 'WorkItem');
+  assert.equal(lines[0].source_line_id, 'm-1');
 });
 
-test('collectJobMaterialLines takes estimate materials; merge preserves user fields', () => {
-  const estimate = {
-    id: 'est-1', status: 'accepted',
-    lines: [{ description: 'From est', material_amount: 22 }],
-  };
-  const collected = collectJobMaterialLines({ estimate, changeOrders: [] });
+test('collectJobMaterialLines takes task materials only; merge preserves user fields', () => {
+  const workItems = [{ id: 'wi-1', status: 'prep', materials: [{ id: 'm-1', description: 'From est', qty: 1, unit_price: 22 }] }];
+  const collected = collectJobMaterialLines({ workItems });
   assert.equal(collected.length, 1);
   assert.equal(collected[0].description, 'From est');
-  assert.equal(collected[0].source_entity, 'Estimate');
-  assert.equal(collectJobMaterialLines({ estimate: { ...estimate, status: 'void' } }).length, 0);
+  assert.equal(collected[0].source_entity, 'WorkItem');
+  assert.equal(collectJobMaterialLines({ estimate: { id: 'e', lines: [{ description: 'x', material_amount: 5 }] } }).length, 0, 'estimates are not a source');
 
   const merged = mergeMaterialOrderLines(
     [{ ...collected[0], supplier: 'Home Depot', on_hand: true, line_status: 'backorder', notes: 'mine' }],
@@ -175,7 +158,7 @@ test('collectJobMaterialLines takes estimate materials; merge preserves user fie
   assert.equal(materialOrderTotals([{ qty: 2, unit_price: 10.5 }]).total, 21);
 });
 
-test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claimed filter skips purchased', () => {
+test('merge adopts legacy unkeyed lines; claimed filter skips purchased', () => {
   const incoming = [{
     description: 'Pipe', qty: 1, unit_price: 30,
     source_entity: 'Estimate', source_id: 'est-1', source_line_index: 0,
@@ -197,27 +180,6 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
   assert.equal(keepManual[0].qty, 5);
   assert.equal(keepManual[0].unit_price, 12);
   assert.equal(keepManual[0].source_entity, undefined);
-
-  const cos = selectChangeOrdersForMaterials([
-    { id: 'co1', number: 'CO-001', status: 'sent', lines: [{ description: 'Tile', amount: 50 }] },
-    { id: 'co2', number: 'CO-001-R2', status: 'draft', lines: [{ description: 'Tile', amount: 50 }] },
-    { id: 'co3', number: 'CO-002', status: 'approved', lines: [{ description: 'Paint', amount: 20 }] },
-  ]);
-  assert.equal(cos.length, 2);
-  assert.ok(cos.some((c) => c.id === 'co2'));
-  assert.ok(cos.some((c) => c.id === 'co3'));
-  assert.ok(!cos.some((c) => c.id === 'co1'));
-
-  const collected = collectJobMaterialLines({
-    estimate: null,
-    changeOrders: [
-      { id: 'co1', number: 'CO-001', status: 'sent', lines: [{ description: 'Tile', amount: 50 }] },
-      { id: 'co2', number: 'CO-001-R2', status: 'draft', lines: [{ description: 'Tile', amount: 55 }] },
-    ],
-  });
-  assert.equal(collected.length, 1);
-  assert.equal(collected[0].source_id, 'co2');
-  assert.equal(collected[0].unit_price, 55);
 
   const filtered = filterIncomingNotClaimedElsewhere(incoming, [
     { status: 'purchased', lines: [{ description: 'Pipe', qty: 1, unit_price: 30 }] },

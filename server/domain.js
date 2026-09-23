@@ -26,7 +26,7 @@ const estimateLine = z.object({
   material_amount: money.optional(),
   labor_amount: money.optional(),
   equipment_amount: money.optional(),
-  /** Stored for WO mapping after catalog fill (Decision #2 / #5). */
+  /** Copied onto the line's task at signing, so the crew can see how long it should take. */
   labor_hours: money.optional(),
   labor_rate: money.optional(),
   category: text.optional(),
@@ -54,13 +54,13 @@ const invoiceMiscLine = z.object({
   amount: signedMoney.optional(),
 });
 
-const changeOrderLine = z.object({
-  /** Stable id, assigned server-side on first save (see saveRecord). Links a signed line to its WorkItem. */
-  id: z.string().max(64).optional(),
-  description: text.default(''),
+/**
+ * Change order lines have the same shape as estimate lines (material / labor / equipment, hours,
+ * category, notes). `amount` is the single figure change order lines had before; a line with
+ * none of the priced fields still counts it (see changeOrderLineAmount).
+ */
+const changeOrderLine = estimateLine.extend({
   amount: signedMoney.optional(),
-  /** Internal task breakdown; customer never sees this. */
-  steps: z.array(lineStep).max(200).optional(),
 });
 
 const signMeta = {
@@ -105,7 +105,7 @@ export const schemas = {
     notes: text.optional(),
   }),
   Job: z.object({ title: z.string().trim().min(1).max(250), client_id: id, client_name: text.optional(), description: text.optional(),
-    status: z.enum(['Estimate','Scheduled','In Progress','Waiting on Materials','Completed','Paid']).default('Estimate'),
+    status: z.enum(['Estimate','Scheduled','In Progress','Waiting on Materials','On Hold','Completed','Paid']).default('Estimate'),
     start_date: date.optional(), end_date: date.optional(), estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
     // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
@@ -162,6 +162,21 @@ export const schemas = {
     /** Derived from status ('done') by saveRecord, kept for billing "completed work". */
     done: z.boolean().default(false),
     done_at: z.string().max(40).optional(),
+    /** Expected labor, from the signed line's labor_hours; editable as a planning figure. */
+    labor_hours: money.optional(),
+    /**
+     * Notes shown on the task card, oldest first — e.g. why it went on hold. Each keeps the status
+     * the task had when it was written (stamped with the time by saveRecord), so the card shows
+     * what happened when.
+     */
+    status_notes: z.array(z.object({
+      id: z.string().max(64).optional(),
+      text: z.string().trim().min(1).max(500),
+      status: z.enum(TASK_STATUSES).optional(),
+      created_at: z.string().max(40).optional(),
+    })).max(200).optional(),
+    /** The single card note tasks had before status_notes; carryOverChecklists moves it over. */
+    status_note: z.string().max(500).optional(),
     /** Position within its status column / the list; lower first. */
     sort_order: z.number().finite().min(-1e9).max(1e9).optional(),
     measurements: z.array(z.object({ id: z.string().max(64).optional(), label: text.default(''), value: text.default('') })).max(200).optional(),
@@ -171,6 +186,8 @@ export const schemas = {
       description: text.default(''),
       qty: money.optional(),
       unit: z.string().max(40).optional(),
+      /** Price per unit; carried onto the Material Order line. */
+      unit_price: money.optional(),
       have: z.boolean().default(false),
       notes: text.optional(),
     })).max(500).optional(),
@@ -336,6 +353,14 @@ export async function getRecord(db, owner, entity, recordId) {
   return decode(row);
 }
 
+const PRICED_FIELDS = ['material_amount', 'labor_amount', 'equipment_amount'];
+/** A line priced by material / labor / equipment — every estimate line, and change order lines. */
+export const isPricedScopeLine = (line = {}) => PRICED_FIELDS.some(key => line[key] != null);
+/** Dollar total of an estimate or change order line (an older single-amount CO line keeps its amount). */
+export const scopeLineAmount = (line = {}) => (isPricedScopeLine(line) || line.amount == null
+  ? PRICED_FIELDS.reduce((sum, key) => sum + (Number(line[key]) || 0), 0)
+  : Number(line.amount) || 0);
+
 const withIds = rows => rows.map(row => (row.id ? row : { ...row, id: randomUUID() }));
 
 export async function saveRecord(db, owner, entity, input, recordId, opts = {}) {
@@ -349,9 +374,21 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   if ((entity === 'Estimate' || entity === 'ChangeOrder') && Array.isArray(data.lines)) {
     data.lines = data.lines.map(line => ({ ...line, id: line.id || randomUUID(), ...(line.steps && { steps: withIds(line.steps) }) }));
   }
+  // A change order priced line by line (like an estimate) adds exactly its lines' total; the net is
+  // that less any credit. Computed here so the signed figures can't drift from the lines.
+  if (entity === 'ChangeOrder' && !data.accepted_snapshot && Array.isArray(data.lines) && data.lines.some(isPricedScopeLine)) {
+    const cents = data.lines.reduce((sum, line) => sum + Math.max(0, Math.round(scopeLineAmount(line) * 100)), 0);
+    data.added_cost = cents / 100;
+    data.net_change = Math.round(cents - (Number(data.credit) || 0) * 100) / 100;
+  }
   if (entity === 'WorkItem') {
     for (const key of ['steps', 'measurements', 'materials']) if (data[key]) data[key] = withIds(data[key]);
     data.done = data.status === 'done';
+    // A new card note is stamped with when it was written and the status the task had then.
+    if (data.status_notes) {
+      const now = new Date().toISOString();
+      data.status_notes = data.status_notes.map(note => (note.id ? note : { ...note, id: randomUUID(), status: note.status || data.status, created_at: now }));
+    }
   }
   if (entity === 'Client' && !opts.skipClientAddressCheck) {
     const touchingAddress = !recordId || CLIENT_ADDRESS_KEYS.some((key) => Object.prototype.hasOwnProperty.call(input || {}, key));

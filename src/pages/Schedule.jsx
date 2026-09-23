@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Clock, List, Sun } from "lucide-react";
 import { api } from "@/api/client";
+import { JobCardDataProvider, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMark";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -55,12 +56,15 @@ function JobChip({ job, dense = false }) {
         <div className={cn("font-semibold text-foreground truncate", dense ? "text-xs" : "text-sm")}>
           {job.title || "Untitled job"}
         </div>
-        <div className={cn("text-muted-foreground truncate", dense ? "text-[10px]" : "text-xs")}>
-          {job.client_name || "—"}
-        </div>
+        {dense ? (
+          <div className="text-muted-foreground truncate text-[10px]">{job.client_name || "—"}</div>
+        ) : (
+          <JobCustomer job={job} className="text-xs" />
+        )}
         {!dense ? (
           <div className="mt-1.5 flex items-center gap-2">
             <StatusBadge status={job.status} />
+            <JobRunningTotal job={job} className="text-xs" />
             <span className="text-[11px] font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-0.5">
               Open job <ArrowRight className="w-3 h-3" />
             </span>
@@ -69,7 +73,9 @@ function JobChip({ job, dense = false }) {
       </div>
       {dense ? (
         <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5 group-hover:text-primary" aria-hidden="true" />
-      ) : null}
+      ) : (
+        <JobQuickAdd job={job} />
+      )}
     </Link>
   );
 }
@@ -78,6 +84,14 @@ function JobChip({ job, dense = false }) {
  * Schedule — day / week / agenda from job start_date (no separate calendar backend).
  */
 export default function Schedule() {
+  return (
+    <JobCardDataProvider>
+      <SchedulePage />
+    </JobCardDataProvider>
+  );
+}
+
+function SchedulePage() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("week"); // day | week | agenda
@@ -362,12 +376,16 @@ function AgendaView({ scheduled }) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-foreground truncate">{job.title}</div>
-            <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
+            <div className="text-sm text-muted-foreground flex items-center gap-1 min-w-0">
               <Clock className="w-3 h-3 shrink-0" />
-              {job.client_name || "—"}
+              <JobCustomer job={job} />
             </div>
           </div>
-          <StatusBadge status={job.status} />
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <StatusBadge status={job.status} />
+            <JobRunningTotal job={job} className="text-xs" />
+          </div>
+          <JobQuickAdd job={job} />
           <span className="text-[11px] font-medium text-primary hidden sm:inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             Open <ArrowRight className="w-3 h-3" />
           </span>

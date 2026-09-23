@@ -1,19 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import { useJobCardData, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
+import JobTasks from "@/components/JobTasks";
 import { money, shortDate } from "@/lib/format";
 import { JOB_STATUSES, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
+/**
+ * Kanban: every job by job status, or (Tasks) every job's tasks by task status. Either way,
+ * dragging a card to another column changes its status. The choice lives in the URL (?view=tasks).
+ */
 export default function JobBoard() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mode = searchParams.get("view") === "tasks" ? "tasks" : "jobs";
+  const setMode = (next) => setSearchParams(next === "tasks" ? { view: "tasks" } : {}, { replace: true });
+  const [tasks, setTasks] = useState(null);
+  const [scopeDocs, setScopeDocs] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
+  const { clientsById, summaries, reload } = useJobCardData();
 
   const load = useCallback(() => {
     return Promise.all([
@@ -30,6 +42,22 @@ export default function JobBoard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Tasks view: all tasks, plus estimate / change order statuses so voided-source tasks show as such.
+  const loadTasks = useCallback(() => Promise.all([
+    api.entities.WorkItem.list("-created_date", 2000),
+    api.entities.Estimate.list("-updated_date", 500),
+    api.entities.ChangeOrder.list("-updated_date", 500),
+  ]).then(([items, estimates, changeOrders]) => {
+    setTasks(items);
+    setScopeDocs([...estimates, ...changeOrders]);
+  }), []);
+
+  useEffect(() => {
+    if (mode === "tasks") loadTasks();
+  }, [mode, loadTasks]);
+
+  const jobsById = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j])), [jobs]);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
 
@@ -81,16 +109,40 @@ export default function JobBoard() {
     <div className="p-4 lg:p-6 h-full flex flex-col min-h-0">
       <PageHeader
         className="mb-4 shrink-0"
-        title="Board"
-        description="Drag a job to change its status"
+        title="Kanban"
+        description={mode === "tasks" ? "Every job's tasks — drag a task to change its status" : "Drag a job to change its status"}
         secondary={
-          <Link to="/jobs" className="text-sm font-medium text-primary hover:underline shrink-0">
-            List view
-          </Link>
+          <div className="flex items-center gap-3">
+            <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/60" role="group" aria-label="Board shows">
+              {[["jobs", "Jobs"], ["tasks", "Tasks"]].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={mode === value}
+                  onClick={() => setMode(value)}
+                  className={cn(
+                    "px-3 py-1 text-xs font-medium rounded-md",
+                    mode === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Link to="/jobs" className="text-sm font-medium text-primary hover:underline shrink-0">
+              List view
+            </Link>
+          </div>
         }
       />
 
-      {loading ? (
+      {mode === "tasks" ? (
+        tasks == null ? (
+          <p className="text-muted-foreground">Loading…</p>
+        ) : (
+          <JobTasks items={tasks} documents={scopeDocs} jobsById={jobsById} onChanged={() => { loadTasks(); load(); }} view="board" />
+        )
+      ) : loading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : (
         <DragDropContext onDragEnd={onDragEnd}>
@@ -102,6 +154,9 @@ export default function JobBoard() {
                 jobs={columns[status] || []}
                 savingId={savingId}
                 paymentsMap={paymentsMap}
+                clientsById={clientsById}
+                summaries={summaries}
+                onQuickAdded={() => { load(); reload(); }}
               />
             ))}
           </div>
@@ -111,7 +166,7 @@ export default function JobBoard() {
   );
 }
 
-function BoardColumn({ status, jobs, savingId, paymentsMap }) {
+function BoardColumn({ status, jobs, savingId, paymentsMap, clientsById, summaries, onQuickAdded }) {
   const colors = statusColors(status);
   return (
     <Droppable droppableId={status}>
@@ -153,13 +208,17 @@ function BoardColumn({ status, jobs, savingId, paymentsMap }) {
                     >
                       <Link to={`/jobs/${job.id}`} className="block" onClick={(e) => e.stopPropagation()}>
                         <div className="font-semibold text-sm text-foreground leading-snug line-clamp-2">{job.title}</div>
-                        <div className="text-xs text-muted-foreground truncate mt-0.5">{job.client_name || "—"}</div>
+                        <JobCustomer job={job} client={clientsById[job.client_id]} className="text-xs mt-0.5" />
                       </Link>
                       <div className="flex items-center justify-between gap-2 mt-2">
-                        <StatusBadge status={job.status} className="scale-90 origin-left" />
+                        <JobRunningTotal summary={summaries[job.id]} className="text-xs" />
                         {balance > 0 && (
-                          <span className="text-[10px] font-semibold text-attention">{money(balance)}</span>
+                          <span className="text-[10px] font-semibold text-attention">{money(balance)} due</span>
                         )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 mt-1.5">
+                        <StatusBadge status={job.status} className="scale-90 origin-left" />
+                        <JobQuickAdd job={job} onSaved={onQuickAdded} />
                       </div>
                       {job.start_date && (
                         <div className="text-[10px] text-muted-foreground mt-1">{shortDate(job.start_date)}</div>

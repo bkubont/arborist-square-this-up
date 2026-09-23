@@ -3,6 +3,7 @@
  * Assistive only — all values remain editable after carryover.
  */
 
+import { isPricedScopeLine, scopeLineAmount } from './domain.js';
 import { resolveSalesTaxRate } from './salesTax.js';
 
 function num(v) {
@@ -19,9 +20,9 @@ export function estimateLineAmount(line = {}) {
   return round2((num(line.material_amount) || 0) + (num(line.labor_amount) || 0) + (num(line.equipment_amount) || 0));
 }
 
-/** @see estimateLineAmount */
+/** Priced like an estimate line; an older single-amount line keeps its amount. @see estimateLineAmount */
 export function changeOrderLineAmount(line = {}) {
-  return round2(num(line.amount) || 0);
+  return round2(scopeLineAmount(line));
 }
 
 /** Primary work-category options (Decision #1) — free text still allowed in UI. */
@@ -142,15 +143,29 @@ export function estimateLinesToInvoiceTables(lines = []) {
 }
 
 /** Fold approved change orders into invoice tables (Decision #6). */
-export function approvedChangeOrdersToInvoiceMisc(changeOrders = []) {
+export function approvedChangeOrdersToInvoiceLines(changeOrders = []) {
+  const material_lines = [];
+  const labor_lines = [];
   const misc_lines = [];
   const billed_ids = [];
   const refs = [];
   for (const co of changeOrders.filter(c => c.status === 'approved')) {
     billed_ids.push(co.id);
     if (co.number) refs.push(co.number);
-    const lines = Array.isArray(co.accepted_snapshot?.lines) ? co.accepted_snapshot.lines
-      : Array.isArray(co.lines) ? co.lines : [];
+    const source = co.accepted_snapshot || co;
+    const lines = Array.isArray(source.lines) ? source.lines : [];
+    const priced = lines.filter(isPricedScopeLine);
+    if (priced.length) {
+      // Priced like estimate lines: material / labor / equipment go to their own invoice tables.
+      const label = co.number ? `${co.number}: ` : '';
+      const tables = estimateLinesToInvoiceTables(priced.map(line => ({ ...line, description: `${label}${line.description || 'Change order work'}` })));
+      material_lines.push(...tables.material_lines);
+      labor_lines.push(...tables.labor_lines);
+      misc_lines.push(...tables.misc_lines);
+      const credit = Number(source.credit) || 0;
+      if (credit > 0) misc_lines.push({ description: `${co.number || 'Change order'} credit`, amount: -round2(credit) });
+      continue;
+    }
     const detailed = lines.filter(l => l && (l.description || l.amount != null));
     if (detailed.length) {
       for (const line of detailed) {
@@ -169,7 +184,7 @@ export function approvedChangeOrdersToInvoiceMisc(changeOrders = []) {
       }
     }
   }
-  return { misc_lines, billed_change_order_ids: billed_ids, change_order_refs: refs.join(', ') };
+  return { material_lines, labor_lines, misc_lines, billed_change_order_ids: billed_ids, change_order_refs: refs.join(', ') };
 }
 
 export function invoiceLineMaterialsTotal(lines = []) {
@@ -221,9 +236,9 @@ export function buildInvoiceAutofill({
 } = {}) {
   const source = estimate?.accepted_snapshot || estimate || {};
   const tables = estimateLinesToInvoiceTables(source.lines || []);
-  const co = approvedChangeOrdersToInvoiceMisc(approvedChangeOrders);
-  const material_lines = tables.material_lines;
-  const labor_lines = tables.labor_lines;
+  const co = approvedChangeOrdersToInvoiceLines(approvedChangeOrders);
+  const material_lines = [...tables.material_lines, ...co.material_lines];
+  const labor_lines = [...tables.labor_lines, ...co.labor_lines];
   const misc_lines = [...tables.misc_lines, ...co.misc_lines];
   const tax_rate = source.tax_rate ?? estimate?.tax_rate ?? resolveSalesTaxRate(company);
   const totals = invoiceTotals({
@@ -302,62 +317,6 @@ export function materialOrderClaimIdentity(line = {}) {
   return `desc:${desc}`;
 }
 
-/** Latest non-void / non-rejected CO per number stem (CO-001 vs CO-001-R2 → R2 only). */
-export function selectChangeOrdersForMaterials(changeOrders = []) {
-  const live = (changeOrders || []).filter((co) => co && co.status !== 'void' && co.status !== 'rejected');
-  const byStem = new Map();
-  for (const co of live) {
-    const number = String(co.number || co.id || '');
-    const match = /^(.*?)(?:-R(\d+))?$/.exec(number);
-    const stem = match?.[1] || number || co.id;
-    const rev = match?.[2] ? Number(match[2]) : 1;
-    const prev = byStem.get(stem);
-    if (!prev || rev > prev.rev) byStem.set(stem, { co, rev });
-  }
-  return [...byStem.values()].map((row) => row.co);
-}
-
-/** Estimate material $ → MO lines (qty 1 × unit_price). */
-export function materialLinesFromEstimate(estimate) {
-  if (!estimate?.id) return [];
-  const source = estimate.accepted_snapshot || estimate;
-  const lines = source.lines || [];
-  return lines.flatMap((line, index) => {
-    const material = num(line.material_amount);
-    if (material == null || material <= 0) return [];
-    return [{
-      description: line.description || 'Materials',
-      qty: 1,
-      unit_price: material,
-      category: line.category || undefined,
-      notes: line.notes || undefined,
-      source_entity: 'Estimate',
-      source_id: estimate.id,
-      source_line_index: index,
-      on_hand: false,
-    }];
-  });
-}
-
-/** Change Order amount lines → MO materials (credits skipped). */
-export function materialLinesFromChangeOrder(changeOrder) {
-  if (!changeOrder?.id) return [];
-  return (changeOrder.lines || []).flatMap((line, index) => {
-    const amount = num(line.amount);
-    if (amount != null && amount < 0) return [];
-    if (!line.description && (amount == null || amount === 0)) return [];
-    return [{
-      description: line.description || 'Change order materials',
-      qty: 1,
-      unit_price: amount != null && amount > 0 ? amount : undefined,
-      source_entity: 'ChangeOrder',
-      source_id: changeOrder.id,
-      source_line_index: index,
-      on_hand: false,
-    }];
-  });
-}
-
 /**
  * Task materials still needed (not on hand) → MO lines. Cancelled tasks contribute nothing, and
  * ticking an item "have" drops it from the draft on the next sync.
@@ -370,6 +329,7 @@ export function materialLinesFromWorkItems(workItems = []) {
       return [{
         description: material.description,
         qty: num(material.qty),
+        unit_price: num(material.unit_price),
         category: item.category || undefined,
         notes: [material.unit, material.notes].filter(Boolean).join(' · ') || undefined,
         source_entity: 'WorkItem',
@@ -383,24 +343,12 @@ export function materialLinesFromWorkItems(workItems = []) {
 }
 
 /**
- * Collect job materials for MO autofill, from the estimate (its signed snapshot when there is one,
- * see materialLinesFromEstimate) plus change orders. This was the Work Order's job before the
- * checklist replaced it; the WO only ever held a copy of these same estimate materials, and the
- * signed snapshot can no longer drift, so it is the better source.
- * Change orders: latest revision per number stem only (avoids original + revise draft dupes).
- * Task materials still needed are added after (materialLinesFromWorkItems).
- * @param {{ estimate?: object|null, changeOrders?: object[], workItems?: object[] }} [args]
+ * Collect job materials for MO autofill: the material lists on the job's tasks, items not yet on
+ * hand. Estimates and change orders no longer feed Material Orders directly.
+ * @param {{ workItems?: object[] }} [args]
  */
-export function collectJobMaterialLines({ estimate = null, changeOrders = [], workItems = [] } = {}) {
-  const out = [];
-  if (estimate && estimate.status !== 'void') {
-    out.push(...materialLinesFromEstimate(estimate));
-  }
-  for (const co of selectChangeOrdersForMaterials(changeOrders)) {
-    out.push(...materialLinesFromChangeOrder(co));
-  }
-  out.push(...materialLinesFromWorkItems(workItems));
-  return out;
+export function collectJobMaterialLines({ workItems = [] } = {}) {
+  return materialLinesFromWorkItems(workItems);
 }
 
 /**

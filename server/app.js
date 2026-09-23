@@ -25,13 +25,14 @@ import {
   SINGLE_DOC_ENTITIES,
 } from './documentRules.js';
 import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
-import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable } from './workItems.js';
+import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable, completeJobWhenTasksDone } from './workItems.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { jobSummary, accountSummaries } from './summary.js';
 import { fromCents } from '../shared/money.js';
 
-const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'ChangeOrder', 'WorkItem']);
+/** Saving these re-syncs the job's draft Material Order: only task material lists feed it. */
+const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem']);
 
 async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
   if (!jobId) return null;
@@ -332,56 +333,59 @@ export async function createApp(db, env = process.env) {
     });
     res.status(201).json(created);
   });
+  const loadCompany = async ownerId => {
+    const [profile] = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [ownerId, 'CompanyProfile']);
+    return profile ? decode(profile) : null;
+  };
+  /**
+   * A new draft invoice for the job, filled from the accepted estimate (its signed snapshot) and
+   * approved change orders, with deposits / payments already received applied. Every line stays
+   * editable and removable in the invoice editor.
+   */
+  async function createInvoiceFromJob(tx, ownerId, job, company) {
+    const jobId = job.id;
+    const estimates = await listJobDocuments(tx, ownerId, 'Estimate', jobId);
+    const estimate = findLiveAcceptedEstimate(estimates);
+    if (!estimate) throw fail(400, 'Accept an estimate before creating an invoice from this job');
+    const cos = await listJobDocuments(tx, ownerId, 'ChangeOrder', jobId);
+    const approved = cos.filter(c => c.status === 'approved');
+    const timeline = await listJobDocuments(tx, ownerId, 'TimelineEntry', jobId);
+    const payments_applied = timeline
+      .filter(e => e.type === 'payment_received' && e.amount != null)
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+    const deposits_applied = sumDepositsApplied(job, timeline);
+    const existingRows = await listJobDocuments(tx, ownerId, 'Invoice', jobId);
+    const activeInvoices = existingRows.filter(inv => inv.status !== 'void');
+    const built = buildInvoiceAutofill({
+      job,
+      estimate,
+      approvedChangeOrders: approved,
+      company,
+      deposits_applied,
+      payments_applied,
+      number: `INV-${String(existingRows.length + 1).padStart(3, '0')}`,
+      existingInvoices: activeInvoices,
+    });
+    const inv = await saveRecord(tx, ownerId, 'Invoice', built.invoice);
+    await saveRecord(tx, ownerId, 'TimelineEntry', {
+      job_id: jobId,
+      type: 'document_created',
+      text: `Invoice ${inv.number || ''} created from accepted estimate`.trim(),
+      category: 'document',
+    });
+    const invoicedRollup = sumActiveInvoiceTotals([...activeInvoices, inv]);
+    await saveRecord(tx, ownerId, 'Job', { invoice_amount: invoicedRollup }, job.id);
+    return { ...inv, authorized_total: built.authorized_total, prior_invoiced: built.prior_invoiced };
+  }
   app.post('/api/invoices/from-job', async (req, res) => {
     const jobId = z.string().min(1).max(36).parse(req.body.job_id);
     const job = await getRecord(db, req.user.id, 'Job', jobId);
-    let company = null;
-    const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [req.user.id, 'CompanyProfile']);
-    if (profiles[0]) company = decode(profiles[0]);
-
+    const company = await loadCompany(req.user.id);
     const result = await ownedTransaction(req.user.id, async tx => {
       await assertInvoiceHasAuthorizedScope(tx, req.user.id, jobId);
       const existingInv = await findActiveJobDocument(tx, req.user.id, 'Invoice', jobId);
       if (existingInv) return { existing: existingInv };
-
-      const estimates = await listJobDocuments(tx, req.user.id, 'Estimate', jobId);
-      const estimate = findLiveAcceptedEstimate(estimates);
-      if (!estimate) throw fail(400, 'Accept an estimate before creating an invoice from this job');
-      const cos = await listJobDocuments(tx, req.user.id, 'ChangeOrder', jobId);
-      const approved = cos.filter(c => c.status === 'approved');
-      const timeline = await listJobDocuments(tx, req.user.id, 'TimelineEntry', jobId);
-      const payments_applied = timeline
-        .filter(e => e.type === 'payment_received' && e.amount != null)
-        .reduce((sum, e) => sum + Number(e.amount), 0);
-      const deposits_applied = sumDepositsApplied(job, timeline);
-      const existingRows = await listJobDocuments(tx, req.user.id, 'Invoice', jobId);
-      const activeInvoices = existingRows.filter(inv => inv.status !== 'void');
-      const built = buildInvoiceAutofill({
-        job,
-        estimate,
-        approvedChangeOrders: approved,
-        company,
-        deposits_applied,
-        payments_applied,
-        number: `INV-${String(existingRows.length + 1).padStart(3, '0')}`,
-        existingInvoices: activeInvoices,
-      });
-      const inv = await saveRecord(tx, req.user.id, 'Invoice', built.invoice);
-      await saveRecord(tx, req.user.id, 'TimelineEntry', {
-        job_id: jobId,
-        type: 'document_created',
-        text: `Invoice ${inv.number || ''} created from accepted estimate`.trim(),
-        category: 'document',
-      });
-      const invoicedRollup = sumActiveInvoiceTotals([...activeInvoices, inv]);
-      await saveRecord(tx, req.user.id, 'Job', { invoice_amount: invoicedRollup }, job.id);
-      return {
-        created: {
-          ...inv,
-          authorized_total: built.authorized_total,
-          prior_invoiced: built.prior_invoiced,
-        },
-      };
+      return { created: await createInvoiceFromJob(tx, req.user.id, job, company) };
     });
     if (result.existing) {
       res.json(result.existing);
@@ -427,6 +431,7 @@ export async function createApp(db, env = process.env) {
         if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.user.id, 'Estimate', body.job_id)), 'creating');
       }
       let record = await saveRecord(tx, req.user.id, entity, body);
+      if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, record.job_id);
       if (entity === 'MaterialOrder' && record.job_id) {
         const hasLines = Array.isArray(record.lines)
           && record.lines.some((l) => l.description || l.qty || l.unit_price);
@@ -494,6 +499,7 @@ export async function createApp(db, env = process.env) {
         await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
       }
       const saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
+      if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, saved.job_id);
       if (withdrawingSignLink) await invalidateSignLinks(tx, req.user.id, entity, req.params.id);
       return saved;
     });
@@ -558,7 +564,11 @@ export async function createApp(db, env = process.env) {
       }
       await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
       // A deleted task's still-needed materials leave the draft Material Order with it.
-      if (req.params.entity === 'WorkItem') await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
+      if (req.params.entity === 'WorkItem') {
+        await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
+        // Removing the last open task can leave every remaining one completed.
+        await completeJobWhenTasksDone(tx, req.user.id, record.job_id);
+      }
       // Remove files no longer referenced by any remaining record. A signature file is referenced by
       // both its signed Estimate/ChangeOrder and its timeline entry, so deleting either one alone
       // must not orphan the file the other still points to.

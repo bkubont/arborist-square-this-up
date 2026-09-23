@@ -14,6 +14,7 @@ export const NAV_GROUPS = [
     label: "Work",
     items: [
       { to: "/jobs/active", label: "Jobs", icon: NAV_ICONS.jobs },
+      { to: "/jobs/board", label: "Kanban", icon: NAV_ICONS.board },
       { to: "/clients", label: "Customers", icon: NAV_ICONS.customers },
       { to: "/schedule", label: "Schedule", icon: NAV_ICONS.schedule },
     ],
@@ -43,6 +44,5 @@ export const NAV_GROUPS = [
 /** Deep-link destinations kept working but not in primary sidebar groups. */
 export const SECONDARY_DESTINATIONS = [
   { to: "/jobs", label: "All Jobs", end: true },
-  { to: "/jobs/board", label: "Board" },
   { to: "/jobs/action-items", label: "Action items" },
 ];

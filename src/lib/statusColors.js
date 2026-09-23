@@ -78,6 +78,16 @@ export const STATUS_SEMANTICS = {
     swatch: "bg-attention",
     select: "text-attention",
   },
+  /** Paused on purpose — On Hold (jobs and tasks); distinct from the gold "waiting" family. */
+  hold: {
+    badge: "bg-violet-100 text-violet-950 border-violet-300",
+    border: "border-violet-400",
+    ring: "ring-violet-300/40",
+    column: "border-violet-300/50",
+    columnHeader: "bg-violet-50 border-violet-200",
+    swatch: "bg-violet-500",
+    select: "text-violet-900",
+  },
   success: {
     badge: "bg-emerald-100 text-emerald-950 border-emerald-300",
     border: "border-emerald-400",
@@ -126,6 +136,7 @@ export const STATUS_SEMANTIC_MAP = {
   Scheduled: "sky",
   "In Progress": "blue",
   "Waiting on Materials": "attention-materials",
+  "On Hold": "hold",
   Completed: "success",
   Paid: "closed",
 
@@ -149,7 +160,7 @@ export const STATUS_SEMANTIC_MAP = {
   prep: "neutral",
   in_progress: "blue",
   waiting_materials: "attention-materials",
-  on_hold: "attention-approval",
+  on_hold: "hold",
   cancelled: "danger",
   done: "success",
 };

@@ -7,13 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import StatusSelect from "@/components/StatusSelect";
-import { moneyCents } from "@/lib/format";
+import { NoteList } from "@/components/TaskNotes";
+import { money, moneyCents } from "@/lib/format";
 import { TASK_STATUSES, taskStatus, taskStatusLabel, taskDeletable, taskSourceVoided } from "@/lib/tasks";
 import { cn } from "@/lib/utils";
 
 const blankStep = () => ({ text: "", done: false });
 const blankMeasurement = () => ({ label: "", value: "" });
-const blankMaterial = () => ({ description: "", qty: "", unit: "", have: false });
+const blankMaterial = () => ({ description: "", qty: "", unit: "", unit_price: "", have: false });
 
 function toDraft(item) {
   return {
@@ -22,9 +23,10 @@ function toDraft(item) {
     category: item.category || "",
     tools: item.tools || "",
     notes: item.notes || "",
+    labor_hours: item.labor_hours ?? "",
     steps: (item.steps || []).map((s) => ({ ...s })),
     measurements: (item.measurements || []).map((m) => ({ ...m })),
-    materials: (item.materials || []).map((m) => ({ ...m, qty: m.qty ?? "" })),
+    materials: (item.materials || []).map((m) => ({ ...m, qty: m.qty ?? "", unit_price: m.unit_price ?? "" })),
   };
 }
 
@@ -45,6 +47,7 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
   if (!item || !draft) return null;
 
   const signed = !!item.source_type;
+  const materialsTotal = draft.materials.reduce((sum, m) => sum + (Number(m.qty) || 0) * (Number(m.unit_price) || 0), 0);
   const voided = taskSourceVoided(item, documents);
   const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
   const setRow = (key, index, patch) => set(key, draft[key].map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -65,14 +68,16 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
         // A signed task keeps its signed description (server/workItems.js).
         ...(!signed && { description: draft.description.trim() || item.description }),
         status: draft.status,
-        category: draft.category || undefined,
-        tools: draft.tools || undefined,
-        notes: draft.notes || undefined,
+        // "" / null clear a field; undefined would be dropped from the request and keep the old value.
+        category: draft.category.trim(),
+        tools: draft.tools.trim(),
+        notes: draft.notes,
+        labor_hours: num(draft.labor_hours) ?? null,
         steps: draft.steps.filter((s) => s.text.trim()).map((s) => ({ ...s, text: s.text.trim() })),
         measurements: draft.measurements.filter((m) => m.label.trim() || m.value.trim()),
         materials: draft.materials
           .filter((m) => m.description.trim())
-          .map((m) => ({ ...m, description: m.description.trim(), qty: num(m.qty), unit: m.unit || undefined })),
+          .map((m) => ({ ...m, description: m.description.trim(), qty: num(m.qty), unit: m.unit || undefined, unit_price: num(m.unit_price) })),
       });
       await onChanged?.();
       onOpenChange(false);
@@ -130,12 +135,24 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
             </p>
           )}
 
-          <div className="grid sm:grid-cols-2 gap-3">
+          {(item.status_notes || []).length > 0 && (
+            <div>
+              <Label>Card notes</Label>
+              <p className="text-[11px] text-slate-500 mb-1">Add or remove these on the task card.</p>
+              <NoteList notes={item.status_notes} />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div>
+              <Label>Labor hours</Label>
+              <Input type="number" min="0" step="0.25" inputMode="decimal" value={draft.labor_hours} onChange={(e) => set("labor_hours", e.target.value)} />
+            </div>
             <div>
               <Label>Category</Label>
               <Input value={draft.category} onChange={(e) => set("category", e.target.value)} />
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <Label>Tools</Label>
               <Input value={draft.tools} onChange={(e) => set("tools", e.target.value)} />
             </div>
@@ -179,15 +196,16 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
 
           <Section
             title="Materials"
-            hint="Anything not ticked “Have it” is added to the job’s draft Material Order."
+            hint={`Anything not ticked “Have it” is added to the job’s draft Material Order, with its price.${materialsTotal ? ` Materials total ${money(materialsTotal)}.` : ""}`}
             onAdd={() => set("materials", [...draft.materials, blankMaterial()])}
             addLabel="Add material"
           >
             {draft.materials.map((m, i) => (
-              <div key={m.id || `new-${i}`} className="grid grid-cols-[4rem_5rem_1fr_auto] sm:grid-cols-[1fr_4rem_5rem_auto_auto] gap-1.5 items-center pb-1.5 sm:pb-0 border-b border-slate-100 sm:border-0 last:border-0">
-                <Input value={m.description} onChange={(e) => setRow("materials", i, { description: e.target.value })} placeholder="Item" className="h-8 text-sm col-span-4 sm:col-span-1" />
+              <div key={m.id || `new-${i}`} className="grid grid-cols-[3.5rem_4.5rem_5rem_1fr_auto] sm:grid-cols-[1fr_4rem_5rem_5.5rem_auto_auto] gap-1.5 items-center pb-1.5 sm:pb-0 border-b border-slate-100 sm:border-0 last:border-0">
+                <Input value={m.description} onChange={(e) => setRow("materials", i, { description: e.target.value })} placeholder="Item" className="h-8 text-sm col-span-5 sm:col-span-1" />
                 <Input type="number" min="0" value={m.qty} onChange={(e) => setRow("materials", i, { qty: e.target.value })} placeholder="Qty" className="h-8 text-sm" />
                 <Input value={m.unit || ""} onChange={(e) => setRow("materials", i, { unit: e.target.value })} placeholder="Unit" className="h-8 text-sm" />
+                <Input type="number" min="0" step="0.01" inputMode="decimal" value={m.unit_price} onChange={(e) => setRow("materials", i, { unit_price: e.target.value })} placeholder="$ each" aria-label="Price each" className="h-8 text-sm" />
                 <label className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
                   <input type="checkbox" checked={!!m.have} onChange={(e) => setRow("materials", i, { have: e.target.checked })} />
                   Have it

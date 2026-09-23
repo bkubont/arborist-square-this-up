@@ -16,7 +16,8 @@ const UNSIGNABLE_STATUSES = new Set(['void', 'declined', 'rejected']);
 // The signer sees description and price only; labor hours/rate, catalog id, tools and notes stay internal.
 const publicEstimateLines = lines => (lines || []).map(({ description, material_amount, labor_amount, equipment_amount }) =>
   ({ description, material_amount, labor_amount, equipment_amount }));
-const publicChangeOrderLines = lines => (lines || []).map(({ description, amount }) => ({ description, amount }));
+const publicChangeOrderLines = lines => (lines || []).map(({ description, material_amount, labor_amount, equipment_amount, amount }) =>
+  ({ description, material_amount, labor_amount, equipment_amount, amount }));
 
 export function parsePngDataUrl(dataUrl) {
   const match = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl || ''));

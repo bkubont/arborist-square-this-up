@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money } from "@/lib/format";
-import { lineTotal } from "@/lib/estimateMath";
+import { lineTotal, scopeLineTotal } from "@/lib/estimateMath";
 
 /** Public client e-sign page for Estimates and Change Orders (no app login). */
 export default function SignEstimate() {
@@ -201,6 +201,26 @@ export default function SignEstimate() {
           <div className="space-y-2 text-sm">
             {changeOrder.reason && <div><span className="text-slate-500">Reason:</span> {changeOrder.reason}</div>}
             {changeOrder.description && <p className="text-slate-700 whitespace-pre-wrap">{changeOrder.description}</p>}
+            {(changeOrder.lines || []).length > 0 && (
+              <div className="rounded-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="text-left px-3 py-2">Description</th>
+                      <th className="text-right px-3 py-2">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {changeOrder.lines.map((line, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="px-3 py-2 text-slate-800">{line.description || "—"}</td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">{money(scopeLineTotal(line))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <div className="rounded-lg border border-slate-200 p-3 space-y-1 max-w-sm ml-auto">
               <div className="flex justify-between"><span className="text-slate-500">Added cost</span><span>{money(changeOrder.added_cost)}</span></div>
               <div className="flex justify-between"><span className="text-slate-500">Credit</span><span>{money(changeOrder.credit)}</span></div>
