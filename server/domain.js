@@ -115,6 +115,17 @@ export const schemas = {
     job_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
     photo_url: z.string().max(200).optional(),
   }),
+  /** Money received for a job. Amounts are integer cents; balances are derived (see shared/money.js). */
+  Payment: z.object({
+    job_id: id,
+    amount_cents: z.number().int().min(1).max(1e14),
+    kind: z.enum(['payment', 'deposit']).default('payment'),
+    date: date.optional(),
+    method: z.string().trim().max(40).optional(),
+    note: text.optional(),
+    /** Optional: apply to one invoice. Unassigned payments apply to the oldest open invoice. */
+    invoice_id: id.optional(),
+  }),
   CompanyProfile: z.object({
     name: z.string().trim().max(250).default(''),
     address: text.optional(),
@@ -273,7 +284,7 @@ export function assertClientAddressComplete(data = {}) {
 
 function parentFor(entity, data) {
   if (entity === 'Job') return { parentId: data.client_id, parentEntity: 'Client' };
-  if (entity === 'TimelineEntry' || JOB_DOCUMENT_ENTITIES.includes(entity)) return { parentId: data.job_id, parentEntity: 'Job' };
+  if (entity === 'TimelineEntry' || entity === 'Payment' || JOB_DOCUMENT_ENTITIES.includes(entity)) return { parentId: data.job_id, parentEntity: 'Job' };
   if (entity === 'Expense' && data.job_id) return { parentId: data.job_id, parentEntity: 'Job' };
   return { parentId: null, parentEntity: null };
 }
@@ -304,6 +315,10 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   }
   if (Array.isArray(data.billed_change_order_ids)) {
     for (const changeOrderId of data.billed_change_order_ids) await getRecord(db, owner, 'ChangeOrder', changeOrderId);
+  }
+  if (entity === 'Payment' && data.invoice_id) {
+    const invoice = await getRecord(db, owner, 'Invoice', data.invoice_id);
+    if (invoice.job_id !== data.job_id) throw fail(400, 'Payment invoice must belong to the same job');
   }
   for (const field of FILE_URL_FIELDS) {
     if (!data[field]) continue;

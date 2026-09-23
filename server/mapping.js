@@ -143,6 +143,21 @@ export function computeAuthorizedTotal(acceptedEstimateTotal, changeOrders = [])
   return Math.round((baseline + approvedNet) * 100) / 100;
 }
 
+/**
+ * The estimate that defines a job's billing baseline: the most recently signed (else most recently
+ * created) non-void estimate that is accepted or carries an accepted snapshot. Revisions therefore
+ * supersede the estimates they copy.
+ * @param {Array<Record<string, any>>} [estimates]
+ * @returns {Record<string, any> | null}
+ */
+export function pickAcceptedEstimate(estimates = []) {
+  const stamp = e => String(e.signed_at || e.created_date || '');
+  const [latest] = estimates
+    .filter(e => e && e.status !== 'void' && (e.status === 'accepted' || e.accepted_snapshot))
+    .sort((a, b) => (stamp(a) < stamp(b) ? 1 : stamp(a) > stamp(b) ? -1 : String(a.id) < String(b.id) ? 1 : -1));
+  return latest || null;
+}
+
 /** Sum of approved change-order nets (pre-tax dollars). */
 export function approvedChangeOrderNet(changeOrders = []) {
   return round2(

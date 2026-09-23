@@ -19,6 +19,7 @@ import {
   materialOrderTotals,
   selectChangeOrdersForMaterials,
   filterIncomingNotClaimedElsewhere,
+  pickAcceptedEstimate,
 } from './mapping.js';
 
 test('estimate lines map to WO labor/material/equipment rows', () => {
@@ -369,4 +370,28 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
     { status: 'quote', lines: [{ ...incoming[0] }] },
   ]);
   assert.equal(filteredKeyed.length, 0);
+});
+
+test('pickAcceptedEstimate: most recently signed wins; void and unsigned excluded', () => {
+  assert.equal(pickAcceptedEstimate([]), null);
+  assert.equal(pickAcceptedEstimate([{ id: 'e1', status: 'draft' }]), null);
+  assert.equal(pickAcceptedEstimate([{ id: 'e1', status: 'void', accepted_snapshot: {} }]), null);
+
+  const [single] = [pickAcceptedEstimate([
+    { id: 'e1', status: 'draft' },
+    { id: 'e2', status: 'accepted', signed_at: '2026-01-01T00:00:00Z' },
+    { id: 'e3', status: 'void', accepted_snapshot: { total: 1 } },
+  ])];
+  assert.equal(single.id, 'e2');
+
+  // Older signed_at loses to newer, regardless of array order.
+  const newer = pickAcceptedEstimate([
+    { id: 'later', status: 'accepted', signed_at: '2026-03-01T00:00:00Z' },
+    { id: 'earlier', status: 'accepted', accepted_snapshot: {}, signed_at: '2026-01-01T00:00:00Z' },
+  ]);
+  assert.equal(newer.id, 'later');
+
+  // accepted_snapshot without a live 'accepted' status still counts (e.g. edited after accept).
+  const snapshotOnly = pickAcceptedEstimate([{ id: 'e4', status: 'sent', accepted_snapshot: { total: 5 } }]);
+  assert.equal(snapshotOnly.id, 'e4');
 });

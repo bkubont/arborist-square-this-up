@@ -1635,3 +1635,115 @@ test('Expense with receipt photo requires owned file; export includes Expense', 
   assert.equal((await request(`/entities/Expense/${expense.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
   assert.equal((await request(file.data.file_url.replace('/api', ''), { cookie: a.cookie })).status, 404);
 });
+
+test('Payment: create, ownership enforced, invoice must match job, job delete cascades, export round-trips', async t => {
+  const { db, request, register } = await fixture(t);
+  const a = await register('payment-a@example.com');
+  const b = await register('payment-b@example.com');
+  const create = async (entity, data, cookie = a.cookie) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Payment client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Payment job', client_id: client.id });
+  await create('WorkOrder', { job_id: job.id, number: 'WO-PMT', status: 'complete' });
+  const invoice = await create('Invoice', { job_id: job.id, number: 'INV-PMT', status: 'sent', misc_lines: [{ description: 'Total', amount: 200 }] });
+
+  const payment = await request('/payments', { method: 'POST', cookie: a.cookie, data: { job_id: job.id, amount_cents: 5000, invoice_id: invoice.id, method: 'check' } });
+  assert.equal(payment.status, 201, payment.data?.message);
+  assert.equal(payment.data.amount_cents, 5000);
+  assert.equal(payment.data.kind, 'payment');
+
+  // Logged as a plain note, not payment_received — the legacy TimelineEntry-based rollup
+  // (server/documentRules.js sumDepositsApplied, FinancialPanel) must not double-count it.
+  const entries = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data;
+  const note = entries.find((e) => e.category === 'financial' && /Payment of \$50\.00/.test(e.text || ''));
+  assert.ok(note, 'expected a financial note TimelineEntry for the payment');
+  assert.equal(note.type, 'note');
+  assert.equal(note.amount, undefined);
+
+  // Invoice from another job is rejected
+  const otherJob = await create('Job', { title: 'Other job', client_id: client.id });
+  await create('WorkOrder', { job_id: otherJob.id, number: 'WO-OTHER', status: 'complete' });
+  const otherInvoice = await create('Invoice', { job_id: otherJob.id, number: 'INV-OTHER', status: 'sent' });
+  assert.equal((await request('/payments', { method: 'POST', cookie: a.cookie, data: { job_id: job.id, amount_cents: 100, invoice_id: otherInvoice.id } })).status, 400);
+
+  // Cross-account isolation
+  assert.deepEqual((await request('/entities/Payment', { cookie: b.cookie })).data, []);
+  assert.equal((await request(`/entities/Payment/${payment.data.id}`, { cookie: b.cookie })).status, 404);
+  assert.equal((await request('/payments', { method: 'POST', cookie: b.cookie, data: { job_id: job.id, amount_cents: 100 } })).status, 404);
+
+  const exported = (await request('/export', { cookie: a.cookie })).data;
+  assert.ok(exported.records.some((r) => r.entity === 'Payment' && r.amount_cents === 5000));
+
+  // Job delete cascades payments
+  assert.equal((await request(`/entities/Job/${job.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+  assert.equal((await request(`/entities/Payment/${payment.data.id}`, { cookie: a.cookie })).status, 404);
+
+  // Backup import round-trips job_id + invoice_id remap (import order: Invoice before Payment)
+  await register('payment-restore@example.com');
+  const client2 = await create('Client', { name: 'Payment client 2', ...CLIENT_ADDR });
+  const job2 = await create('Job', { title: 'Payment job 2', client_id: client2.id });
+  await create('WorkOrder', { job_id: job2.id, number: 'WO-PMT2', status: 'complete' });
+  const invoice2 = await create('Invoice', { job_id: job2.id, number: 'INV-PMT2', status: 'sent' });
+  await request('/payments', { method: 'POST', cookie: a.cookie, data: { job_id: job2.id, amount_cents: 750, invoice_id: invoice2.id } });
+  const backup = (await request('/export', { cookie: a.cookie })).data;
+  await importData(db, 'payment-restore@example.com', backup);
+  const [owner] = await db.all('SELECT id FROM users WHERE email = ?', ['payment-restore@example.com']);
+  const restoredPayment = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'Payment'])).map((r) => JSON.parse(r.data))[0];
+  const restoredInvoices = (await db.all('SELECT id, data FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'Invoice'])).map((r) => ({ id: r.id, ...JSON.parse(r.data) }));
+  const restoredInvoice2 = restoredInvoices.find((inv) => inv.number === 'INV-PMT2');
+  const restoredJobs = (await db.all('SELECT id, data FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'Job'])).map((r) => ({ id: r.id, ...JSON.parse(r.data) }));
+  const restoredJob2 = restoredJobs.find((j) => j.title === 'Payment job 2');
+  assert.equal(restoredPayment.invoice_id, restoredInvoice2.id);
+  assert.equal(restoredPayment.job_id, restoredJob2.id);
+});
+
+test('job/account summary: cents totals from ledger, accepted-estimate baseline, waiting-payment list', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('summary-a@example.com');
+  const b = await register('summary-b@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Summary client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Summary job', client_id: client.id });
+  await create('Estimate', {
+    job_id: job.id, number: 'EST-SUM', status: 'accepted', total: 220,
+    accepted_snapshot: { number: 'EST-SUM', total: 220, tax_rate: 10, lines: [] },
+  });
+  await create('WorkOrder', { job_id: job.id, number: 'WO-SUM', status: 'complete' });
+  const invoice = await create('Invoice', {
+    job_id: job.id, number: 'INV-SUM', status: 'sent',
+    misc_lines: [{ description: 'Contract total', amount: 200 }], tax_rate: 10,
+  });
+  await request('/payments', { method: 'POST', cookie: a.cookie, data: { job_id: job.id, amount_cents: 10000 } });
+
+  const summary = (await request(`/jobs/${job.id}/summary`, { cookie: a.cookie })).data;
+  assert.equal(summary.has_accepted_estimate, true);
+  assert.equal(summary.estimate_cents, 22000);
+  assert.equal(summary.authorized_cents, 22000);
+  assert.equal(summary.billing_ceiling_cents, 22000);
+  assert.equal(summary.invoiced_cents, 22000);
+  assert.equal(summary.paid_cents, 10000);
+  assert.equal(summary.balance_cents, 12000);
+  assert.equal(summary.over_billed, false);
+  const invoiceRow = summary.invoices.find((row) => row.id === invoice.id);
+  assert.equal(invoiceRow.payment_status, 'partial');
+  assert.equal(invoiceRow.number, 'INV-SUM');
+
+  // Cross-account isolation
+  assert.equal((await request(`/jobs/${job.id}/summary`, { cookie: b.cookie })).status, 404);
+
+  const account = (await request('/summaries', { cookie: a.cookie })).data;
+  assert.equal(account.jobs[job.id].balance_cents, 12000);
+  assert.equal(account.totals.invoiced_cents, 22000);
+  assert.equal(account.totals.paid_cents, 10000);
+  assert.equal(account.totals.outstanding_cents, 12000);
+  assert.equal(account.totals.waiting_payment_count, 1);
+  assert.equal(account.waiting_payment[0].id, invoice.id);
+  assert.deepEqual((await request('/summaries', { cookie: b.cookie })).data.totals.invoiced_cents, 0);
+});

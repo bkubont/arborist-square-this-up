@@ -13,7 +13,7 @@ import { saveRecord, schemas, JOB_DOCUMENT_ENTITIES } from './domain.js';
 // related_estimate_id, and materialOrderSync links a MaterialOrder back to its WorkOrder via
 // related_work_order_id, so both referenced entities must be imported first or the id lookup
 // below throws "references a missing work order" on an otherwise-valid backup.
-const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', 'Estimate', 'WorkOrder', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'Expense', 'TimelineEntry'];
+const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', 'Estimate', 'WorkOrder', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'Payment', 'Expense', 'TimelineEntry'];
 
 export async function importData(db, email, input) {
   const [user] = await db.all('SELECT id FROM users WHERE email = ?', [emailSchema.parse(email)]);
@@ -56,13 +56,17 @@ export async function importData(db, email, input) {
           data.client_id = ids.get(`Client:${record.client_id}`);
           if (!data.client_id) throw new Error('Job references a missing client');
         }
-        if (entity === 'TimelineEntry' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
+        if (entity === 'TimelineEntry' || entity === 'Payment' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
           data.job_id = ids.get(`Job:${record.job_id}`);
           if (!data.job_id) throw new Error(`${entity} references a missing job`);
         }
         if (entity === 'Expense' && record.job_id) {
           data.job_id = ids.get(`Job:${record.job_id}`);
           if (!data.job_id) throw new Error('Expense references a missing job');
+        }
+        if (entity === 'Payment' && record.invoice_id) {
+          data.invoice_id = ids.get(`Invoice:${record.invoice_id}`);
+          if (!data.invoice_id) throw new Error('Payment references a missing invoice');
         }
         if (record.related_estimate_id) {
           data.related_estimate_id = ids.get(`Estimate:${record.related_estimate_id}`);

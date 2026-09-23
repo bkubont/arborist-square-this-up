@@ -28,6 +28,8 @@ import {
 } from './documentRules.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE, resolveSalesTaxRate } from './salesTax.js';
+import { jobSummary, accountSummaries } from './summary.js';
+import { fromCents } from '../shared/money.js';
 
 const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'WorkOrder', 'ChangeOrder']);
 
@@ -347,6 +349,28 @@ export async function createApp(db, env = process.env) {
     await getRecord(db, req.user.id, 'Job', req.params.id);
     res.json(await jobAuthorizedTotal(db, req.user.id, req.params.id));
   });
+  // Server-derived money (cents-based), additive alongside the existing Job.estimate_amount /
+  // invoice_amount / deposit_amount rollup — no current page reads these yet.
+  app.get('/api/jobs/:id/summary', async (req, res) => {
+    await getRecord(db, req.user.id, 'Job', req.params.id);
+    res.json(await jobSummary(db, req.user.id, req.params.id));
+  });
+  app.get('/api/summaries', async (req, res) => {
+    res.json(await accountSummaries(db, req.user.id));
+  });
+  app.post('/api/payments', async (req, res) => {
+    const created = await ownedTransaction(req.user.id, async tx => {
+      const payment = await saveRecord(tx, req.user.id, 'Payment', req.body);
+      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+        job_id: payment.job_id,
+        type: 'note',
+        category: 'financial',
+        text: `Payment of $${fromCents(payment.amount_cents).toFixed(2)} logged`,
+      });
+      return payment;
+    });
+    res.status(201).json(created);
+  });
   app.post('/api/invoices/from-job', async (req, res) => {
     const jobId = z.string().min(1).max(36).parse(req.body.job_id);
     const job = await getRecord(db, req.user.id, 'Job', jobId);
@@ -541,7 +565,7 @@ export async function createApp(db, env = process.env) {
       if (req.params.entity === 'Client' && (await tx.all('SELECT id FROM records WHERE owner_id = ? AND parent_id = ?', [req.user.id, record.id])).length)
         throw fail(409, 'Delete this client’s jobs first');
       if (req.params.entity === 'Job') {
-        for (const child of ['TimelineEntry', 'Expense', ...JOB_DOCUMENT_ENTITIES]) {
+        for (const child of ['TimelineEntry', 'Expense', 'Payment', ...JOB_DOCUMENT_ENTITIES]) {
           await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, child, record.id]);
         }
         await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);
