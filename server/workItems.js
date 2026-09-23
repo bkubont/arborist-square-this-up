@@ -1,18 +1,20 @@
 /**
- * The job checklist (WorkItem): creating items for signed lines, what the owner may change through
- * the generic entity routes, and the one-time carryover of pre-checklist data.
+ * Job tasks (WorkItem): creating tasks for signed lines, what the owner may change through the
+ * generic entity routes, and the one-time carryover of pre-task data.
  *
  * A WorkItem with a source (source_type/source_id/line_id) stands for one signed Estimate or
  * ChangeOrder line and carries that line's price, snapshotted at signing. Those fields, the price
- * and billed_invoice_id are server-owned: the owner can tick items off, add steps and notes, and add
- * free-standing tasks of their own, but can never re-point or re-price a signed item.
+ * and billed_invoice_id are server-owned: the owner can set a task's status, work its steps, notes,
+ * measurements and materials, and add free-standing tasks of their own, but can never re-point or
+ * re-price a signed task.
  */
 import { fail, saveRecord, decode } from './domain.js';
 import { estimateLineAmount, changeOrderLineAmount } from './mapping.js';
 import { toCents } from '../shared/money.js';
 
-const SERVER_OWNED_FIELDS = ['source_type', 'source_id', 'line_id', 'amount_cents', 'billed_invoice_id', 'done_at'];
-const EDITABLE_FIELDS = new Set(['description', 'category', 'tools', 'notes', 'steps', 'done']);
+// `done` follows `status` (saveRecord), so it is server-owned too: set status 'done' instead.
+const SERVER_OWNED_FIELDS = ['source_type', 'source_id', 'line_id', 'amount_cents', 'billed_invoice_id', 'done', 'done_at'];
+const EDITABLE_FIELDS = new Set(['description', 'category', 'tools', 'notes', 'steps', 'status', 'sort_order', 'measurements', 'materials']);
 
 /**
  * One WorkItem per signed line that has a description. Blank rows (a line the estimator never
@@ -51,7 +53,7 @@ function assertNoServerOwnedFields(input) {
 /** Owner-created tasks are always free-standing; signed-line tasks only come from signing. */
 export function prepareWorkItemCreate(input) {
   assertNoServerOwnedFields(input);
-  return input?.done ? { ...input, done_at: new Date().toISOString() } : input;
+  return input?.status === 'done' ? { ...input, done_at: new Date().toISOString() } : input;
 }
 
 /**
@@ -66,8 +68,9 @@ export function prepareWorkItemUpdate(previous, input) {
   if (previous.source_type && Object.prototype.hasOwnProperty.call(body, 'description') && body.description !== previous.description) {
     throw fail(400, 'A task from a signed document keeps its signed description. Add a note instead.');
   }
-  if (body.done === undefined || !!body.done === !!previous.done) return body;
-  return { ...body, done_at: body.done ? new Date().toISOString() : undefined };
+  const wasDone = previous.status ? previous.status === 'done' : !!previous.done;
+  if (body.status === undefined || (body.status === 'done') === wasDone) return body;
+  return { ...body, done_at: body.status === 'done' ? new Date().toISOString() : undefined };
 }
 
 /**
@@ -88,6 +91,7 @@ const ownerRows = (db, ownerId, entity) => db.all('SELECT * FROM records WHERE o
  * that has not been carried over yet.
  * - Job.checklist (free-text tasks, Base44 and early app) becomes free-standing WorkItems, then is cleared.
  * - An estimate or change order signed before signing created WorkItems gets its items now.
+ * - A WorkItem saved before tasks had a status gets one from its old done flag.
  * Old WorkOrder rows are left in place untouched; nothing reads them any more.
  */
 export async function carryOverChecklists(db) {
@@ -95,12 +99,15 @@ export async function carryOverChecklists(db) {
   let created = 0;
   for (const { id: ownerId } of owners) {
     await db.transaction(async tx => {
-      const sourced = new Set((await ownerRows(tx, ownerId, 'WorkItem')).map(decode).map(item => item.source_id).filter(Boolean));
+      const items = (await ownerRows(tx, ownerId, 'WorkItem')).map(decode);
+      const sourced = new Set(items.map(item => item.source_id).filter(Boolean));
+      // saveRecord derives status from done when it is missing.
+      for (const item of items.filter(i => !i.status)) await saveRecord(tx, ownerId, 'WorkItem', {}, item.id);
 
       for (const job of (await ownerRows(tx, ownerId, 'Job')).map(decode)) {
         if (!Array.isArray(job.checklist) || !job.checklist.length) continue;
         for (const entry of job.checklist.filter(e => String(e?.text || '').trim())) {
-          await saveRecord(tx, ownerId, 'WorkItem', { job_id: job.id, description: entry.text.trim(), done: !!entry.done });
+          await saveRecord(tx, ownerId, 'WorkItem', { job_id: job.id, description: entry.text.trim(), status: entry.done ? 'done' : 'prep' });
           created += 1;
         }
         await saveRecord(tx, ownerId, 'Job', { checklist: undefined }, job.id);

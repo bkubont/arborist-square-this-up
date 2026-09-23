@@ -62,26 +62,6 @@ export function approvedChangeOrderNet(changeOrders = []) {
   );
 }
 
-/**
- * Billing ceiling for soft-warn: authorized total plus tax on positive CO nets.
- * Estimate baseline is already tax-inclusive; CO nets are pre-tax and get taxed
- * when folded into invoice misc — without this, a correct full-bill can false-warn.
- */
-export function authorizedBillingCeiling(acceptedEstimateTotal, changeOrders = [], taxRate = 0) {
-  const baseline = Number(acceptedEstimateTotal) || 0;
-  const approvedNet = approvedChangeOrderNet(changeOrders);
-  const coTax = approvedNet > 0
-    ? round2(approvedNet * ((Number(taxRate) || 0) / 100))
-    : 0;
-  return round2(baseline + approvedNet + coTax);
-}
-
-/** Soft over-authorized check using the tax-aware billing ceiling. */
-export function isOverAuthorized(invoiceTotal, acceptedEstimateTotal, changeOrders = [], taxRate = 0) {
-  const ceiling = authorizedBillingCeiling(acceptedEstimateTotal, changeOrders, taxRate);
-  return Number(invoiceTotal) > ceiling + 0.009;
-}
-
 /** Derive invoice lifecycle status from balance / payments (progress billing). */
 export function deriveInvoiceStatus({ balance_due, payments_applied, deposits_applied, status } = /** @type {{balance_due?: number|string, payments_applied?: number|string, deposits_applied?: number|string, status?: string}} */ ({})) {
   if (status === 'void') return 'void';
@@ -202,7 +182,7 @@ export function invoiceTotals({ material_lines = [], labor_lines = [], misc_line
  * @param {number|string} [args.payments_applied]
  * @param {string} [args.number]
  * @param {object[]} [args.existingInvoices] non-void prior invoices for progress billing
- * @returns {{ invoice: object, authorized_total: number, billing_ceiling: number, prior_invoiced: number, over_authorized: boolean }}
+ * @returns {{ invoice: object, authorized_total: number, prior_invoiced: number }}
  */
 export function buildInvoiceAutofill({
   job,
@@ -227,7 +207,6 @@ export function buildInvoiceAutofill({
   });
   const baseline = Number(source.total ?? estimate?.total) || 0;
   const authorized_total = computeAuthorizedTotal(baseline, approvedChangeOrders);
-  const billing_ceiling = authorizedBillingCeiling(baseline, approvedChangeOrders, tax_rate);
   const prior_invoiced = sumActiveInvoiceTotals(existingInvoices);
   const invoice = {
     job_id: job?.id,
@@ -252,16 +231,16 @@ export function buildInvoiceAutofill({
   return {
     invoice,
     authorized_total,
-    billing_ceiling,
     prior_invoiced,
-    // Cumulative check: prior active invoices + this draft vs tax-aware ceiling
-    over_authorized: prior_invoiced + totals.total > billing_ceiling + 0.009,
   };
 }
 
 /** Stable key for MO lines synced from Estimate / WO / CO. */
 export function materialOrderSourceKey(line = {}) {
-  if (!line.source_entity || line.source_id == null || line.source_line_index == null) return null;
+  if (!line.source_entity || line.source_id == null) return null;
+  // Task materials carry a row id, so reordering a task's list keeps the same key.
+  if (line.source_line_id) return `${line.source_entity}:${line.source_id}:${line.source_line_id}`;
+  if (line.source_line_index == null) return null;
   return `${line.source_entity}:${line.source_id}:${line.source_line_index}`;
 }
 

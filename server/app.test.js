@@ -899,7 +899,6 @@ test('invoice from job autofills estimate + approved COs, balance due, job rollu
   assert.equal(inv.payments_applied, 150);
   assert.equal(inv.total, 1550);
   assert.equal(inv.authorized_total, 1550);
-  assert.equal(inv.over_authorized, false);
   assert.equal(inv.balance_due, 1200);
 
   const jobAfter = (await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data;
@@ -1029,7 +1028,6 @@ test('void and revise document rules; partial invoice status; ownership', async 
   });
   assert.equal(inv.status, 201, inv.data?.message);
   assert.equal(inv.data.prior_invoiced, 0);
-  assert.equal(inv.data.over_authorized, false);
 
   // Mark sent with partial payment → partial
   const partial = await request(`/entities/Invoice/${inv.data.id}`, {
@@ -1662,11 +1660,9 @@ test('job/account summary: cents totals from ledger, accepted-estimate baseline,
   assert.equal(summary.has_accepted_estimate, true);
   assert.equal(summary.estimate_cents, 22000);
   assert.equal(summary.authorized_cents, 22000);
-  assert.equal(summary.billing_ceiling_cents, 22000);
   assert.equal(summary.invoiced_cents, 22000);
   assert.equal(summary.paid_cents, 10000);
   assert.equal(summary.balance_cents, 12000);
-  assert.equal(summary.over_billed, false);
   const invoiceRow = summary.invoices.find((row) => row.id === invoice.id);
   assert.equal(invoiceRow.payment_status, 'partial');
   assert.equal(invoiceRow.number, 'INV-SUM');
@@ -1879,19 +1875,24 @@ test('WorkItem edits: server-owned fields locked, signed description kept, done_
   assert.equal((await patch(sourced.id, { description: 'Hang two doors' })).status, 400);
   assert.equal((await patch(sourced.id, { description: 'Hang door', notes: 'Bring shims' })).status, 200);
 
-  const done = await patch(sourced.id, { done: true, steps: [{ text: 'Remove old door' }] });
+  assert.equal(sourced.status, 'prep', 'new tasks start in prep');
+  assert.equal((await patch(sourced.id, { done: true })).status, 400, 'done follows status; it cannot be set directly');
+  assert.equal((await patch(sourced.id, { status: 'finished' })).status, 400);
+  const done = await patch(sourced.id, { status: 'done', steps: [{ text: 'Remove old door' }] });
   assert.equal(done.status, 200, done.data?.message);
   assert.ok(done.data.done_at);
+  assert.equal(done.data.done, true);
   assert.ok(done.data.steps[0].id, 'step id assigned server-side');
   assert.equal(done.data.amount_cents, 10000);
-  const undone = await patch(sourced.id, { done: false });
+  const undone = await patch(sourced.id, { status: 'waiting_materials' });
+  assert.equal(undone.data.done, false);
   assert.equal(undone.data.done_at, undefined);
   assert.equal(undone.data.steps[0].id, done.data.steps[0].id, 'existing step ids are kept');
 
   // Free-standing tasks can be renamed; other accounts cannot touch either kind.
   const own = await create('WorkItem', { job_id: job.id, description: 'Sweep' });
   assert.equal((await patch(own.id, { description: 'Sweep and mop' })).data.description, 'Sweep and mop');
-  assert.equal((await patch(own.id, { done: true }, b.cookie)).status, 404);
+  assert.equal((await patch(own.id, { status: 'done' }, b.cookie)).status, 404);
   assert.deepEqual((await request('/entities/WorkItem', { cookie: b.cookie })).data, []);
 
   // A sourced task must point at a document on its own job (guard below the API, in saveRecord).
@@ -1950,4 +1951,64 @@ test('carryOverChecklists backfills tasks for documents signed before signing cr
   assert.equal(items[0].line_id, 'line-1');
   assert.equal(items[0].amount_cents, 30000);
   assert.equal(await carryOverChecklists(db), 0);
+});
+
+test('task details: measurements and materials get ids; needed materials feed the draft Material Order', async t => {
+  const { db, request, register } = await fixture(t);
+  const a = await register('task-materials@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const patch = async (id, data) => {
+    const result = await request(`/entities/WorkItem/${id}`, { method: 'PATCH', cookie: a.cookie, data });
+    assert.equal(result.status, 200, result.data?.message);
+    return result.data;
+  };
+  const draftLines = async jobId => {
+    const mos = (await request(`/entities/MaterialOrder?job_id=${jobId}`, { cookie: a.cookie })).data;
+    return mos.filter(m => m.status === 'draft').flatMap(m => m.lines || []).filter(l => l.source_entity === 'WorkItem');
+  };
+  const client = await create('Client', { name: 'Task materials client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Task materials job', client_id: client.id });
+  const task = await create('WorkItem', { job_id: job.id, description: 'Build shelves', status: 'in_progress' });
+  assert.equal(task.status, 'in_progress');
+
+  const detailed = await patch(task.id, {
+    measurements: [{ label: 'Wall width', value: '72 1/4"' }],
+    materials: [{ description: '1x12 pine', qty: 3, unit: 'boards' }, { description: 'Brackets', qty: 6, have: true }],
+  });
+  assert.ok(detailed.measurements[0].id && detailed.materials[0].id && detailed.materials[1].id);
+  let lines = await draftLines(job.id);
+  assert.equal(lines.length, 1, 'only materials not on hand are ordered');
+  assert.equal(lines[0].description, '1x12 pine');
+  assert.equal(lines[0].qty, 3);
+  assert.equal(lines[0].source_line_id, detailed.materials[0].id);
+
+  // Reordering keeps the same line (keyed by material id, not position).
+  await patch(task.id, { materials: [detailed.materials[1], { ...detailed.materials[0], qty: 4 }] });
+  lines = await draftLines(job.id);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].qty, 4);
+
+  // Have it now → drops off; cancelled task → contributes nothing; deleted task → gone.
+  await patch(task.id, { materials: detailed.materials.map(m => ({ ...m, have: true })) });
+  assert.equal((await draftLines(job.id)).length, 0);
+  await patch(task.id, { materials: detailed.materials.map(m => ({ ...m, have: false })), status: 'cancelled' });
+  assert.equal((await draftLines(job.id)).length, 0);
+  await patch(task.id, { status: 'prep' });
+  assert.equal((await draftLines(job.id)).length, 2);
+  assert.equal((await request(`/entities/WorkItem/${task.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+  assert.equal((await draftLines(job.id)).length, 0);
+
+  // A task saved before statuses existed reads its status from the old done flag.
+  const legacy = await create('WorkItem', { job_id: job.id, description: 'Old task' });
+  const row = (await db.all('SELECT data FROM records WHERE id = ?', [legacy.id]))[0];
+  const data = JSON.parse(row.data); delete data.status; data.done = true;
+  await db.run('UPDATE records SET data = ? WHERE id = ?', [JSON.stringify(data), legacy.id]);
+  await carryOverChecklists(db);
+  const migrated = (await request(`/entities/WorkItem/${legacy.id}`, { cookie: a.cookie })).data;
+  assert.equal(migrated.status, 'done');
+  assert.equal(migrated.done, true);
 });

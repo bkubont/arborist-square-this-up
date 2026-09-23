@@ -69,6 +69,9 @@ const signMeta = {
   signature_file_url: z.string().max(200).optional(),
 };
 
+/** Job task statuses, in board-column order. */
+export const TASK_STATUSES = ['prep', 'in_progress', 'waiting_materials', 'on_hold', 'cancelled', 'done'];
+
 /** Job-linked document entities (parent_id = job_id). */
 export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice'];
 /** Estimate/ChangeOrder statuses that mean "the customer decided" or "withdrawn" — the document is frozen. */
@@ -139,8 +142,8 @@ export const schemas = {
     invoice_id: id.optional(),
   }),
   /**
-   * One per signed Estimate/ChangeOrder line (source_type set), created at signing — the job's
-   * internal checklist. Also supports free-standing tasks the owner adds with no source.
+   * A job task: one per signed Estimate/ChangeOrder line (source_type set), created at signing,
+   * plus free-standing tasks the owner adds. Internal only — never shown to the customer.
    */
   WorkItem: z.object({
     job_id: id,
@@ -154,8 +157,23 @@ export const schemas = {
     tools: text.optional(),
     notes: text.optional(),
     steps: z.array(lineStep).max(200).optional(),
+    /** Where this task stands; each task moves independently (see TASK_STATUSES). */
+    status: z.enum(TASK_STATUSES).default('prep'),
+    /** Derived from status ('done') by saveRecord, kept for billing "completed work". */
     done: z.boolean().default(false),
     done_at: z.string().max(40).optional(),
+    /** Position within its status column / the list; lower first. */
+    sort_order: z.number().finite().min(-1e9).max(1e9).optional(),
+    measurements: z.array(z.object({ id: z.string().max(64).optional(), label: text.default(''), value: text.default('') })).max(200).optional(),
+    /** Parts for this task. Items not yet on hand feed the job's draft Material Order (materialOrderSync.js). */
+    materials: z.array(z.object({
+      id: z.string().max(64).optional(),
+      description: text.default(''),
+      qty: money.optional(),
+      unit: z.string().max(40).optional(),
+      have: z.boolean().default(false),
+      notes: text.optional(),
+    })).max(500).optional(),
     /** Set once billed via "Bill completed work", so it cannot be billed twice. */
     billed_invoice_id: id.optional(),
   }).refine(
@@ -222,9 +240,11 @@ export const schemas = {
       /** Optional procurement difficulty. */
       line_status: z.enum(['pricing', 'backorder', 'unavailable', 'canceled', 'rebuild']).optional(),
       // 'WorkOrder' stays accepted so rows written before the checklist replaced it still decode.
-      source_entity: z.enum(['Estimate', 'WorkOrder', 'ChangeOrder']).optional(),
+      source_entity: z.enum(['Estimate', 'WorkOrder', 'ChangeOrder', 'WorkItem']).optional(),
       source_id: id.optional(),
       source_line_index: z.number().int().min(0).max(10000).optional(),
+      /** Stable id of the source row (task materials), so reordering a list doesn't re-key it. */
+      source_line_id: z.string().max(64).optional(),
     })).max(2000).default([]),
     subtotal: money.optional(),
     total: money.optional(),
@@ -316,18 +336,23 @@ export async function getRecord(db, owner, entity, recordId) {
   return decode(row);
 }
 
-const withStepIds = steps => steps.map(step => (step.id ? step : { ...step, id: randomUUID() }));
+const withIds = rows => rows.map(row => (row.id ? row : { ...row, id: randomUUID() }));
 
 export async function saveRecord(db, owner, entity, input, recordId, opts = {}) {
   if (!schemas[entity]) throw fail(404, 'Unknown record type');
   const previous = recordId ? await getRecord(db, owner, entity, recordId) : {};
-  const data = schemas[entity].parse({ ...previous, ...input });
+  const merged = { ...previous, ...input };
+  if (entity === 'WorkItem' && merged.status === undefined) merged.status = merged.done ? 'done' : 'prep';
+  const data = schemas[entity].parse(merged);
   // Every line gets a stable id the first time it's saved with none, so a signed line can be
   // linked to its WorkItem later. Lines that already carry one (round-tripped by the editor) keep it.
   if ((entity === 'Estimate' || entity === 'ChangeOrder') && Array.isArray(data.lines)) {
-    data.lines = data.lines.map(line => ({ ...line, id: line.id || randomUUID(), ...(line.steps && { steps: withStepIds(line.steps) }) }));
+    data.lines = data.lines.map(line => ({ ...line, id: line.id || randomUUID(), ...(line.steps && { steps: withIds(line.steps) }) }));
   }
-  if (entity === 'WorkItem' && data.steps) data.steps = withStepIds(data.steps);
+  if (entity === 'WorkItem') {
+    for (const key of ['steps', 'measurements', 'materials']) if (data[key]) data[key] = withIds(data[key]);
+    data.done = data.status === 'done';
+  }
   if (entity === 'Client' && !opts.skipClientAddressCheck) {
     const touchingAddress = !recordId || CLIENT_ADDRESS_KEYS.some((key) => Object.prototype.hasOwnProperty.call(input || {}, key));
     if (touchingAddress) assertClientAddressComplete(data);

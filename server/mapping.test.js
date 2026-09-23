@@ -4,9 +4,6 @@ import {
   computeAuthorizedTotal,
   changeOrderNet,
   buildInvoiceAutofill,
-  invoiceTotals,
-  authorizedBillingCeiling,
-  isOverAuthorized,
   deriveInvoiceStatus,
   sumActiveInvoiceTotals,
   materialLinesFromEstimate,
@@ -30,33 +27,21 @@ test('authorized total uses approved COs only', () => {
   assert.equal(total, 1240);
 });
 
-test('tax on approved CO nets does not false-trigger over-authorized', () => {
-  const cos = [{ status: 'approved', net_change: 100 }];
-  assert.equal(computeAuthorizedTotal(1000, cos), 1100);
-  assert.equal(authorizedBillingCeiling(1000, cos, 10), 1110);
-  assert.equal(isOverAuthorized(1110, 1000, cos, 10), false);
-  assert.equal(isOverAuthorized(1110.02, 1000, cos, 10), true);
-
-  const { over_authorized, billing_ceiling, authorized_total } = buildInvoiceAutofill({
+test('invoice autofill has no billing ceiling: an invoice may exceed the authorized total', () => {
+  const built = buildInvoiceAutofill({
     job: { id: 'j', title: 'Job' },
-    estimate: {
-      id: 'e',
-      accepted_snapshot: {
-        total: 1000,
-        tax_rate: 10,
-        lines: [{ description: 'Labor', labor_amount: 909.09, labor_hours: 1, labor_rate: 909.09 }],
-      },
-    },
-    approvedChangeOrders: [{ id: 'co', number: 'CO-1', status: 'approved', net_change: 100 }],
-    number: 'INV-TAX',
+    estimate: { id: 'e', accepted_snapshot: { total: 100, tax_rate: 0, lines: [{ description: 'Labor', labor_amount: 100 }] } },
+    approvedChangeOrders: [],
+    existingInvoices: [{ status: 'sent', total: 600 }],
+    number: 'INV-NC',
   });
-  assert.equal(authorized_total, 1100);
-  assert.ok(billing_ceiling >= 1109.9 && billing_ceiling <= 1110.1);
-  assert.equal(over_authorized, false);
+  assert.equal(built.authorized_total, 100);
+  assert.equal('billing_ceiling' in built, false);
+  assert.equal('over_authorized' in built, false);
 });
 
 test('invoice autofill maps estimate + approved COs with balance due', () => {
-  const { invoice, authorized_total, over_authorized } = buildInvoiceAutofill({
+  const { invoice, authorized_total } = buildInvoiceAutofill({
     job: { id: 'job-1', title: 'Bathroom refresh', deposit_amount: 100 },
     estimate: {
       id: 'est-1',
@@ -100,37 +85,10 @@ test('invoice autofill maps estimate + approved COs with balance due', () => {
   assert.equal(invoice.change_order_refs, 'CO-1');
   assert.equal(authorized_total, 1200);
   assert.equal(invoice.total, 1200);
-  assert.equal(over_authorized, false);
   assert.equal(invoice.balance_due, 1050);
 });
 
-test('invoice over-authorized flag when total exceeds authorized', () => {
-  const { invoice, authorized_total, over_authorized } = buildInvoiceAutofill({
-    job: { id: 'j', title: 'Job' },
-    estimate: {
-      id: 'e',
-      accepted_snapshot: {
-        total: 100,
-        tax_rate: 0,
-        lines: [{ description: 'Labor', labor_amount: 100, labor_hours: 1, labor_rate: 100 }],
-      },
-    },
-    approvedChangeOrders: [],
-    number: 'INV-X',
-  });
-  assert.equal(authorized_total, 100);
-  assert.equal(invoice.total, 100);
-  assert.equal(over_authorized, false);
-
-  const bumped = invoiceTotals({
-    labor_lines: [{ description: 'Labor', hours: 1, rate: 200 }],
-    tax_rate: 0,
-  });
-  assert.equal(bumped.total, 200);
-  assert.ok(bumped.total > authorized_total);
-});
-
-test('progress billing: prior invoices feed cumulative over-authorized', () => {
+test('progress billing: prior active invoices are totalled', () => {
   const built = buildInvoiceAutofill({
     job: { id: 'j', title: 'Job' },
     estimate: {
@@ -146,7 +104,6 @@ test('progress billing: prior invoices feed cumulative over-authorized', () => {
     number: 'INV-2',
   });
   assert.equal(built.prior_invoiced, 600);
-  assert.equal(built.over_authorized, true);
   assert.equal(sumActiveInvoiceTotals([{ status: 'void', total: 999 }, { status: 'sent', total: 100 }]), 100);
 });
 

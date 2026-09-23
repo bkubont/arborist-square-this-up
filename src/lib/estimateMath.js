@@ -76,7 +76,7 @@ export function emptyEstimateLine() {
 export function serializeEstimateLine(line) {
   const num = (v) => (v === "" || v == null ? undefined : Number(v));
   return {
-    // Round-tripped, not edited here (steps are worked on the job checklist once signed) — must not
+    // Round-tripped, not edited here (steps are worked on the job's tasks once signed) — must not
     // be dropped on save, or a line's id/steps would silently vanish the next time it is saved.
     id: line.id || undefined,
     steps: line.steps || undefined,

@@ -7,7 +7,7 @@
  */
 import { decode } from './domain.js';
 import { ledger, computeInvoice, toCents } from '../shared/money.js';
-import { pickAcceptedEstimate, computeAuthorizedTotal, authorizedBillingCeiling, approvedChangeOrderNet, changeOrderNet } from './mapping.js';
+import { pickAcceptedEstimate, computeAuthorizedTotal, approvedChangeOrderNet, changeOrderNet } from './mapping.js';
 
 const MONEY_ENTITIES = ['Estimate', 'ChangeOrder', 'Invoice', 'Payment'];
 
@@ -15,13 +15,11 @@ const MONEY_ENTITIES = ['Estimate', 'ChangeOrder', 'Invoice', 'Payment'];
 export function summarizeJob({ estimates = [], changeOrders = [], invoices = [], payments = [] } = {}) {
   const accepted = pickAcceptedEstimate(estimates);
   const baseline = accepted ? Number(accepted.accepted_snapshot?.total ?? accepted.total) || 0 : 0;
-  const taxRate = accepted?.accepted_snapshot?.tax_rate ?? accepted?.tax_rate ?? 0;
   const approved = changeOrders.filter(order => order.status === 'approved');
   const books = ledger(
     invoices.map(invoice => ({ id: invoice.id, status: invoice.status, created_date: invoice.created_date, total_cents: computeInvoice(invoice).total_cents })),
     payments,
   );
-  const billingCeiling = toCents(authorizedBillingCeiling(baseline, approved, taxRate));
   const recordsById = new Map(invoices.map(invoice => [invoice.id, invoice]));
 
   return {
@@ -29,8 +27,6 @@ export function summarizeJob({ estimates = [], changeOrders = [], invoices = [],
     estimate_cents: toCents(baseline),
     approved_change_cents: toCents(approvedChangeOrderNet(approved)),
     authorized_cents: toCents(computeAuthorizedTotal(baseline, approved)),
-    billing_ceiling_cents: billingCeiling,
-    over_billed: !!accepted && books.invoiced_cents > billingCeiling,
     invoiced_cents: books.invoiced_cents,
     paid_cents: books.paid_cents,
     balance_cents: books.balance_cents,

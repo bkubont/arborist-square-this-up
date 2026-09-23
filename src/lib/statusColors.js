@@ -144,6 +144,14 @@ export const STATUS_SEMANTIC_MAP = {
   quote: "attention-approval",
   purchased: "attention-materials",
   received: "success",
+
+  // Job tasks (src/lib/tasks.js)
+  prep: "neutral",
+  in_progress: "blue",
+  waiting_materials: "attention-materials",
+  on_hold: "attention-approval",
+  cancelled: "danger",
+  done: "success",
 };
 
 /** @deprecated Prefer statusColors(); kept for flat-map callers. */

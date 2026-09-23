@@ -12,7 +12,7 @@ import TimelineButton from "@/components/TimelineButton";
 import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
-import JobChecklist from "@/components/JobChecklist";
+import JobTasks from "@/components/JobTasks";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
@@ -22,9 +22,20 @@ import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
 const DOC_ENTITIES = ["Estimate", "MaterialOrder", "ChangeOrder", "Invoice"];
+const TASK_VIEW_KEY = "jobTasksView";
+
+/** @returns {"list" | "board"} */
+function readTaskView() {
+  try {
+    return localStorage.getItem(TASK_VIEW_KEY) === "list" ? "list" : "board";
+  } catch {
+    return "board";
+  }
+}
 
 const JOB_TABS = [
   "overview",
+  "tasks",
   "estimate",
   "costs",
   "receipts",
@@ -47,6 +58,17 @@ export default function JobDetail() {
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
   const [activityFilter, setActivityFilter] = useState("all");
+  const [taskView, setTaskView] = useState(readTaskView);
+
+  /** @param {"list" | "board"} next */
+  const chooseTaskView = (next) => {
+    setTaskView(next);
+    try {
+      localStorage.setItem(TASK_VIEW_KEY, next);
+    } catch {
+      /* per-browser convenience only */
+    }
+  };
 
   const tabParam = searchParams.get("tab");
   const activeTab = JOB_TABS.includes(tabParam) ? tabParam : "overview";
@@ -230,6 +252,7 @@ export default function JobDetail() {
       <Tabs value={activeTab} onValueChange={setTab} className="w-full">
         <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/80 p-1 mb-4">
           <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
+          <TabsTrigger value="tasks" className="text-xs sm:text-sm">Tasks</TabsTrigger>
           <TabsTrigger value="estimate" className="text-xs sm:text-sm">Estimate</TabsTrigger>
           <TabsTrigger value="costs" className="text-xs sm:text-sm">Costs</TabsTrigger>
           <TabsTrigger value="receipts" className="text-xs sm:text-sm">Receipts</TabsTrigger>
@@ -266,10 +289,17 @@ export default function JobDetail() {
               </div>
 
               <div className="bg-card rounded-xl border border-border p-4">
-                <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                  Checklist
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tasks</div>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-primary hover:underline"
+                    onClick={() => { chooseTaskView("board"); setTab("tasks"); }}
+                  >
+                    Board view
+                  </button>
                 </div>
-                <JobChecklist jobId={id} items={workItems} documents={documents} onChanged={load} />
+                <JobTasks jobId={id} items={workItems} documents={documents} onChanged={load} view="list" />
               </div>
 
               {job.notes ? (
@@ -289,6 +319,31 @@ export default function JobDetail() {
                 <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
               </div>
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="tasks" className="mt-0">
+          <div className="bg-card rounded-xl border border-border p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tasks</div>
+              <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/60" role="group" aria-label="Task view">
+                {/** @type {Array<"list" | "board">} */ (["list", "board"]).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={taskView === v}
+                    onClick={() => chooseTaskView(v)}
+                    className={cn(
+                      "px-3 py-1 text-xs font-medium rounded-md capitalize",
+                      taskView === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <JobTasks jobId={id} items={workItems} documents={documents} onChanged={load} view={taskView} />
           </div>
         </TabsContent>
 
@@ -313,7 +368,7 @@ export default function JobDetail() {
             onChanged={load}
             entities={["MaterialOrder", "ChangeOrder"]}
             title="Work & costs"
-            emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted. Track the work itself on the Overview checklist."
+            emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted. Track the work itself under Tasks."
           />
           <div>
             <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">

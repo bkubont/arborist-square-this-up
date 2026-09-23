@@ -1,8 +1,8 @@
 /**
  * Document create buttons by job stage (Brittany UX).
  * New job → Estimate + Material Order only.
- * After estimate accept → Change Order and Invoice unlock. The job checklist (WorkItem) tracks the
- * work itself and does not gate billing.
+ * After estimate accept → Change Order and Invoice unlock. The job's tasks (WorkItem) track the
+ * work itself and do not gate billing.
  * One Estimate, one Invoice per job (open existing; no duplicates).
  */
 

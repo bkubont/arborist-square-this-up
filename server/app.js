@@ -31,7 +31,7 @@ import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { jobSummary, accountSummaries } from './summary.js';
 import { fromCents } from '../shared/money.js';
 
-const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'ChangeOrder']);
+const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'ChangeOrder', 'WorkItem']);
 
 async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
   if (!jobId) return null;
@@ -379,9 +379,7 @@ export async function createApp(db, env = process.env) {
         created: {
           ...inv,
           authorized_total: built.authorized_total,
-          billing_ceiling: built.billing_ceiling,
           prior_invoiced: built.prior_invoiced,
-          over_authorized: built.over_authorized,
         },
       };
     });
@@ -559,6 +557,8 @@ export async function createApp(db, env = process.env) {
         await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);
       }
       await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
+      // A deleted task's still-needed materials leave the draft Material Order with it.
+      if (req.params.entity === 'WorkItem') await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
       // Remove files no longer referenced by any remaining record. A signature file is referenced by
       // both its signed Estimate/ChangeOrder and its timeline entry, so deleting either one alone
       // must not orphan the file the other still points to.

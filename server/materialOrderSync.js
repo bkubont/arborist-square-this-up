@@ -1,5 +1,5 @@
 /**
- * Sync Material Order draft lines from Estimate / Change Order materials.
+ * Sync Material Order draft lines from Estimate / Change Order materials and task material lists.
  * Multiple MOs remain allowed; only draft MOs are auto-updated.
  */
 import { saveRecord } from './domain.js';
@@ -29,11 +29,12 @@ function draftHasSyncedSourceLines(order) {
 
 /** Build incoming MO lines from live job documents. */
 export async function collectMaterialLinesForJob(db, ownerId, jobId) {
-  const [estimates, changeOrders] = await Promise.all([
+  const [estimates, changeOrders, workItems] = await Promise.all([
     listJobDocuments(db, ownerId, 'Estimate', jobId),
     listJobDocuments(db, ownerId, 'ChangeOrder', jobId),
+    listJobDocuments(db, ownerId, 'WorkItem', jobId),
   ]);
-  return collectJobMaterialLines({ estimate: pickEstimate(estimates), changeOrders });
+  return collectJobMaterialLines({ estimate: pickEstimate(estimates), changeOrders, workItems });
 }
 
 /**
