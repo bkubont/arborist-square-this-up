@@ -6,7 +6,7 @@ import nodemailer from 'nodemailer';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES } from './domain.js';
+import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, fileIdsOf } from './domain.js';
 import { searchCatalog } from './catalog.js';
 import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
@@ -547,15 +547,16 @@ export async function createApp(db, env = process.env) {
         await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);
       }
       await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
-      // Remove files no longer referenced by remaining timeline entries or expenses.
-      const entries = await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [req.user.id, 'TimelineEntry']);
-      const expenses = await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [req.user.id, 'Expense']);
-      const references = new Set([
-        ...entries.map(row => JSON.parse(row.data).photo_url),
-        ...expenses.map(row => JSON.parse(row.data).photo_url),
-      ]);
-      for (const entry of removedEntries) if (entry.photo_url && !references.has(entry.photo_url))
-        await tx.run('DELETE FROM files WHERE id = ? AND owner_id = ?', [entry.photo_url.split('/').pop(), req.user.id]);
+      // Remove files no longer referenced by any remaining record. A signature file is referenced by
+      // both its signed Estimate/ChangeOrder and its timeline entry, so deleting either one alone
+      // must not orphan the file the other still points to.
+      const candidates = new Set(removedEntries.map(entry => entry.photo_url).filter(Boolean).map(url => url.split('/').pop()));
+      if (candidates.size) {
+        const remaining = await tx.all('SELECT data FROM records WHERE owner_id = ?', [req.user.id]);
+        const stillReferenced = new Set(remaining.flatMap(row => fileIdsOf(JSON.parse(row.data))));
+        for (const fileId of candidates) if (!stillReferenced.has(fileId))
+          await tx.run('DELETE FROM files WHERE id = ? AND owner_id = ?', [fileId, req.user.id]);
+      }
     });
     res.json({ ok: true });
   });

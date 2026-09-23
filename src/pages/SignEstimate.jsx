@@ -26,11 +26,7 @@ export default function SignEstimate() {
         const payload = await api.sign.get(token);
         if (!cancelled) {
           setData(payload);
-          const entity = payload.link?.entity;
-          const signed = payload.link?.used
-            || (entity === "Estimate" && payload.estimate?.status === "accepted")
-            || (entity === "ChangeOrder" && payload.change_order?.status === "approved");
-          if (signed) setDone(true);
+          if (payload.link?.signed) setDone(true);
         }
       } catch (e) {
         if (!cancelled) setError(e.message || "Sign link is invalid or expired");
@@ -154,6 +150,19 @@ export default function SignEstimate() {
   const { job, company, client } = data;
   const docNumber = isCO ? changeOrder?.number : estimate?.number;
   const signer = (isCO ? changeOrder?.signer_name : estimate?.signer_name) || signerName;
+
+  if (data.link?.unavailable) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full text-center">
+          <h1 className="text-lg font-bold text-slate-900 mb-2">Sign link unavailable</h1>
+          <p className="text-sm text-slate-500">
+            {isCO ? "Change order" : "Estimate"} {docNumber || ""} is no longer available to sign.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (done) {
     return (

@@ -68,6 +68,19 @@ const signMeta = {
 /** Job-linked document entities (parent_id = job_id). */
 export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'WorkOrder', 'ChangeOrder', 'Invoice'];
 
+/** Every field that can hold an uploaded file's URL, across all entities. */
+export const FILE_URL_FIELDS = ['photo_url', 'signature_file_url', 'logo_url'];
+
+/** File ids a record references, e.g. a signed Estimate's signature_file_url. */
+export function fileIdsOf(data) {
+  const ids = [];
+  for (const field of FILE_URL_FIELDS) {
+    const match = /^\/api\/files\/([a-f0-9-]{36})$/.exec(data?.[field] || '');
+    if (match) ids.push(match[1]);
+  }
+  return ids;
+}
+
 export const schemas = {
   Client: z.object({
     name: z.string().trim().min(1).max(250),
@@ -292,7 +305,7 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   if (Array.isArray(data.billed_change_order_ids)) {
     for (const changeOrderId of data.billed_change_order_ids) await getRecord(db, owner, 'ChangeOrder', changeOrderId);
   }
-  for (const field of ['photo_url', 'signature_file_url', 'logo_url']) {
+  for (const field of FILE_URL_FIELDS) {
     if (!data[field]) continue;
     const match = /^\/api\/files\/([a-f0-9-]{36})$/.exec(data[field]);
     if (!match || !(await db.all('SELECT id FROM files WHERE id = ? AND owner_id = ?', [match[1], owner])).length)

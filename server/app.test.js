@@ -161,6 +161,28 @@ test('export restores relationships and photos; invalid imports roll back', asyn
   assert.equal(cRecords.length, 1);
   assert.equal(cRecords[0].entity, 'CompanyProfile');
 });
+test('backup import: MaterialOrder linked to a WorkOrder round-trips (import order must resolve the reference)', async t => {
+  const { db, request, register } = await fixture(t);
+  const a = await register('mo-wo-import@example.com');
+  await register('mo-wo-restore@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'MO/WO client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'MO/WO job', client_id: client.id });
+  const wo = await create('WorkOrder', { job_id: job.id, number: 'WO-001', status: 'draft' });
+  await create('MaterialOrder', { job_id: job.id, number: 'MO-001', status: 'draft', related_work_order_id: wo.id });
+
+  const backup = (await request('/export', { cookie: a.cookie })).data;
+  await importData(db, 'mo-wo-restore@example.com', backup);
+  const [owner] = await db.all('SELECT id FROM users WHERE email = ?', ['mo-wo-restore@example.com']);
+  const restoredMo = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'MaterialOrder'])).map(r => JSON.parse(r.data))[0];
+  const restoredWo = (await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'WorkOrder']))[0];
+  assert.equal(restoredMo.related_work_order_id, restoredWo.id);
+});
+
 test('client address requires street, city, state, ZIP; line 2 optional; persists through backup', async t => {
   const { db, request, register } = await fixture(t);
   const a = await register('address@example.com');
@@ -385,6 +407,12 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
   assert.equal(publicView.data.estimate.total, 220);
   assert.equal(publicView.data.job.title, 'Deck repair');
 
+  // Sign link is public and unauthenticated: internal line detail must not leak to the customer
+  assert.equal(publicView.data.estimate.lines[0].labor_amount, 200);
+  assert.equal(publicView.data.estimate.lines[0].labor_hours, undefined);
+  assert.equal(publicView.data.estimate.lines[0].labor_rate, undefined);
+  assert.equal(publicView.data.document, undefined);
+
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const signed = await request(`/sign/${token}`, {
     method: 'POST',
@@ -407,6 +435,10 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
   assert.equal(docs.length, 1);
   assert.equal(docs[0].type, 'estimate_signed');
   assert.match(docs[0].text, /Pat Client/);
+
+  // Deleting the timeline copy of the signature must not orphan the file the live Estimate still uses
+  assert.equal((await request(`/entities/TimelineEntry/${docs[0].id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+  assert.equal((await request(after.signature_file_url.replace('/api', ''), { cookie: a.cookie })).status, 200);
 
   // Accepted estimate is print/view only — content edits rejected
   const edited = await request(`/entities/Estimate/${estimate.id}`, {
@@ -673,6 +705,50 @@ test('second unused sign link cannot overwrite accepted snapshot', async t => {
   assert.equal((await request(`/estimates/${estimate.id}/send-sign`, {
     method: 'POST', cookie: a.cookie, data: { channel: 'link' },
   })).status, 400);
+});
+
+test('voiding an estimate with an outstanding sign link reports void, not signed', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('void-sign-link@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Void-sign client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Void-sign job', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-VOID',
+    status: 'draft',
+    total: 150,
+    lines: [{ description: 'Labor', labor_amount: 150 }],
+    subtotal: 150,
+    tax_amount: 0,
+  });
+  const sent = await request(`/estimates/${estimate.id}/send-sign`, {
+    method: 'POST', cookie: a.cookie, data: { channel: 'link' },
+  });
+  assert.equal(sent.status, 201, sent.data?.message);
+  const token = sent.data.sign_url.split('/').pop();
+
+  // Owner voids the estimate before the customer ever opens the link (job cancelled, etc.)
+  const voided = await request(`/documents/Estimate/${estimate.id}/void`, { method: 'POST', cookie: a.cookie, data: {} });
+  assert.equal(voided.status, 200, voided.data?.message);
+
+  // The link was consumed by voiding, but the customer must be told it's void, not that it was signed
+  const publicView = await request(`/sign/${token}`);
+  assert.equal(publicView.status, 200);
+  assert.equal(publicView.data.link.used, true);
+  assert.equal(publicView.data.link.signed, false);
+  assert.equal(publicView.data.link.unavailable, 'void');
+
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const attempt = await request(`/sign/${token}`, {
+    method: 'POST', data: { signer_name: 'Too Late', signature_data_url: png },
+  });
+  assert.equal(attempt.status, 400);
+  assert.match(attempt.data.message, /no longer available/);
 });
 
 test('status edit cannot bypass accepted_snapshot freeze', async t => {

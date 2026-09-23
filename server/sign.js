@@ -7,6 +7,14 @@ import { computeAuthorizedTotal, changeOrderNet } from './mapping.js';
 
 const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
+// A link's used_at is also set when the document is voided (below), so the customer's page must
+// not read "used" as "signed" — a stale link to a voided/declined document must say so, not thank them.
+const UNSIGNABLE_STATUSES = new Set(['void', 'declined', 'rejected']);
+
+// The signer sees description and price only; labor hours/rate, catalog id, tools and notes stay internal.
+const publicEstimateLines = lines => (lines || []).map(({ description, material_amount, labor_amount, equipment_amount }) =>
+  ({ description, material_amount, labor_amount, equipment_amount }));
+const publicChangeOrderLines = lines => (lines || []).map(({ description, amount }) => ({ description, amount }));
 
 export function parsePngDataUrl(dataUrl) {
   const match = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl || ''));
@@ -98,7 +106,12 @@ export async function loadPublicSign(db, rawToken) {
 
   if (link.entity === 'Estimate') {
     return {
-      link: { entity: link.entity, channel: link.channel, used: !!link.used_at, expires_at: new Date(link.expires_at).toISOString() },
+      link: {
+        entity: link.entity, channel: link.channel, used: !!link.used_at,
+        signed: record.status === 'accepted',
+        unavailable: UNSIGNABLE_STATUSES.has(record.status) ? record.status : null,
+        expires_at: new Date(link.expires_at).toISOString(),
+      },
       ...parties,
       estimate: {
         id: record.id,
@@ -107,7 +120,7 @@ export async function loadPublicSign(db, rawToken) {
         valid_till: record.valid_till,
         notes: record.notes,
         tax_rate: record.tax_rate,
-        lines: record.lines || [],
+        lines: publicEstimateLines(record.lines),
         subtotal: record.subtotal,
         tax_amount: record.tax_amount,
         total: record.total,
@@ -115,13 +128,17 @@ export async function loadPublicSign(db, rawToken) {
         signed_at: record.signed_at,
         signer_name: record.signer_name,
       },
-      document: { kind: 'Estimate', ...record },
     };
   }
 
   if (link.entity === 'ChangeOrder') {
     return {
-      link: { entity: link.entity, channel: link.channel, used: !!link.used_at, expires_at: new Date(link.expires_at).toISOString() },
+      link: {
+        entity: link.entity, channel: link.channel, used: !!link.used_at,
+        signed: record.status === 'approved',
+        unavailable: UNSIGNABLE_STATUSES.has(record.status) ? record.status : null,
+        expires_at: new Date(link.expires_at).toISOString(),
+      },
       ...parties,
       change_order: {
         id: record.id,
@@ -134,12 +151,11 @@ export async function loadPublicSign(db, rawToken) {
         added_days: record.added_days,
         revised_contract_total: record.revised_contract_total,
         notes: record.notes,
-        lines: record.lines || [],
+        lines: publicChangeOrderLines(record.lines),
         status: record.status,
         signed_at: record.signed_at,
         signer_name: record.signer_name,
       },
-      document: { kind: 'ChangeOrder', ...record },
     };
   }
 
@@ -180,7 +196,11 @@ export async function jobAuthorizedTotal(db, ownerId, jobId) {
 export async function completeSign(db, { rawToken, signerName, signatureDataUrl, env }) {
   const link = await getSignLink(db, rawToken);
   if (!SIGNABLE.has(link.entity)) throw fail(400, 'Unsupported sign document');
-  if (link.used_at) throw fail(400, 'This document was already signed');
+  if (link.used_at) {
+    // Voiding also consumes the link (below), so a stale link says why it's dead, not that it was signed.
+    const record = await getRecord(db, link.owner_id, link.entity, link.record_id);
+    throw fail(400, UNSIGNABLE_STATUSES.has(record.status) ? 'This document is no longer available to sign' : 'This document was already signed');
+  }
 
   const name = z.string().trim().min(1).max(200).parse(signerName);
   const png = parsePngDataUrl(signatureDataUrl);
@@ -191,11 +211,12 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
   return db.transaction(async tx => {
     await tx.all('SELECT id FROM users WHERE id = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [link.owner_id]);
     const [fresh] = await tx.all('SELECT * FROM sign_links WHERE token_hash = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [link.token_hash]);
-    if (!fresh || fresh.used_at) throw fail(400, 'This document was already signed');
+    if (!fresh) throw fail(400, 'This document was already signed');
     if (fresh.expires_at < Date.now()) throw fail(404, 'Sign link is invalid or expired');
 
     const record = await getRecord(tx, link.owner_id, link.entity, link.record_id);
-    if (record.status === 'void' || record.status === 'rejected') throw fail(400, 'This document can no longer be signed');
+    if (UNSIGNABLE_STATUSES.has(record.status)) throw fail(400, 'This document is no longer available to sign');
+    if (fresh.used_at) throw fail(400, 'This document was already signed');
     // Freeze on accepted_snapshot (not live status) — status stays editable after sign.
     if (record.accepted_snapshot) throw fail(400, 'This document was already signed');
 

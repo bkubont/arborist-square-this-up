@@ -9,7 +9,11 @@ import { saveRecord, schemas, JOB_DOCUMENT_ENTITIES } from './domain.js';
 // Offline import only: never fetch arbitrary URLs from an uploaded export.
 // Base44 exports can be normalized to { Client: [], Job: [], TimelineEntry: [], files: [] }.
 // Files use { id, mime, content: base64, source_url? }; source_url maps old photo URLs.
-const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', ...JOB_DOCUMENT_ENTITIES, 'Expense', 'TimelineEntry'];
+// Dependency order, not JOB_DOCUMENT_ENTITIES' display order: a WorkOrder can carry
+// related_estimate_id, and materialOrderSync links a MaterialOrder back to its WorkOrder via
+// related_work_order_id, so both referenced entities must be imported first or the id lookup
+// below throws "references a missing work order" on an otherwise-valid backup.
+const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', 'Estimate', 'WorkOrder', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'Expense', 'TimelineEntry'];
 
 export async function importData(db, email, input) {
   const [user] = await db.all('SELECT id FROM users WHERE email = ?', [emailSchema.parse(email)]);
