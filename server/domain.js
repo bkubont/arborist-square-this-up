@@ -65,6 +65,8 @@ const changeOrderLine = estimateLine.extend({
 
 const signMeta = {
   signed_at: z.string().max(40).optional(),
+  /** Accepted / approved by the owner's status override, not a customer signature. */
+  accepted_manually: z.boolean().optional(),
   signer_name: text.optional(),
   signature_file_url: z.string().max(200).optional(),
 };

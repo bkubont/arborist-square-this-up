@@ -37,7 +37,7 @@ function readTaskView() {
 const JOB_TABS = [
   "overview",
   "tasks",
-  "costs",
+  "money",
   "receipts",
   "photos",
   "notes",
@@ -72,7 +72,8 @@ export default function JobDetail() {
   };
 
   const tabParam = searchParams.get("tab");
-  const activeTab = JOB_TABS.includes(tabParam) ? tabParam : "overview";
+  // "costs" was this tab's old name; keep old links working.
+  const activeTab = tabParam === "costs" ? "money" : JOB_TABS.includes(tabParam) ? tabParam : "overview";
 
   const setTab = (next) => {
     const params = new URLSearchParams(searchParams);
@@ -275,7 +276,7 @@ export default function JobDetail() {
         <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/80 p-1 mb-4">
           <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
           <TabsTrigger value="tasks" className="text-xs sm:text-sm">Tasks</TabsTrigger>
-          <TabsTrigger value="costs" className="text-xs sm:text-sm">Costs</TabsTrigger>
+          <TabsTrigger value="money" className="text-xs sm:text-sm">Money</TabsTrigger>
           <TabsTrigger value="receipts" className="text-xs sm:text-sm">Receipts</TabsTrigger>
           <TabsTrigger value="photos" className="text-xs sm:text-sm">Photos</TabsTrigger>
           <TabsTrigger value="notes" className="text-xs sm:text-sm">Notes</TabsTrigger>
@@ -305,7 +306,7 @@ export default function JobDetail() {
                   />
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-2">
-                  The estimate is below. Costs, Invoice, Photos and Receipts have their own tabs.
+                  The estimate is below. Money, Invoice, Photos and Receipts have their own tabs.
                 </p>
               </div>
 
@@ -378,7 +379,7 @@ export default function JobDetail() {
           </div>
         </TabsContent>
 
-        <TabsContent value="costs" className="space-y-4 mt-0">
+        <TabsContent value="money" className="space-y-4 mt-0">
           <JobDocuments
             jobId={id}
             jobTitle={job.title}
@@ -386,12 +387,13 @@ export default function JobDetail() {
             documents={documents}
             onChanged={load}
             entities={["MaterialOrder", "ChangeOrder"]}
-            title="Work & costs"
+            title="Estimate, change orders & materials"
+            alsoShow={(d) => d.entity === "Estimate" && d.status === "accepted"}
             emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted. Track the work itself under Tasks."
           />
           <div>
             <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              Cost rollups
+              Totals
             </div>
             <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
           </div>
@@ -455,7 +457,7 @@ export default function JobDetail() {
             onChanged={load}
             entities={["Invoice"]}
             title="Invoice"
-            emptyHint="Invoice unlocks after the Work Order is complete. One active invoice per job."
+            emptyHint="The invoice unlocks once the estimate is signed. One active invoice per job."
           />
           <div>
             <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">

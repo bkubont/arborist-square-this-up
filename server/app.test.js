@@ -2153,3 +2153,76 @@ test('change order lines are priced like estimate lines: totals, tasks, signer v
   assert.equal(legacy.added_cost, 75);
   assert.equal(legacy.net_change, 75);
 });
+
+test('status override: accept / approve without a signature, reopen only while nothing is built on it', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('override-a@example.com');
+  const b = await register('override-b@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const setStatus = (entity, id, status, cookie = a.cookie) => request(`/documents/${entity}/${id}/status`, { method: 'POST', cookie, data: { status } });
+  const job = await create('Job', { title: 'Override job', client_id: (await create('Client', { name: 'Override client', ...CLIENT_ADDR })).id });
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-OV', status: 'draft', total: 300, lines: [{ description: 'Deck', labor_amount: 200 }, { description: 'Stain', labor_amount: 100 }] });
+
+  // An outstanding sign link dies when the owner decides for the customer.
+  const sent = await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
+  const token = sent.data.sign_url.split('/').pop();
+  assert.equal((await setStatus('Estimate', estimate.id, 'bogus')).status, 400);
+  assert.equal((await setStatus('Estimate', estimate.id, 'accepted', b.cookie)).status, 404, 'other accounts cannot override');
+  const accepted = await setStatus('Estimate', estimate.id, 'accepted');
+  assert.equal(accepted.status, 200, accepted.data?.message);
+  assert.equal(accepted.data.status, 'accepted');
+  assert.equal(accepted.data.accepted_manually, true);
+  assert.equal(accepted.data.signer_name, undefined);
+  assert.equal(accepted.data.accepted_snapshot.total, 300);
+  assert.equal((await request(`/sign/${token}`, { method: 'POST', data: { signer_name: 'Late', signature_data_url: SIGN_PNG } })).status, 400);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.estimate_amount, 300);
+  let tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.deepEqual(tasks.map(i => i.description).sort(), ['Deck', 'Stain'], 'a task per line, as with a signature');
+  const timeline = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.ok(timeline.some(e => /marked accepted \(no signature\)/.test(e.text || '')));
+
+  // Change order approved without a signature too.
+  const co = await create('ChangeOrder', { job_id: job.id, number: 'CO-OV', status: 'draft', lines: [{ description: 'Railing', labor_amount: 150 }] });
+  const approved = await setStatus('ChangeOrder', co.id, 'approved');
+  assert.equal(approved.status, 200, approved.data?.message);
+  assert.equal(approved.data.accepted_manually, true);
+  assert.equal(approved.data.revised_contract_total, 450);
+  assert.ok((await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.some(i => i.description === 'Railing'));
+
+  // Reopening the estimate is refused while a live change order (then an invoice) sits on it.
+  assert.equal((await setStatus('Estimate', estimate.id, 'draft')).status, 409);
+  assert.equal((await setStatus('ChangeOrder', co.id, 'draft')).status, 200, 'a change order with no invoice on the job can be reopened');
+  assert.equal((await request(`/documents/ChangeOrder/${co.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
+  const invoice = (await request('/invoices/from-job', { method: 'POST', cookie: a.cookie, data: { job_id: job.id } })).data;
+  assert.match((await setStatus('Estimate', estimate.id, 'draft')).data.message, /Invoice .* Void the invoice first/);
+  assert.equal((await request(`/documents/Invoice/${invoice.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
+
+  // Reopen: unstarted tasks go, a started one stays; the estimate is editable again.
+  tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
+  const deck = tasks.find(i => i.description === 'Deck');
+  await request(`/entities/WorkItem/${deck.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'in_progress' } });
+  const reopened = await setStatus('Estimate', estimate.id, 'draft');
+  assert.equal(reopened.status, 200, reopened.data?.message);
+  assert.equal(reopened.data.accepted_snapshot, undefined);
+  assert.equal(reopened.data.accepted_manually, undefined);
+  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.estimate_amount, 0);
+  tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.filter(i => i.source_id === estimate.id);
+  assert.deepEqual(tasks.map(i => i.description), ['Deck']);
+  assert.equal((await request(`/entities/Estimate/${estimate.id}`, { method: 'PATCH', cookie: a.cookie, data: { notes: 'Revised scope' } })).status, 200);
+
+  // Accepting again keeps the started task and adds only the missing one.
+  assert.equal((await setStatus('Estimate', estimate.id, 'accepted')).status, 200);
+  tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.filter(i => i.source_id === estimate.id);
+  assert.deepEqual(tasks.map(i => i.description).sort(), ['Deck', 'Stain']);
+  assert.equal(tasks.find(i => i.description === 'Deck').status, 'in_progress');
+
+  // Declined ↔ draft; void is final here.
+  assert.equal((await setStatus('Estimate', estimate.id, 'declined')).data.status, 'declined');
+  assert.equal((await setStatus('Estimate', estimate.id, 'draft')).data.status, 'draft');
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
+  assert.equal((await setStatus('Estimate', estimate.id, 'draft')).status, 409);
+});

@@ -26,6 +26,7 @@ import {
 } from './documentRules.js';
 import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
 import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable, completeJobWhenTasksDone } from './workItems.js';
+import { overrideScopeStatus } from './statusOverride.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { jobSummary, accountSummaries } from './summary.js';
@@ -412,6 +413,17 @@ export async function createApp(db, env = process.env) {
     const entity = req.params.entity;
     if (entity !== 'Estimate' && entity !== 'ChangeOrder') throw fail(400, 'Only estimates and change orders can be declined');
     const updated = await ownedTransaction(req.user.id, tx => declineDocument(tx, req.user.id, entity, req.params.id));
+    res.json(updated);
+  });
+  /** Owner's status override for an Estimate / Change Order, no signature (server/statusOverride.js). */
+  app.post('/api/documents/:entity/:id/status', async (req, res) => {
+    const status = z.string().min(1).max(20).parse(req.body?.status);
+    const updated = await ownedTransaction(req.user.id, async tx => {
+      const saved = await overrideScopeStatus(tx, req.user.id, req.params.entity, req.params.id, status);
+      // Reopening can remove unstarted tasks, whose materials leave the draft Material Order.
+      if (saved.job_id) await maybeSyncMaterialOrder(tx, req.user.id, saved.job_id);
+      return saved;
+    });
     res.json(updated);
   });
   app.post('/api/documents/:entity/:id/revise', async (req, res) => {

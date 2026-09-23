@@ -34,9 +34,13 @@ export function lineLaborHours(sourceType, line = {}) {
  */
 export async function createWorkItemsForLines(tx, ownerId, { jobId, sourceType, sourceId, lines }) {
   const lineAmount = sourceType === 'Estimate' ? estimateLineAmount : changeOrderLineAmount;
+  // A document reopened and accepted again keeps the tasks already started for its lines.
+  const existing = new Set((await listJobDocuments(tx, ownerId, 'WorkItem', jobId))
+    .filter(item => item.source_id === sourceId).map(item => item.line_id));
   let created = 0;
   for (const [index, line] of (lines || []).entries()) {
     if (!String(line.description || '').trim()) continue;
+    if (existing.has(line.id || `line-${index + 1}`)) continue;
     await saveRecord(tx, ownerId, 'WorkItem', {
       job_id: jobId,
       source_type: sourceType,

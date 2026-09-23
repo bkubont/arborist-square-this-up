@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import ScopeLinesEditor from "@/components/ScopeLinesEditor";
+import StatusOverrideSelect from "@/components/StatusOverrideSelect";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import { money, shortDate } from "@/lib/format";
 import {
@@ -107,31 +108,35 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     }
   };
 
-  // Status only ever changes through a dedicated action now (Send sign link, Void, Decline) —
+  // Status changes through its own actions (Send sign link, the status override, Void) —
   // server/lifecycle.js rejects a status field in a plain edit, so this never sends one.
+  const persist = async () => {
+    if (readOnly) return;
+    const serialized = lines.map(serializeEstimateLine).filter((line) =>
+      line.description || line.material_amount || line.labor_amount || line.equipment_amount
+    );
+    const nextTotals = estimateTotals(serialized, form.tax_rate);
+    await api.entities.Estimate.update(document.id, {
+      number: form.number || undefined,
+      date: form.date,
+      valid_till: form.valid_till,
+      notes: form.notes,
+      tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
+      lines: serialized,
+      subtotal: nextTotals.subtotal,
+      tax_amount: nextTotals.tax_amount,
+      total: nextTotals.total,
+    });
+    try {
+      await api.entities.Job.update(jobId, { estimate_amount: nextTotals.total });
+    } catch { /* non-blocking */ }
+  };
+
   const save = async () => {
     if (readOnly) return;
     setSaving(true);
     try {
-      const serialized = lines.map(serializeEstimateLine).filter((line) =>
-        line.description || line.material_amount || line.labor_amount || line.equipment_amount
-      );
-      const nextTotals = estimateTotals(serialized, form.tax_rate);
-      const payload = {
-        number: form.number || undefined,
-        date: form.date,
-        valid_till: form.valid_till,
-        notes: form.notes,
-        tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
-        lines: serialized,
-        subtotal: nextTotals.subtotal,
-        tax_amount: nextTotals.tax_amount,
-        total: nextTotals.total,
-      };
-      await api.entities.Estimate.update(document.id, payload);
-      try {
-        await api.entities.Job.update(jobId, { estimate_amount: nextTotals.total });
-      } catch { /* non-blocking */ }
+      await persist();
       onSaved?.();
       onOpenChange(false);
     } finally {
@@ -273,8 +278,13 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           <div>
             <Label>Status</Label>
-            {/* Status only changes via Send sign link / Void / Decline — never a direct edit. */}
-            <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
+            {/* Its own action, never part of a content edit; unsaved edits are saved first. */}
+            <StatusOverrideSelect
+              entity="Estimate"
+              document={document}
+              beforeChange={persist}
+              onChanged={() => { onSaved?.(); onOpenChange(false); }}
+            />
           </div>
           <div>
             <Label>Date</Label>

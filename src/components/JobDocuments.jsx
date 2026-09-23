@@ -30,6 +30,12 @@ export default function JobDocuments({
   onChanged,
   /** Limit to these entity types (default: all document types). */
   entities = null,
+  /**
+   * Also list (and open) documents outside `entities` that match this test, without a create
+   * button for their type — e.g. the signed estimate beside the change orders it is the base of.
+   * @type {null | ((doc: any) => boolean)}
+   */
+  alsoShow = null,
   title = "Documents",
   emptyHint = null,
   className = "",
@@ -127,8 +133,12 @@ export default function JobDocuments({
     }
   };
 
-  const filtered = documents.filter((d) => allowedSet.has(d.entity));
-  const sorted = [...filtered].sort((a, b) => (b.created_date || "").localeCompare(a.created_date || ""));
+  const filtered = documents.filter((d) => allowedSet.has(d.entity) || alsoShow?.(d));
+  // The estimate is the base the rest build on, so it leads; everything else newest first.
+  const sorted = [...filtered].sort((a, b) =>
+    Number(b.entity === "Estimate") - Number(a.entity === "Estimate")
+    || (b.created_date || "").localeCompare(a.created_date || ""));
+  const openable = new Set([...allowedSet, ...filtered.map((d) => d.entity)]);
   const displayMoney = (doc) => {
     if (doc.entity === "ChangeOrder") return doc.revised_contract_total ?? doc.net_change;
     return doc.total;
@@ -176,7 +186,7 @@ export default function JobDocuments({
 
       {showStageHints && !accepted && allowedSet.has("Estimate") && (
         <p className="text-xs text-slate-500 mb-3">
-          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> under Costs if needed).
+          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> under Money if needed).
           One Estimate and one Invoice per job. Once the customer signs, each line becomes a job task
           (see Tasks), and Change Orders and the Invoice unlock.
         </p>
@@ -218,7 +228,7 @@ export default function JobDocuments({
         </ul>
       )}
 
-      {allowedSet.has("Estimate") && (
+      {openable.has("Estimate") && (
         <EstimateEditorDialog
           open={openDoc?.entity === "Estimate"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
@@ -229,7 +239,7 @@ export default function JobDocuments({
           onRevised={(created) => openRevised("Estimate", created)}
         />
       )}
-      {allowedSet.has("MaterialOrder") && (
+      {openable.has("MaterialOrder") && (
         <MaterialOrderEditorDialog
           open={openDoc?.entity === "MaterialOrder"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
@@ -239,7 +249,7 @@ export default function JobDocuments({
           onRevised={(created) => openRevised("MaterialOrder", created)}
         />
       )}
-      {allowedSet.has("ChangeOrder") && (
+      {openable.has("ChangeOrder") && (
         <ChangeOrderEditorDialog
           open={openDoc?.entity === "ChangeOrder"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
@@ -249,7 +259,7 @@ export default function JobDocuments({
           onRevised={(created) => openRevised("ChangeOrder", created)}
         />
       )}
-      {allowedSet.has("Invoice") && (
+      {openable.has("Invoice") && (
         <InvoiceEditorDialog
           open={openDoc?.entity === "Invoice"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}

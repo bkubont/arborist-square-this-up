@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import ScopeLinesEditor from "@/components/ScopeLinesEditor";
+import StatusOverrideSelect from "@/components/StatusOverrideSelect";
 import { money, shortDate } from "@/lib/format";
 import { changeOrderNet } from "@/lib/documentMapping";
 import { isChangeOrderReadOnly } from "@/lib/documentAvailability";
@@ -87,28 +88,33 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
 
   const readOnly = isChangeOrderReadOnly(document);
 
-  // Status only ever changes through a dedicated action (Send sign link, Void, Decline) —
+  // Status changes through its own actions (Send sign link, the status override, Void) —
   // server/lifecycle.js rejects a status field in a plain edit, so this never sends one.
+  const persist = async () => {
+    if (readOnly) return;
+    const serializedLines = lines
+      .map(serializeChangeOrderLine)
+      .filter((l) => l.description || isPricedScopeLine(l) || l.amount != null);
+    await api.entities.ChangeOrder.update(document.id, {
+      number: form.number || undefined,
+      reason: form.reason,
+      description: form.description,
+      notes: form.notes,
+      added_cost: addedCost === "" ? undefined : Number(addedCost),
+      credit: form.credit === "" ? undefined : Number(form.credit),
+      net_change: computedNet,
+      added_days: form.added_days === "" ? undefined : Number(form.added_days),
+      revised_contract_total: previewRevised ?? (form.revised_contract_total === "" ? undefined : Number(form.revised_contract_total)),
+      tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
+      lines: serializedLines,
+    });
+  };
+
   const save = async () => {
     if (readOnly) return;
     setSaving(true);
     try {
-      const serializedLines = lines
-        .map(serializeChangeOrderLine)
-        .filter((l) => l.description || isPricedScopeLine(l) || l.amount != null);
-      await api.entities.ChangeOrder.update(document.id, {
-        number: form.number || undefined,
-        reason: form.reason,
-        description: form.description,
-        notes: form.notes,
-        added_cost: addedCost === "" ? undefined : Number(addedCost),
-        credit: form.credit === "" ? undefined : Number(form.credit),
-        net_change: computedNet,
-        added_days: form.added_days === "" ? undefined : Number(form.added_days),
-        revised_contract_total: previewRevised ?? (form.revised_contract_total === "" ? undefined : Number(form.revised_contract_total)),
-        tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
-        lines: serializedLines,
-      });
+      await persist();
       onSaved?.();
       onOpenChange(false);
     } finally {
@@ -182,8 +188,13 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
           </div>
           <div>
             <Label>Status</Label>
-            {/* Status only changes via Send sign link / Void / Decline — never a direct edit. */}
-            <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
+            {/* Its own action, never part of a content edit; unsaved edits are saved first. */}
+            <StatusOverrideSelect
+              entity="ChangeOrder"
+              document={document}
+              beforeChange={persist}
+              onChanged={() => { onSaved?.(); onOpenChange(false); }}
+            />
           </div>
         </div>
 

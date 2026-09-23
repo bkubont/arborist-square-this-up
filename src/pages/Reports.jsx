@@ -149,7 +149,7 @@ export default function Reports() {
                 {loading ? "…" : money(materialsCost)}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                Derived from Material Orders on jobs — not edited here. Open a job’s Costs tab for detail.
+                Derived from Material Orders on jobs — not edited here. Open a job’s Money tab for detail.
               </p>
             </div>
           </section>

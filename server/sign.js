@@ -200,6 +200,83 @@ export async function jobAuthorizedTotal(db, ownerId, jobId) {
   };
 }
 
+/**
+ * Accept an Estimate / approve a ChangeOrder: freeze its signed snapshot, update the job's money,
+ * log it, and create a task per line. Used by the customer's signature (completeSign) and by the
+ * owner's status override without one (server/statusOverride.js; `manual`, no signer or file).
+ */
+export async function acceptScopeDocument(tx, ownerId, entity, record, { signedAt, signerName, fileUrl, manual = false }) {
+  const by = manual ? 'marked accepted (no signature)' : `signed by ${signerName}`;
+  const signMeta = manual
+    ? { signed_at: signedAt, accepted_manually: true }
+    : { signed_at: signedAt, signer_name: signerName, signature_file_url: fileUrl };
+  if (entity === 'Estimate') {
+    const snapshot = {
+      number: record.number,
+      notes: record.notes,
+      tax_rate: record.tax_rate,
+      lines: record.lines || [],
+      subtotal: record.subtotal,
+      tax_amount: record.tax_amount,
+      total: record.total,
+    };
+    const updated = await saveRecord(tx, ownerId, 'Estimate', { status: 'accepted', ...signMeta, accepted_snapshot: snapshot }, record.id);
+    if (snapshot.total != null) {
+      await saveRecord(tx, ownerId, 'Job', { estimate_amount: snapshot.total }, record.job_id);
+    }
+    await saveRecord(tx, ownerId, 'TimelineEntry', {
+      job_id: record.job_id,
+      type: 'estimate_signed',
+      category: 'document',
+      text: `Estimate ${record.number || ''} ${by}`.replace(/\s+/g, ' ').trim(),
+      ...(fileUrl && { photo_url: fileUrl }),
+    });
+    await createWorkItemsForLines(tx, ownerId, { jobId: record.job_id, sourceType: 'Estimate', sourceId: record.id, lines: snapshot.lines });
+    return updated;
+  }
+  const { estimate: activeEstimate, baseline } = await acceptedEstimateBaseline(tx, ownerId, record.job_id);
+  assertJobHasActiveEstimate(!!activeEstimate, 'signing');
+  const cos = await listJobChangeOrders(tx, ownerId, record.job_id);
+  const others = cos.filter(c => c.id !== record.id);
+  const thisNet = changeOrderNet(record);
+  const provisional = [...others, { ...record, status: 'approved', net_change: thisNet }];
+  const revised = computeAuthorizedTotal(baseline, provisional);
+  const snapshot = {
+    reason: record.reason,
+    description: record.description,
+    added_cost: record.added_cost,
+    credit: record.credit,
+    net_change: thisNet,
+    added_days: record.added_days,
+    revised_contract_total: revised,
+    lines: record.lines || [],
+    notes: record.notes,
+  };
+  const updated = await saveRecord(tx, ownerId, 'ChangeOrder', {
+    status: 'approved',
+    net_change: thisNet,
+    revised_contract_total: revised,
+    ...signMeta,
+    accepted_snapshot: snapshot,
+  }, record.id);
+  await saveRecord(tx, ownerId, 'TimelineEntry', {
+    job_id: record.job_id,
+    type: 'change_order_signed',
+    category: 'document',
+    text: `Change order ${record.number || ''} ${manual ? 'marked approved (no signature)' : `signed by ${signerName}`} (revised total ${revised})`.replace(/\s+/g, ' ').trim(),
+    ...(fileUrl && { photo_url: fileUrl }),
+  });
+  await saveRecord(tx, ownerId, 'TimelineEntry', {
+    job_id: record.job_id,
+    type: 'note',
+    category: 'financial',
+    text: `Authorized total updated to $${revised.toFixed(2)} (approved CO ${record.number || ''})`.trim(),
+    amount: Math.max(0, revised),
+  });
+  await createWorkItemsForLines(tx, ownerId, { jobId: record.job_id, sourceType: 'ChangeOrder', sourceId: record.id, lines: snapshot.lines });
+  return updated;
+}
+
 export async function completeSign(db, { rawToken, signerName, signatureDataUrl, env }) {
   const link = await getSignLink(db, rawToken);
   if (!SIGNABLE.has(link.entity)) throw fail(400, 'Unsupported sign document');
@@ -237,79 +314,7 @@ export async function completeSign(db, { rawToken, signerName, signatureDataUrl,
     }
     await tx.run('INSERT INTO files (id, owner_id, mime, content, size) VALUES (?, ?, ?, ?, ?)', [fileId, link.owner_id, 'image/png', png, png.length]);
 
-    let updated;
-    if (link.entity === 'Estimate') {
-      const snapshot = {
-        number: record.number,
-        notes: record.notes,
-        tax_rate: record.tax_rate,
-        lines: record.lines || [],
-        subtotal: record.subtotal,
-        tax_amount: record.tax_amount,
-        total: record.total,
-      };
-      updated = await saveRecord(tx, link.owner_id, 'Estimate', {
-        status: 'accepted',
-        signed_at: signedAt,
-        signer_name: name,
-        signature_file_url: fileUrl,
-        accepted_snapshot: snapshot,
-      }, record.id);
-      if (snapshot.total != null) {
-        await saveRecord(tx, link.owner_id, 'Job', { estimate_amount: snapshot.total }, record.job_id);
-      }
-      await saveRecord(tx, link.owner_id, 'TimelineEntry', {
-        job_id: record.job_id,
-        type: 'estimate_signed',
-        category: 'document',
-        text: `Estimate ${record.number || ''} signed by ${name}`.trim(),
-        photo_url: fileUrl,
-      });
-      await createWorkItemsForLines(tx, link.owner_id, { jobId: record.job_id, sourceType: 'Estimate', sourceId: record.id, lines: snapshot.lines });
-    } else {
-      const { estimate: activeEstimate, baseline } = await acceptedEstimateBaseline(tx, link.owner_id, record.job_id);
-      assertJobHasActiveEstimate(!!activeEstimate, 'signing');
-      const cos = await listJobChangeOrders(tx, link.owner_id, record.job_id);
-      const others = cos.filter(c => c.id !== record.id);
-      const thisNet = changeOrderNet(record);
-      const provisional = [...others, { ...record, status: 'approved', net_change: thisNet }];
-      const revised = computeAuthorizedTotal(baseline, provisional);
-      const snapshot = {
-        reason: record.reason,
-        description: record.description,
-        added_cost: record.added_cost,
-        credit: record.credit,
-        net_change: thisNet,
-        added_days: record.added_days,
-        revised_contract_total: revised,
-        lines: record.lines || [],
-        notes: record.notes,
-      };
-      updated = await saveRecord(tx, link.owner_id, 'ChangeOrder', {
-        status: 'approved',
-        net_change: thisNet,
-        revised_contract_total: revised,
-        signed_at: signedAt,
-        signer_name: name,
-        signature_file_url: fileUrl,
-        accepted_snapshot: snapshot,
-      }, record.id);
-      await saveRecord(tx, link.owner_id, 'TimelineEntry', {
-        job_id: record.job_id,
-        type: 'change_order_signed',
-        category: 'document',
-        text: `Change order ${record.number || ''} signed by ${name} (revised total ${revised})`.trim(),
-        photo_url: fileUrl,
-      });
-      await saveRecord(tx, link.owner_id, 'TimelineEntry', {
-        job_id: record.job_id,
-        type: 'note',
-        category: 'financial',
-        text: `Authorized total updated to $${revised.toFixed(2)} (approved CO ${record.number || ''})`.trim(),
-        amount: Math.max(0, revised),
-      });
-      await createWorkItemsForLines(tx, link.owner_id, { jobId: record.job_id, sourceType: 'ChangeOrder', sourceId: record.id, lines: snapshot.lines });
-    }
+    const updated = await acceptScopeDocument(tx, link.owner_id, link.entity, record, { signedAt, signerName: name, fileUrl });
 
     // Consume this token and invalidate any other unused links for the same document
     // so a leftover/resent URL cannot overwrite the frozen accepted_snapshot.

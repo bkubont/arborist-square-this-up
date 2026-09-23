@@ -72,6 +72,8 @@ export const api = {
   documents: {
     void(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/void`, {}); },
     revise(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/revise`, {}); },
+    /** Owner's status override for an Estimate / Change Order — no signature needed. */
+    setStatus(entity, id, status) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/status`, { status }); },
   },
   /** Derived money per job (server/summary.js), incl. running_total_cents. */
   summaries: {
