@@ -1,12 +1,13 @@
 /**
  * Document create buttons by job stage (Brittany UX).
  * New job → Estimate + Material Order only.
- * After estimate accept → Work Order, Change Order unlock; Invoice after WO complete.
- * One Estimate, one Work Order, one Invoice per job (open existing; no duplicates).
+ * After estimate accept → Change Order and Invoice unlock. The job checklist (WorkItem) tracks the
+ * work itself and does not gate billing.
+ * One Estimate, one Invoice per job (open existing; no duplicates).
  */
 
 /** Entities limited to one non-void document per job. */
-export const SINGLE_DOC_ENTITIES = new Set(["Estimate", "WorkOrder", "Invoice"]);
+export const SINGLE_DOC_ENTITIES = new Set(["Estimate", "Invoice"]);
 
 /** Live accepted estimate — voided snapshots do not authorize. */
 export function isLiveAcceptedEstimate(doc) {
@@ -35,11 +36,6 @@ export function findLiveAcceptedEstimate(documents = []) {
     || null;
 }
 
-/** Work Order is complete when status is `complete` (document enum). */
-export function hasCompleteWorkOrder(documents = []) {
-  return documents.some((d) => d.entity === "WorkOrder" && d.status === "complete");
-}
-
 /**
  * @param {string} entity
  * @param {Array} documents
@@ -49,13 +45,6 @@ export function documentCreateAvailability(entity, documents = []) {
   if (SINGLE_DOC_ENTITIES.has(entity)) {
     const existing = findActiveDocument(entity, documents);
     if (existing) {
-      if (entity === "Invoice" && !hasCompleteWorkOrder(documents)) {
-        return {
-          available: false,
-          reason: "Complete the Work Order before opening the invoice.",
-          existing,
-        };
-      }
       return {
         available: true,
         openExisting: true,
@@ -71,20 +60,12 @@ export function documentCreateAvailability(entity, documents = []) {
 
   if (!hasAcceptedEstimate(documents)) {
     const labels = {
-      WorkOrder: "Accept the estimate first — then create a Work Order from it.",
       ChangeOrder: "Change Orders unlock after the customer accepts the estimate.",
       Invoice: "Invoices unlock after the customer accepts the estimate.",
     };
     return {
       available: false,
       reason: labels[entity] || "Available after the estimate is accepted.",
-    };
-  }
-
-  if (entity === "Invoice" && !hasCompleteWorkOrder(documents)) {
-    return {
-      available: false,
-      reason: "Complete the Work Order before creating an invoice.",
     };
   }
 

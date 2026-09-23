@@ -1,5 +1,5 @@
 /**
- * Server-enforced lifecycle rules for Estimate / ChangeOrder ("scope documents") and WorkItem. The
+ * Server-enforced lifecycle rules for Estimate / ChangeOrder ("scope documents"). The
  * UI mirrors these, but they are only guaranteed here: the generic entity routes call these checks
  * so a hand-built request cannot skip them.
  *
@@ -52,13 +52,4 @@ export function assertJobHasActiveEstimate(hasActiveEstimate, action = 'creating
 export function assertScopeDeclinable(entity, record) {
   if (record.status !== 'sent') throw fail(400, `Only a sent ${scopeNoun(entity)} can be declined`);
   return DECLINE_STATUS[entity];
-}
-
-/**
- * A WorkItem created from a signed line (has `source_type`) represents real signed scope, so it
- * can't be deleted outright — only a free-standing item the owner added by hand can be. Untick
- * "done" or edit its steps instead; if the scope itself changed, void the source document.
- */
-export function assertWorkItemDeletable(item) {
-  if (item.source_type) throw fail(409, 'This task comes from a signed document and cannot be deleted.');
 }

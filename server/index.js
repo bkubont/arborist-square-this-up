@@ -1,12 +1,15 @@
 import 'dotenv/config';
 import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
+import { carryOverChecklists } from './workItems.js';
 // Hostinger's LiteSpeed loader requires this module synchronously. Keep the
 // imported module graph free of top-level await; initialize asynchronously here.
 async function start() {
   const db = await openDatabase();
   try {
     await migrate(db);
+    const carried = await carryOverChecklists(db);
+    if (carried) console.log(`Carried ${carried} tasks into job checklists.`);
     const app = await createApp(db);
     const configuredPort = Number(process.env.PORT || 3000);
     const server = app.listen(configuredPort, '0.0.0.0', () => {

@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { fail, getRecord, saveRecord, decode } from './domain.js';
 import { hash, token, emailSchema } from './security.js';
-import { computeAuthorizedTotal, changeOrderNet, pickAcceptedEstimate, estimateLineAmount, changeOrderLineAmount } from './mapping.js';
+import { computeAuthorizedTotal, changeOrderNet, pickAcceptedEstimate } from './mapping.js';
 import { assertJobHasActiveEstimate } from './lifecycle.js';
-import { toCents } from '../shared/money.js';
+import { createWorkItemsForLines } from './workItems.js';
 
 const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
@@ -186,31 +186,6 @@ async function acceptedEstimateBaseline(tx, ownerId, jobId) {
 async function listJobChangeOrders(tx, ownerId, jobId) {
   const rows = await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'ChangeOrder', jobId]);
   return rows.map(decode);
-}
-
-/**
- * One WorkItem per signed line that has a description — the job's internal task list (no UI reads
- * this yet; stage 3). Blank rows (a line the estimator never filled in) are skipped.
- */
-async function createWorkItemsForLines(tx, ownerId, { jobId, sourceType, sourceId, lines }) {
-  const lineAmount = sourceType === 'Estimate' ? estimateLineAmount : changeOrderLineAmount;
-  for (const line of lines || []) {
-    if (!line.id || !String(line.description || '').trim()) continue;
-    await saveRecord(tx, ownerId, 'WorkItem', {
-      job_id: jobId,
-      source_type: sourceType,
-      source_id: sourceId,
-      line_id: line.id,
-      // Snapshotted once, here: the source line can never change after signing (stage 2), so this
-      // stays correct forever and "Bill completed work" needs no join back to the source document.
-      amount_cents: Math.max(0, toCents(lineAmount(line))),
-      description: line.description,
-      category: line.category,
-      tools: line.tools,
-      notes: line.notes,
-      steps: line.steps || [],
-    });
-  }
 }
 
 export async function jobAuthorizedTotal(db, ownerId, jobId) {

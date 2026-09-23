@@ -5,6 +5,7 @@ import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
 import { hash, token } from './security.js';
 import { importData } from './import.js';
+import { carryOverChecklists } from './workItems.js';
 import { saveRecord } from './domain.js';
 import { sumDepositsApplied, isLiveAcceptedEstimate, findLiveAcceptedEstimate } from './documentRules.js';
 
@@ -161,7 +162,7 @@ test('export restores relationships and photos; invalid imports roll back', asyn
   assert.equal(cRecords.length, 1);
   assert.equal(cRecords[0].entity, 'CompanyProfile');
 });
-test('backup import: MaterialOrder linked to a WorkOrder round-trips (import order must resolve the reference)', async t => {
+test('backup import: a backup from before the checklist (WorkOrder rows, Job.checklist) still restores', async t => {
   const { db, request, register } = await fixture(t);
   const a = await register('mo-wo-import@example.com');
   await register('mo-wo-restore@example.com');
@@ -171,16 +172,32 @@ test('backup import: MaterialOrder linked to a WorkOrder round-trips (import ord
     return result.data;
   };
   const client = await create('Client', { name: 'MO/WO client', ...CLIENT_ADDR });
-  const job = await create('Job', { title: 'MO/WO job', client_id: client.id });
-  const wo = await create('WorkOrder', { job_id: job.id, number: 'WO-001', status: 'draft' });
-  await create('MaterialOrder', { job_id: job.id, number: 'MO-001', status: 'draft', related_work_order_id: wo.id });
+  const job = await create('Job', { title: 'MO/WO job', client_id: client.id, checklist: [{ text: 'Haul debris', done: true }, { text: '  ', done: false }] });
+  await create('MaterialOrder', { job_id: job.id, number: 'MO-001', status: 'draft' });
 
+  // The Work Order can no longer be created, so add what an older export carried by hand.
   const backup = (await request('/export', { cookie: a.cookie })).data;
+  const woId = '00000000-0000-4000-8000-00000000a0a0';
+  backup.records.push({ entity: 'WorkOrder', id: woId, job_id: job.id, number: 'WO-001', status: 'issued', lines: [] });
+  backup.records.find(r => r.entity === 'MaterialOrder').related_work_order_id = woId;
+
   await importData(db, 'mo-wo-restore@example.com', backup);
   const [owner] = await db.all('SELECT id FROM users WHERE email = ?', ['mo-wo-restore@example.com']);
-  const restoredMo = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'MaterialOrder'])).map(r => JSON.parse(r.data))[0];
-  const restoredWo = (await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [owner.id, 'WorkOrder']))[0];
-  assert.equal(restoredMo.related_work_order_id, restoredWo.id);
+  const rows = entity => db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [owner.id, entity]).then(r => r.map(row => JSON.parse(row.data)));
+  assert.equal((await rows('WorkOrder')).length, 0, 'retired Work Orders are skipped, not restored');
+  assert.equal((await rows('MaterialOrder'))[0].related_work_order_id, undefined);
+
+  // Runs across every account: the source account's job checklist is carried over too.
+  assert.equal(await carryOverChecklists(db), 2);
+  const [task] = await rows('WorkItem');
+  assert.equal(task.description, 'Haul debris');
+  assert.equal(task.done, true);
+  assert.equal((await rows('Job'))[0].checklist, undefined);
+  assert.equal(await carryOverChecklists(db), 0, 'carrying over twice creates nothing new');
+
+  backup.records.push({ entity: 'Mystery', id: 'x' });
+  await register('mo-wo-unknown@example.com');
+  await assert.rejects(importData(db, 'mo-wo-unknown@example.com', backup), /Unknown entity/);
 });
 
 test('client address requires street, city, state, ZIP; line 2 optional; persists through backup', async t => {
@@ -267,10 +284,6 @@ test('job documents: create draft Estimate/Invoice stubs, list by job, and enfor
     total: 100,
     accepted_snapshot: { number: 'EST-001', total: 100, lines: [{ description: 'Labor', labor_amount: 100 }] },
   });
-  const wo = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).data;
-  await request(`/entities/WorkOrder/${wo.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'complete' } });
   const invoice = await create('Invoice', { job_id: job.id, number: 'INV-001', status: 'draft', date: '2026-09-19' });
   assert.equal(estimate.status, 'accepted');
   assert.equal(estimate.lines[0].labor_amount, 100);
@@ -458,7 +471,7 @@ test('estimate sign link: client signs, estimate accepted, signed copy on job Ph
   assert.equal((await request(after.signature_file_url.replace('/api', ''), { cookie: a.cookie })).status, 200);
 });
 
-test('work order from accepted estimate maps dual lines with work categories', async t => {
+test('work order is retired: no endpoint, no entity, invoice needs only an accepted estimate', async t => {
   const { request, register } = await fixture(t);
   const a = await register('wo@example.com');
   const create = async (entity, data) => {
@@ -501,27 +514,16 @@ test('work order from accepted estimate maps dual lines with work categories', a
     },
   });
 
+  // The Work Order is retired: the checklist (WorkItem) replaces it and invoicing no longer waits on it.
   assert.equal((await request('/work-orders/from-estimate', {
     method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).status, 201);
-
-  const first = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  }));
-  assert.equal(first.status, 200);
-  const wo = first.data;
-  assert.equal(wo.related_estimate_id, estimate.id);
-  assert.ok(wo.lines.some(l => l.kind === 'labor' && l.hours === 2 && l.work_category === 'Plumbing'));
-  assert.ok(wo.lines.some(l => l.kind === 'material' && l.unit_price === 45));
-
-  // Idempotent — does not create a second work order
-  const again = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).data;
-  assert.equal(again.id, wo.id);
-
-  const timeline = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data;
-  assert.ok(timeline.some(e => e.type === 'work_order_created'));
+  })).status, 404);
+  assert.equal((await request('/entities/WorkOrder', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id, number: 'WO-001' },
+  })).status, 404);
+  assert.equal((await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
+  })).status, 201, 'an accepted estimate is enough to invoice');
 
   const mo = await create('MaterialOrder', {
     job_id: job.id,
@@ -531,13 +533,6 @@ test('work order from accepted estimate maps dual lines with work categories', a
   });
   assert.equal(mo.number, 'MO-001');
   assert.equal(mo.lines[0].unit_price, 24);
-
-  const patched = await request(`/entities/WorkOrder/${wo.id}`, {
-    method: 'PATCH', cookie: a.cookie,
-    data: { lines: wo.lines.map((l, i) => i === 0 ? { ...l, hours: 3, work_category: 'Plumbing' } : l) },
-  });
-  assert.equal(patched.status, 200);
-  assert.equal(patched.data.lines[0].hours, 3);
 });
 
 test('change order e-sign updates authorized total; draft CO excluded', async t => {
@@ -819,7 +814,7 @@ test('invoice from job autofills estimate + approved COs, balance due, job rollu
     method: 'POST', cookie: a.cookie, data: { job_id: job.id },
   })).status, 400);
 
-  const estimate = await create('Estimate', {
+  await create('Estimate', {
     job_id: job.id,
     number: 'EST-INV',
     status: 'accepted',
@@ -852,16 +847,6 @@ test('invoice from job autofills estimate + approved COs, balance due, job rollu
     },
   });
 
-  // Invoice gated on work order complete
-  const woDraft = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).data;
-  assert.equal((await request('/invoices/from-job', {
-    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
-  })).status, 400);
-  await request(`/entities/WorkOrder/${woDraft.id}`, {
-    method: 'PATCH', cookie: a.cookie, data: { status: 'complete' },
-  });
 
   const approvedCo = await create('ChangeOrder', {
     job_id: job.id,
@@ -967,19 +952,15 @@ test('export backup includes form entities and company profile', async t => {
   const client = (await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'Forms Client', ...CLIENT_ADDR } })).data;
   const job = (await request('/entities/Job', { method: 'POST', cookie: a.cookie, data: { title: 'Forms Job', client_id: client.id } })).data;
   await request('/entities/CompanyProfile', { method: 'POST', cookie: a.cookie, data: { name: 'Acme Handyman', default_tax_rate: 10 } });
-  const estimate = (await request('/entities/Estimate', { method: 'POST', cookie: a.cookie, data: {
+  await request('/entities/Estimate', { method: 'POST', cookie: a.cookie, data: {
     job_id: job.id, number: 'EST-EX', status: 'accepted', lines: [{ description: 'Labor', labor_amount: 100 }], total: 100,
     accepted_snapshot: { number: 'EST-EX', total: 100, lines: [{ description: 'Labor', labor_amount: 100 }] },
-  }})).data;
-  const wo = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).data;
-  await request(`/entities/WorkOrder/${wo.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'complete' } });
+  }});
   await request('/invoices/from-job', { method: 'POST', cookie: a.cookie, data: { job_id: job.id } });
 
   const exported = (await request('/export', { cookie: a.cookie })).data;
   const entities = new Set(exported.records.map(r => r.entity));
-  for (const name of ['Client', 'Job', 'CompanyProfile', 'Estimate', 'Invoice', 'WorkOrder']) {
+  for (const name of ['Client', 'Job', 'CompanyProfile', 'Estimate', 'Invoice']) {
     assert.ok(entities.has(name), `export missing ${name}`);
   }
   assert.ok(exported.records.some(r => r.entity === 'Estimate' && r.number === 'EST-EX'));
@@ -1042,12 +1023,6 @@ test('void and revise document rules; partial invoice status; ownership', async 
   assert.equal(voided.status, 200);
   assert.equal(voided.data.status, 'void');
 
-  const wo = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).data;
-  await request(`/entities/WorkOrder/${wo.id}`, {
-    method: 'PATCH', cookie: a.cookie, data: { status: 'complete' },
-  });
 
   const inv = await request('/invoices/from-job', {
     method: 'POST', cookie: a.cookie, data: { job_id: job.id },
@@ -1150,21 +1125,16 @@ test('document rules: void estimates excluded, deposits sum, freeze snapshot, jo
     data: { accepted_snapshot: { number: 'HACK', total: 1, lines: [] }, signer_name: 'Attacker' },
   })).status, 409);
 
-  const wo = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).data;
-
-  // Void estimate clears estimate_amount and blocks from-estimate
+  // Void estimate clears estimate_amount and no longer counts as scope to invoice against
   assert.equal((await request(`/documents/Estimate/${estimate.id}/void`, {
     method: 'POST', cookie: a.cookie, data: {},
   })).status, 200);
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.estimate_amount, 0);
-  assert.equal((await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  assert.equal((await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
   })).status, 400);
 
-  // Replacement: void WO, create new accepted estimate, new WO
-  await request(`/documents/WorkOrder/${wo.id}/void`, { method: 'POST', cookie: a.cookie, data: {} });
+  // Replacement: a new accepted estimate
   const accepted2 = await create('Estimate', {
     job_id: job.id,
     number: 'EST-OK',
@@ -1173,10 +1143,7 @@ test('document rules: void estimates excluded, deposits sum, freeze snapshot, jo
     lines: [{ description: 'Labor', labor_amount: 250 }],
     accepted_snapshot: { number: 'EST-OK', total: 250, lines: [{ description: 'Labor', labor_amount: 250 }] },
   });
-  const wo2 = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: accepted2.id },
-  })).data;
-  await request(`/entities/WorkOrder/${wo2.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'complete' } });
+  assert.equal(accepted2.status, 'accepted');
 
   // Legacy deposit_amount + timeline deposit both apply
   await saveRecord(db, me.id, 'Job', { deposit_amount: 200 }, job.id);
@@ -1216,27 +1183,13 @@ test('document rules: void estimates excluded, deposits sum, freeze snapshot, jo
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 0);
   assert.equal((await request(`/entities/Job/${job2.id}`, { cookie: a.cookie })).data.materials_cost, 50);
 
-  // Cannot move invoice onto a job without a complete WO
+  // Cannot move invoice onto a job with no accepted estimate
   assert.equal((await request(`/entities/Invoice/${inv.data.id}`, {
     method: 'PATCH', cookie: a.cookie, data: { job_id: job2.id },
   })).status, 400);
-
-  // Cannot move WO onto a job that already has an active WO
-  const estB = await create('Estimate', {
-    job_id: job2.id, number: 'EST-B', status: 'accepted', total: 10,
-    lines: [{ description: 'x', labor_amount: 10 }],
-    accepted_snapshot: { number: 'EST-B', total: 10, lines: [{ description: 'x', labor_amount: 10 }] },
-  });
-  const woB = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estB.id },
-  })).data;
-  assert.equal((await request(`/entities/WorkOrder/${wo2.id}`, {
-    method: 'PATCH', cookie: a.cookie, data: { job_id: job2.id },
-  })).status, 409);
-  assert.equal(woB.id != null, true);
 });
 
-test('material order redesign: statuses, line fields, autofill from estimate/WO', async t => {
+test('material order redesign: statuses, line fields, autofill from estimate', async t => {
   const { request, register } = await fixture(t);
   const a = await register('mo-redesign@example.com');
   const create = async (entity, data) => {
@@ -1346,7 +1299,7 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
   }
 
   // Void purchased so its materials no longer claim the source fingerprint —
-  // then a draft can receive WO Line# sync without doubling materials_cost.
+  // then a draft can be synced from the estimate without doubling materials_cost.
   assert.equal((await request(`/documents/MaterialOrder/${mos[0].id}/void`, {
     method: 'POST', cookie: a.cookie, data: {},
   })).status, 200);
@@ -1363,17 +1316,12 @@ test('material order redesign: statuses, line fields, autofill from estimate/WO'
   const estToken = estSent.data.sign_url.split('/').pop();
   const estPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   assert.equal((await request(`/sign/${estToken}`, { method: 'POST', data: { signer_name: 'MO Signer', signature_data_url: estPng } })).status, 200);
-  const wo = (await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  })).data;
-  assert.ok(wo.lines.some((l) => l.kind === 'material'));
 
+  // With the Work Order retired, the signed estimate stays the draft's materials source.
   mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
-  const draftWithWo = mos.find((m) => m.status === 'draft' && m.lines?.some((l) => l.source_entity === 'WorkOrder'));
-  assert.ok(draftWithWo, 'expected a draft MO synced from Work Order');
-  const woLine = draftWithWo.lines.find((l) => l.source_entity === 'WorkOrder');
-  assert.ok(woLine.wo_line_number >= 1);
-  assert.equal(woLine.unit_price, 48);
+  const synced = mos.find((m) => m.id === draftMo.id);
+  assert.ok(synced.lines.every((l) => l.source_entity !== 'WorkOrder'));
+  assert.ok(synced.lines.some((l) => l.source_entity === 'Estimate' && l.source_id === estimate.id));
 
   // Line status enum validation
   assert.equal((await request(`/entities/MaterialOrder/${draftMo.id}`, {
@@ -1487,24 +1435,21 @@ test('material order sync: purchased MO claims sources; no draft recreate', asyn
   assert.equal(empty.lines?.length || 0, 0);
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
 
-  // Accept estimate (via the real sign flow — status only ever changes that way now) + create WO —
-  // must not fill a draft with WO duplicates or double cost
+  // Accept estimate (via the real sign flow — status only ever changes that way now) — the signed
+  // snapshot must not fill a draft with duplicates of already-purchased materials or double cost
   const claimSent = await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
   const claimToken = claimSent.data.sign_url.split('/').pop();
   const claimPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   assert.equal((await request(`/sign/${claimToken}`, { method: 'POST', data: { signer_name: 'Claim Signer', signature_data_url: claimPng } })).status, 200);
-  const woRes = await request('/work-orders/from-estimate', {
-    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
-  });
-  assert.equal(woRes.status, 201, woRes.data?.message);
+  await create('MaterialOrder', { job_id: job.id, number: 'MO-AFTER-SIGN', status: 'draft', lines: [] });
 
   mos = (await request(`/entities/MaterialOrder?job_id=${job.id}`, { cookie: a.cookie })).data;
   live = mos.filter((m) => m.status !== 'void');
   assert.equal(live.filter((m) => m.status === 'purchased').length, 1);
-  const woFilled = live.filter((m) => (
-    m.status === 'draft' && (m.lines || []).some((l) => l.source_entity === 'WorkOrder')
+  const duplicated = live.filter((m) => (
+    m.status === 'draft' && (m.lines || []).some((l) => l.source_entity === 'Estimate')
   ));
-  assert.equal(woFilled.length, 0, 'WO after purchase must not autofill a duplicate draft');
+  assert.equal(duplicated.length, 0, 'signing after purchase must not autofill a duplicate draft');
   assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials_cost, 55);
 
   // New CO with a different description still autofills (not already on a past-draft MO)
@@ -1637,7 +1582,9 @@ test('Payment: create, ownership enforced, invoice must match job, job delete ca
   };
   const client = await create('Client', { name: 'Payment client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Payment job', client_id: client.id });
-  await create('WorkOrder', { job_id: job.id, number: 'WO-PMT', status: 'complete' });
+  // An invoice needs an accepted estimate on its job to bill against.
+  const accept = jobId => create('Estimate', { job_id: jobId, number: 'EST-PMT', status: 'accepted', total: 200, lines: [], accepted_snapshot: { total: 200, lines: [] } });
+  await accept(job.id);
   const invoice = await create('Invoice', { job_id: job.id, number: 'INV-PMT', status: 'sent', misc_lines: [{ description: 'Total', amount: 200 }] });
 
   const payment = await request('/payments', { method: 'POST', cookie: a.cookie, data: { job_id: job.id, amount_cents: 5000, invoice_id: invoice.id, method: 'check' } });
@@ -1655,7 +1602,7 @@ test('Payment: create, ownership enforced, invoice must match job, job delete ca
 
   // Invoice from another job is rejected
   const otherJob = await create('Job', { title: 'Other job', client_id: client.id });
-  await create('WorkOrder', { job_id: otherJob.id, number: 'WO-OTHER', status: 'complete' });
+  await accept(otherJob.id);
   const otherInvoice = await create('Invoice', { job_id: otherJob.id, number: 'INV-OTHER', status: 'sent' });
   assert.equal((await request('/payments', { method: 'POST', cookie: a.cookie, data: { job_id: job.id, amount_cents: 100, invoice_id: otherInvoice.id } })).status, 400);
 
@@ -1675,7 +1622,7 @@ test('Payment: create, ownership enforced, invoice must match job, job delete ca
   await register('payment-restore@example.com');
   const client2 = await create('Client', { name: 'Payment client 2', ...CLIENT_ADDR });
   const job2 = await create('Job', { title: 'Payment job 2', client_id: client2.id });
-  await create('WorkOrder', { job_id: job2.id, number: 'WO-PMT2', status: 'complete' });
+  await accept(job2.id);
   const invoice2 = await create('Invoice', { job_id: job2.id, number: 'INV-PMT2', status: 'sent' });
   await request('/payments', { method: 'POST', cookie: a.cookie, data: { job_id: job2.id, amount_cents: 750, invoice_id: invoice2.id } });
   const backup = (await request('/export', { cookie: a.cookie })).data;
@@ -1705,7 +1652,6 @@ test('job/account summary: cents totals from ledger, accepted-estimate baseline,
     job_id: job.id, number: 'EST-SUM', status: 'accepted', total: 220,
     accepted_snapshot: { number: 'EST-SUM', total: 220, tax_rate: 10, lines: [] },
   });
-  await create('WorkOrder', { job_id: job.id, number: 'WO-SUM', status: 'complete' });
   const invoice = await create('Invoice', {
     job_id: job.id, number: 'INV-SUM', status: 'sent',
     misc_lines: [{ description: 'Contract total', amount: 200 }], tax_rate: 10,
@@ -1902,4 +1848,106 @@ test('a WorkItem from a signed line cannot be deleted; a free-standing one can',
 
   const freeStanding = await create('WorkItem', { job_id: job.id, description: 'Sweep up' });
   assert.equal((await request(`/entities/WorkItem/${freeStanding.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+});
+
+test('WorkItem edits: server-owned fields locked, signed description kept, done_at and step ids set by server', async t => {
+  const { db, request, register } = await fixture(t);
+  const a = await register('workitem-edit@example.com');
+  const b = await register('workitem-edit-b@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const patch = (id, data, cookie = a.cookie) => request(`/entities/WorkItem/${id}`, { method: 'PATCH', cookie, data });
+  const client = await create('Client', { name: 'WI edit client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'WI edit job', client_id: client.id });
+  const otherJob = await create('Job', { title: 'WI other job', client_id: client.id });
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-WIE', status: 'draft', total: 100, lines: [{ description: 'Hang door', labor_amount: 100 }] });
+  await signEstimate(request, a.cookie, estimate.id);
+  const [sourced] = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
+
+  // Owner can only create free-standing tasks, and never set price/billing/links.
+  for (const data of [
+    { job_id: job.id, description: 'x', source_type: 'Estimate', source_id: estimate.id, line_id: 'l1' },
+    { job_id: job.id, description: 'x', amount_cents: 500 },
+    { job_id: job.id, description: 'x', done_at: '2026-01-01' },
+  ]) assert.equal((await request('/entities/WorkItem', { method: 'POST', cookie: a.cookie, data })).status, 400);
+  for (const data of [{ amount_cents: 1 }, { billed_invoice_id: sourced.id }, { job_id: otherJob.id }, { source_id: estimate.id }]) {
+    assert.equal((await patch(sourced.id, data)).status, 400, JSON.stringify(data));
+  }
+  assert.equal((await patch(sourced.id, { description: 'Hang two doors' })).status, 400);
+  assert.equal((await patch(sourced.id, { description: 'Hang door', notes: 'Bring shims' })).status, 200);
+
+  const done = await patch(sourced.id, { done: true, steps: [{ text: 'Remove old door' }] });
+  assert.equal(done.status, 200, done.data?.message);
+  assert.ok(done.data.done_at);
+  assert.ok(done.data.steps[0].id, 'step id assigned server-side');
+  assert.equal(done.data.amount_cents, 10000);
+  const undone = await patch(sourced.id, { done: false });
+  assert.equal(undone.data.done_at, undefined);
+  assert.equal(undone.data.steps[0].id, done.data.steps[0].id, 'existing step ids are kept');
+
+  // Free-standing tasks can be renamed; other accounts cannot touch either kind.
+  const own = await create('WorkItem', { job_id: job.id, description: 'Sweep' });
+  assert.equal((await patch(own.id, { description: 'Sweep and mop' })).data.description, 'Sweep and mop');
+  assert.equal((await patch(own.id, { done: true }, b.cookie)).status, 404);
+  assert.deepEqual((await request('/entities/WorkItem', { cookie: b.cookie })).data, []);
+
+  // A sourced task must point at a document on its own job (guard below the API, in saveRecord).
+  const [owner] = await db.all('SELECT id FROM users WHERE email = ?', ['workitem-edit@example.com']);
+  await assert.rejects(
+    saveRecord(db, owner.id, 'WorkItem', { job_id: otherJob.id, source_type: 'Estimate', source_id: estimate.id, line_id: 'x' }),
+    /different job/,
+  );
+  await assert.rejects(saveRecord(db, owner.id, 'WorkItem', { job_id: job.id, source_type: 'Estimate' }), /set together/);
+});
+
+test('WorkItem: voiding the signed document frees its tasks for deletion; job delete cascades tasks', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('workitem-void@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'WI void client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'WI void job', client_id: client.id });
+  const estimate = await create('Estimate', { job_id: job.id, number: 'EST-WIV', status: 'draft', total: 100, lines: [{ description: 'Patch wall', labor_amount: 100 }] });
+  await signEstimate(request, a.cookie, estimate.id);
+  const [sourced] = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal((await request(`/entities/WorkItem/${sourced.id}`, { method: 'DELETE', cookie: a.cookie })).status, 409);
+  assert.equal((await request(`/documents/Estimate/${estimate.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
+  assert.equal((await request(`/entities/WorkItem/${sourced.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+
+  const task = await create('WorkItem', { job_id: job.id, description: 'Leftover' });
+  assert.equal((await request(`/entities/Job/${job.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
+  assert.equal((await request(`/entities/WorkItem/${task.id}`, { cookie: a.cookie })).status, 404);
+});
+
+test('carryOverChecklists backfills tasks for documents signed before signing created them', async t => {
+  const { db, request, register } = await fixture(t);
+  const a = await register('workitem-backfill@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message || entity);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'WI backfill client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'WI backfill job', client_id: client.id });
+  // Accepted the old way: no WorkItems, and snapshot lines with no ids.
+  const estimate = await create('Estimate', {
+    job_id: job.id, number: 'EST-OLD', status: 'accepted', total: 300, lines: [],
+    accepted_snapshot: { total: 300, lines: [{ description: 'Tile floor', labor_amount: 200, material_amount: 100 }, { description: '' }] },
+  });
+  const draftJob = await create('Job', { title: 'WI draft job', client_id: client.id });
+  await create('Estimate', { job_id: draftJob.id, number: 'EST-DRAFT', status: 'draft', lines: [{ description: 'Not signed' }] });
+
+  assert.equal(await carryOverChecklists(db), 1);
+  const items = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
+  assert.equal(items.length, 1);
+  assert.equal(items[0].source_id, estimate.id);
+  assert.equal(items[0].line_id, 'line-1');
+  assert.equal(items[0].amount_cents, 30000);
+  assert.equal(await carryOverChecklists(db), 0);
 });

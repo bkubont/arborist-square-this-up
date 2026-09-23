@@ -12,7 +12,8 @@ const docNumber = z.string().max(100).optional();
 
 /** Internal task breakdown under a line — never sent to the customer (see sign.js's public line shape). */
 const lineStep = z.object({
-  id: z.string().max(64),
+  /** Assigned server-side when missing (see saveRecord), so clients never have to mint ids. */
+  id: z.string().max(64).optional(),
   text,
   done: z.boolean().default(false),
 });
@@ -34,18 +35,6 @@ const estimateLine = z.object({
   catalog_id: z.string().max(200).optional(),
   /** Internal task breakdown; customer never sees this. */
   steps: z.array(lineStep).max(200).optional(),
-});
-
-const workOrderLine = z.object({
-  kind: z.enum(['material', 'labor']),
-  description: text.default(''),
-  qty: money.optional(),
-  unit_price: money.optional(),
-  hours: money.optional(),
-  rate: money.optional(),
-  work_category: text.optional(),
-  notes: text.optional(),
-  catalog_id: z.string().max(200).optional(),
 });
 
 const invoiceMaterialLine = z.object({
@@ -81,7 +70,7 @@ const signMeta = {
 };
 
 /** Job-linked document entities (parent_id = job_id). */
-export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'WorkOrder', 'ChangeOrder', 'Invoice'];
+export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice'];
 /** Estimate/ChangeOrder statuses that mean "the customer decided" or "withdrawn" — the document is frozen. */
 export const SCOPE_TERMINAL_STATUSES = { Estimate: ['accepted', 'declined', 'void'], ChangeOrder: ['approved', 'rejected', 'void'] };
 /** The one status each reaches only through a real customer signature (see server/sign.js). */
@@ -116,7 +105,11 @@ export const schemas = {
     status: z.enum(['Estimate','Scheduled','In Progress','Waiting on Materials','Completed','Paid']).default('Estimate'),
     start_date: date.optional(), end_date: date.optional(), estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
+    // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
+    // moves them into WorkItems and clears this.
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
+  // 'checklist' and 'work_order_created' stay so timeline rows from before the WorkItem checklist
+  // still decode; nothing writes them any more.
   TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided','document_declined']),
     text: text.optional(), photo_url: z.string().max(200).optional(),
     category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery']).default('note'),
@@ -165,7 +158,11 @@ export const schemas = {
     done_at: z.string().max(40).optional(),
     /** Set once billed via "Bill completed work", so it cannot be billed twice. */
     billed_invoice_id: id.optional(),
-  }),
+  }).refine(
+    data => [data.source_type, data.source_id, data.line_id].every(v => v === undefined)
+      || [data.source_type, data.source_id, data.line_id].every(v => v !== undefined),
+    { message: 'source_type, source_id and line_id must be set together, or not at all' },
+  ),
   CompanyProfile: z.object({
     name: z.string().trim().max(250).default(''),
     address: text.optional(),
@@ -207,7 +204,6 @@ export const schemas = {
     date: date.optional(),
     notes: text.optional(),
     related_estimate_id: id.optional(),
-    related_work_order_id: id.optional(),
     /** Legacy `ordered` maps to `purchased` on parse. */
     status: z.preprocess(
       (v) => (v === 'ordered' ? 'purchased' : v),
@@ -219,33 +215,18 @@ export const schemas = {
       unit_price: money.optional(),
       supplier: text.optional(),
       notes: text.optional(),
-      /** Work Order line number (1-based) when synced from a WO line. */
+      /** Free-form line reference the owner can set (kept from the Work Order era). */
       wo_line_number: z.number().int().min(0).max(10000).optional(),
       category: text.optional(),
       on_hand: z.boolean().optional(),
       /** Optional procurement difficulty. */
       line_status: z.enum(['pricing', 'backorder', 'unavailable', 'canceled', 'rebuild']).optional(),
+      // 'WorkOrder' stays accepted so rows written before the checklist replaced it still decode.
       source_entity: z.enum(['Estimate', 'WorkOrder', 'ChangeOrder']).optional(),
       source_id: id.optional(),
       source_line_index: z.number().int().min(0).max(10000).optional(),
     })).max(2000).default([]),
     subtotal: money.optional(),
-    total: money.optional(),
-  }),
-  WorkOrder: z.object({
-    job_id: id,
-    number: docNumber,
-    related_estimate_id: id.optional(),
-    crew: text.optional(),
-    start_date: date.optional(),
-    end_date: date.optional(),
-    instructions: text.optional(),
-    notes: text.optional(),
-    tax_rate: rate.optional(),
-    status: z.enum(['draft', 'issued', 'complete', 'void']).default('draft'),
-    lines: z.array(workOrderLine).max(2000).default([]),
-    subtotal: money.optional(),
-    tax_amount: money.optional(),
     total: money.optional(),
   }),
   ChangeOrder: z.object({
@@ -335,6 +316,8 @@ export async function getRecord(db, owner, entity, recordId) {
   return decode(row);
 }
 
+const withStepIds = steps => steps.map(step => (step.id ? step : { ...step, id: randomUUID() }));
+
 export async function saveRecord(db, owner, entity, input, recordId, opts = {}) {
   if (!schemas[entity]) throw fail(404, 'Unknown record type');
   const previous = recordId ? await getRecord(db, owner, entity, recordId) : {};
@@ -342,8 +325,9 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   // Every line gets a stable id the first time it's saved with none, so a signed line can be
   // linked to its WorkItem later. Lines that already carry one (round-tripped by the editor) keep it.
   if ((entity === 'Estimate' || entity === 'ChangeOrder') && Array.isArray(data.lines)) {
-    data.lines = data.lines.map(line => ({ ...line, id: line.id || randomUUID() }));
+    data.lines = data.lines.map(line => ({ ...line, id: line.id || randomUUID(), ...(line.steps && { steps: withStepIds(line.steps) }) }));
   }
+  if (entity === 'WorkItem' && data.steps) data.steps = withStepIds(data.steps);
   if (entity === 'Client' && !opts.skipClientAddressCheck) {
     const touchingAddress = !recordId || CLIENT_ADDRESS_KEYS.some((key) => Object.prototype.hasOwnProperty.call(input || {}, key));
     if (touchingAddress) assertClientAddressComplete(data);
@@ -351,7 +335,16 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   const { parentId, parentEntity } = parentFor(entity, data);
   if (parentId) await getRecord(db, owner, parentEntity, parentId);
   if (data.related_estimate_id) await getRecord(db, owner, 'Estimate', data.related_estimate_id);
-  if (data.related_work_order_id) await getRecord(db, owner, 'WorkOrder', data.related_work_order_id);
+  if (entity === 'WorkItem') {
+    if (data.source_type) {
+      const source = await getRecord(db, owner, data.source_type, data.source_id);
+      if (source.job_id !== data.job_id) throw fail(400, `That ${data.source_type} belongs to a different job`);
+    }
+    if (data.billed_invoice_id) {
+      const invoice = await getRecord(db, owner, 'Invoice', data.billed_invoice_id);
+      if (invoice.job_id !== data.job_id) throw fail(400, 'That invoice belongs to a different job');
+    }
+  }
   if (data.related_material_order_id) {
     const mo = await getRecord(db, owner, 'MaterialOrder', data.related_material_order_id);
     if (entity === 'TimelineEntry' && data.job_id && mo.job_id !== data.job_id) {

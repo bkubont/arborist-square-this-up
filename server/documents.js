@@ -55,7 +55,7 @@ export function nextRevisionNumber(record, existingCount) {
     const rev = match?.[2] ? Number(match[2]) + 1 : 2;
     return `${stem}-R${rev}`;
   }
-  const prefixes = { Estimate: 'EST', MaterialOrder: 'MO', WorkOrder: 'WO', ChangeOrder: 'CO', Invoice: 'INV' };
+  const prefixes = { Estimate: 'EST', MaterialOrder: 'MO', ChangeOrder: 'CO', Invoice: 'INV' };
   const prefix = prefixes[record?.entity] || 'DOC';
   return `${prefix}-${String((existingCount || 0) + 1).padStart(3, '0')}`;
 }

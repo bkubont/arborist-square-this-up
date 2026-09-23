@@ -46,7 +46,7 @@ export const api = {
     CompanyProfile: entity('CompanyProfile'),
     Estimate: entity('Estimate'),
     MaterialOrder: entity('MaterialOrder'),
-    WorkOrder: entity('WorkOrder'),
+    WorkItem: entity('WorkItem'),
     ChangeOrder: entity('ChangeOrder'),
     Invoice: entity('Invoice'),
     Expense: entity('Expense'),
@@ -65,9 +65,6 @@ export const api = {
   },
   changeOrders: {
     sendSign(id, data) { return post(`/change-orders/${encodeURIComponent(id)}/send-sign`, data); },
-  },
-  workOrders: {
-    fromEstimate(estimateId) { return post('/work-orders/from-estimate', { estimate_id: estimateId }); },
   },
   invoices: {
     fromJob(jobId) { return post('/invoices/from-job', { job_id: jobId }); },

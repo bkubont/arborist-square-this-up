@@ -1,5 +1,5 @@
 /**
- * Dual-model mapping: Estimate lines ↔ Work Order lines (Decision #2).
+ * Estimate / change order / invoice / material order mapping (Decision #2).
  * Assistive only — all values remain editable after carryover.
  */
 
@@ -22,96 +22,6 @@ export function estimateLineAmount(line = {}) {
 /** @see estimateLineAmount */
 export function changeOrderLineAmount(line = {}) {
   return round2(num(line.amount) || 0);
-}
-
-/** Map one estimate line into zero or more WO lines (labor / material / equipment). */
-export function estimateLineToWorkOrderLines(line = {}) {
-  const out = [];
-  const description = line.description || '';
-  const work_category = line.category || '';
-  const notes = [line.notes, line.tools ? `Tools: ${line.tools}` : ''].filter(Boolean).join(' · ') || undefined;
-  const base = { description, work_category, notes, catalog_id: line.catalog_id };
-
-  const hours = num(line.labor_hours);
-  const rate = num(line.labor_rate);
-  const laborAmount = num(line.labor_amount);
-  if (hours != null || rate != null || laborAmount != null) {
-    let h = hours;
-    let r = rate;
-    if (h == null && laborAmount != null && r != null && r > 0) h = Math.round((laborAmount / r) * 100) / 100;
-    if (r == null && laborAmount != null && h != null && h > 0) r = Math.round((laborAmount / h) * 100) / 100;
-    if (h == null && laborAmount != null) {
-      // Amount-only labor row: 1 hour at the labor amount as rate fallback
-      h = 1;
-      r = laborAmount;
-    }
-    out.push({
-      kind: 'labor',
-      description,
-      hours: h,
-      rate: r,
-      work_category,
-      notes,
-      catalog_id: line.catalog_id,
-    });
-  }
-
-  const material = num(line.material_amount);
-  if (material != null && material > 0) {
-    out.push({
-      kind: 'material',
-      description: description ? `${description} (materials)` : 'Materials',
-      qty: 1,
-      unit_price: material,
-      work_category,
-      notes,
-    });
-  }
-
-  const equipment = num(line.equipment_amount);
-  if (equipment != null && equipment > 0) {
-    out.push({
-      kind: 'material',
-      description: description ? `${description} (equipment)` : 'Equipment',
-      qty: 1,
-      unit_price: equipment,
-      work_category,
-      notes: [notes, 'Mapped from estimate equipment'].filter(Boolean).join(' · '),
-    });
-  }
-
-  // Description-only estimate rows still carry over as labor stubs
-  if (!out.length && description) {
-    out.push({ kind: 'labor', description, hours: undefined, rate: undefined, work_category, notes, ...base });
-  }
-  return out;
-}
-
-/** Prefill WO lines from an accepted estimate (snapshot preferred). */
-export function mapEstimateToWorkOrderLines(estimate) {
-  const source = estimate?.accepted_snapshot || estimate;
-  const lines = source?.lines || [];
-  return lines.flatMap(estimateLineToWorkOrderLines);
-}
-
-export function workOrderLineAmount(line = {}) {
-  if (line.kind === 'labor') {
-    const hours = num(line.hours) || 0;
-    const rate = num(line.rate) || 0;
-    return Math.round(hours * rate * 100) / 100;
-  }
-  const qty = num(line.qty) || 0;
-  const price = num(line.unit_price) || 0;
-  return Math.round(qty * price * 100) / 100;
-}
-
-/** @param {Array} lines @param {string|number} [taxRate] */
-export function workOrderTotals(lines = [], taxRate = 0) {
-  const subtotal = lines.reduce((sum, line) => sum + workOrderLineAmount(line), 0);
-  const rate = Number(taxRate) || 0;
-  const tax_amount = Math.round(subtotal * (rate / 100) * 100) / 100;
-  const total = Math.round((subtotal + tax_amount) * 100) / 100;
-  return { subtotal: Math.round(subtotal * 100) / 100, tax_amount, total };
 }
 
 /** Primary work-category options (Decision #1) — free text still allowed in UI. */
@@ -219,18 +129,6 @@ export function sumActiveInvoiceTotals(invoices = []) {
       .filter(inv => inv && inv.status !== 'void')
       .reduce((sum, inv) => sum + (Number(inv.total) || 0), 0),
   );
-}
-
-export function catalogItemToWorkOrderLine(item) {
-  return {
-    kind: 'labor',
-    description: item.task || '',
-    hours: item.hours_mid != null ? item.hours_mid : undefined,
-    rate: item.labor_rate ?? 55,
-    work_category: item.category || '',
-    notes: [item.notes, item.tools ? `Tools: ${item.tools}` : ''].filter(Boolean).join(' · '),
-    catalog_id: item.id,
-  };
 }
 
 /** Map estimate lines into invoice materials / labor / misc tables. */
@@ -462,29 +360,6 @@ export function materialLinesFromEstimate(estimate) {
   });
 }
 
-/** WO material lines → MO lines; Line# = 1-based WO line index. */
-export function materialLinesFromWorkOrder(workOrder) {
-  if (!workOrder?.id) return [];
-  return (workOrder.lines || []).flatMap((line, index) => {
-    if (line.kind !== 'material') return [];
-    const qty = num(line.qty);
-    const unit_price = num(line.unit_price);
-    if (!line.description && qty == null && unit_price == null) return [];
-    return [{
-      description: line.description || 'Materials',
-      qty,
-      unit_price,
-      category: line.work_category || undefined,
-      notes: line.notes || undefined,
-      wo_line_number: index + 1,
-      source_entity: 'WorkOrder',
-      source_id: workOrder.id,
-      source_line_index: index,
-      on_hand: false,
-    }];
-  });
-}
-
 /** Change Order amount lines → MO materials (credits skipped). */
 export function materialLinesFromChangeOrder(changeOrder) {
   if (!changeOrder?.id) return [];
@@ -505,18 +380,16 @@ export function materialLinesFromChangeOrder(changeOrder) {
 }
 
 /**
- * Collect job materials for MO autofill.
- * Prefer active WO materials when present; otherwise estimate materials.
+ * Collect job materials for MO autofill, from the estimate (its signed snapshot when there is one,
+ * see materialLinesFromEstimate) plus change orders. This was the Work Order's job before the
+ * checklist replaced it; the WO only ever held a copy of these same estimate materials, and the
+ * signed snapshot can no longer drift, so it is the better source.
  * Change orders: latest revision per number stem only (avoids original + revise draft dupes).
- * @param {{ estimate?: object|null, workOrder?: object|null, changeOrders?: object[] }} [args]
+ * @param {{ estimate?: object|null, changeOrders?: object[] }} [args]
  */
-export function collectJobMaterialLines({ estimate = null, workOrder = null, changeOrders = [] } = {}) {
+export function collectJobMaterialLines({ estimate = null, changeOrders = [] } = {}) {
   const out = [];
-  const woActive = workOrder && workOrder.status !== 'void';
-  const woMaterials = woActive ? materialLinesFromWorkOrder(workOrder) : [];
-  if (woMaterials.length) {
-    out.push(...woMaterials);
-  } else if (estimate && estimate.status !== 'void') {
+  if (estimate && estimate.status !== 'void') {
     out.push(...materialLinesFromEstimate(estimate));
   }
   for (const co of selectChangeOrdersForMaterials(changeOrders)) {

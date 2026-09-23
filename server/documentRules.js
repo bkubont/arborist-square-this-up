@@ -1,10 +1,10 @@
 /**
- * Brittany document rules: one Estimate / Work Order / Invoice per job,
- * estimate freeze after accept, invoice gated on WO complete.
+ * Brittany document rules: one Estimate / Invoice per job, and an invoice needs something
+ * authorized to bill. Estimate content freeze lives in server/lifecycle.js.
  */
 import { fail, decode } from './domain.js';
 
-export const SINGLE_DOC_ENTITIES = new Set(['Estimate', 'WorkOrder', 'Invoice']);
+export const SINGLE_DOC_ENTITIES = new Set(['Estimate', 'Invoice']);
 
 export function isNonVoid(record) {
   return record && record.status !== 'void';
@@ -43,11 +43,15 @@ export async function assertSingularDocument(db, ownerId, entity, jobId, { exclu
   }
 }
 
-export async function assertWorkOrderCompleteForInvoice(db, ownerId, jobId) {
-  const workOrders = await listJobDocuments(db, ownerId, 'WorkOrder', jobId);
-  const complete = workOrders.some((wo) => wo.status === 'complete');
-  if (!complete) {
-    throw fail(400, 'Complete the Work Order before creating an invoice.');
+/**
+ * There has to be signed scope to bill against. This replaces the old "complete the Work Order
+ * first" gate: work completion now lives on the checklist (WorkItem), which does not gate billing —
+ * progress invoices are raised mid-job on purpose.
+ */
+export async function assertInvoiceHasAuthorizedScope(db, ownerId, jobId) {
+  const estimates = await listJobDocuments(db, ownerId, 'Estimate', jobId);
+  if (!findLiveAcceptedEstimate(estimates)) {
+    throw fail(400, 'Accept an estimate before creating an invoice.');
   }
 }
 

@@ -5,15 +5,19 @@ import { pathToFileURL } from 'node:url';
 import { openDatabase, migrate } from './db.js';
 import { emailSchema } from './security.js';
 import { saveRecord, schemas, JOB_DOCUMENT_ENTITIES } from './domain.js';
+import { carryOverChecklists } from './workItems.js';
 
 // Offline import only: never fetch arbitrary URLs from an uploaded export.
 // Base44 exports can be normalized to { Client: [], Job: [], TimelineEntry: [], files: [] }.
 // Files use { id, mime, content: base64, source_url? }; source_url maps old photo URLs.
-// Dependency order, not JOB_DOCUMENT_ENTITIES' display order: a WorkOrder can carry
-// related_estimate_id, and materialOrderSync links a MaterialOrder back to its WorkOrder via
-// related_work_order_id, so both referenced entities must be imported first or the id lookup
-// below throws "references a missing work order" on an otherwise-valid backup.
-const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', 'Estimate', 'WorkOrder', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'Payment', 'Expense', 'TimelineEntry'];
+// Dependency order, not JOB_DOCUMENT_ENTITIES' display order: a record can only be imported once
+// everything it references by id exists (Estimate before MaterialOrder's related_estimate_id,
+// Invoice before Payment's invoice_id), or the id lookup below throws on a valid backup.
+const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', 'Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'Payment', 'WorkItem', 'Expense', 'TimelineEntry'];
+// Retired record types a backup may still carry. Skipped rather than rejected, so a backup taken
+// before the checklist replaced the Work Order still restores (the checklist is rebuilt from the
+// signed documents by carryOverChecklists).
+const RETIRED_ENTITIES = new Set(['WorkOrder']);
 
 export async function importData(db, email, input) {
   const [user] = await db.all('SELECT id FROM users WHERE email = ?', [emailSchema.parse(email)]);
@@ -56,7 +60,7 @@ export async function importData(db, email, input) {
           data.client_id = ids.get(`Client:${record.client_id}`);
           if (!data.client_id) throw new Error('Job references a missing client');
         }
-        if (entity === 'TimelineEntry' || entity === 'Payment' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
+        if (entity === 'TimelineEntry' || entity === 'Payment' || entity === 'WorkItem' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
           data.job_id = ids.get(`Job:${record.job_id}`);
           if (!data.job_id) throw new Error(`${entity} references a missing job`);
         }
@@ -72,9 +76,13 @@ export async function importData(db, email, input) {
           data.related_estimate_id = ids.get(`Estimate:${record.related_estimate_id}`);
           if (!data.related_estimate_id) throw new Error(`${entity} references a missing estimate`);
         }
-        if (record.related_work_order_id) {
-          data.related_work_order_id = ids.get(`WorkOrder:${record.related_work_order_id}`);
-          if (!data.related_work_order_id) throw new Error(`${entity} references a missing work order`);
+        if (entity === 'WorkItem' && record.source_type && record.source_id) {
+          data.source_id = ids.get(`${record.source_type}:${record.source_id}`);
+          if (!data.source_id) throw new Error('WorkItem references a missing source document');
+        }
+        if (entity === 'WorkItem' && record.billed_invoice_id) {
+          data.billed_invoice_id = ids.get(`Invoice:${record.billed_invoice_id}`);
+          if (!data.billed_invoice_id) throw new Error('WorkItem references a missing billed invoice');
         }
         if (Array.isArray(record.billed_change_order_ids)) {
           data.billed_change_order_ids = record.billed_change_order_ids.map(sourceId => {
@@ -98,7 +106,7 @@ export async function importData(db, email, input) {
         }
       }
     }
-    if (records.some(row => !Object.hasOwn(schemas, row.entity))) throw new Error('Unknown entity in import');
+    if (records.some(row => !Object.hasOwn(schemas, row.entity) && !RETIRED_ENTITIES.has(row.entity))) throw new Error('Unknown entity in import');
   });
   return records.length;
 }
@@ -106,6 +114,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const [email, filename] = process.argv.slice(2);
   if (!email || !filename) throw new Error('Usage: npm run data:import -- user@example.com path/to/export.json');
   const db = await openDatabase();
-  try { await migrate(db); const count = await importData(db, email, JSON.parse(await readFile(filename, 'utf8'))); console.log(`Imported ${count} records.`); }
+  try {
+    await migrate(db);
+    const count = await importData(db, email, JSON.parse(await readFile(filename, 'utf8')));
+    await carryOverChecklists(db);
+    console.log(`Imported ${count} records.`);
+  }
   finally { await db.close(); }
 }

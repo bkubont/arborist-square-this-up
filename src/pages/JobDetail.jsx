@@ -12,7 +12,7 @@ import TimelineButton from "@/components/TimelineButton";
 import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
-import Checklist from "@/components/Checklist";
+import JobChecklist from "@/components/JobChecklist";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
@@ -21,7 +21,7 @@ import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-const DOC_ENTITIES = ["Estimate", "MaterialOrder", "WorkOrder", "ChangeOrder", "Invoice"];
+const DOC_ENTITIES = ["Estimate", "MaterialOrder", "ChangeOrder", "Invoice"];
 
 const JOB_TABS = [
   "overview",
@@ -42,6 +42,7 @@ export default function JobDetail() {
   const [client, setClient] = useState(null);
   const [entries, setEntries] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [workItems, setWorkItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
@@ -58,13 +59,15 @@ export default function JobDetail() {
   };
 
   const load = useCallback(async () => {
-    const [j, e, ...docLists] = await Promise.all([
+    const [j, e, items, ...docLists] = await Promise.all([
       api.entities.Job.get(id),
       api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 500),
+      api.entities.WorkItem.filter({ job_id: id }, "-created_date", 500),
       ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 100)),
     ]);
     setJob(j);
     setEntries(e);
+    setWorkItems(items);
     setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
     if (j?.client_id) {
       try {
@@ -172,24 +175,6 @@ export default function JobDetail() {
     load();
   };
 
-  const saveChecklist = async (checklist, changeSummary) => {
-    await api.entities.Job.update(id, { checklist });
-    setJob((j) => ({ ...j, checklist }));
-    if (changeSummary) {
-      try {
-        await api.entities.TimelineEntry.create({
-          job_id: id,
-          type: "checklist",
-          text: changeSummary,
-          category: "note",
-        });
-        load();
-      } catch {
-        /* non-blocking */
-      }
-    }
-  };
-
   const deleteJob = async () => {
     if (!confirm("Delete this job and all its timeline entries?")) return;
     await api.entities.Job.delete(id);
@@ -284,7 +269,7 @@ export default function JobDetail() {
                 <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                   Checklist
                 </div>
-                <Checklist items={job.checklist || []} onChange={saveChecklist} />
+                <JobChecklist jobId={id} items={workItems} documents={documents} onChanged={load} />
               </div>
 
               {job.notes ? (
@@ -326,9 +311,9 @@ export default function JobDetail() {
             client={client}
             documents={documents}
             onChanged={load}
-            entities={["MaterialOrder", "WorkOrder", "ChangeOrder"]}
+            entities={["MaterialOrder", "ChangeOrder"]}
             title="Work & costs"
-            emptyHint="Material Orders, Work Orders, and Change Orders appear here after the estimate is accepted (WO/CO) or as needed (MO)."
+            emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted. Track the work itself on the Overview checklist."
           />
           <div>
             <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">

@@ -10,28 +10,28 @@ import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, fi
 import { searchCatalog } from './catalog.js';
 import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
-import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
+import { buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
 import { syncDraftMaterialOrder } from './materialOrderSync.js';
 import { voidDocument, reviseDocument, declineDocument, invalidateSignLinks, assertDocumentEntity } from './documents.js';
 import {
   assertSingularDocument,
-  assertWorkOrderCompleteForInvoice,
+  assertInvoiceHasAuthorizedScope,
   stripJobDerivedMoney,
   findActiveJobDocument,
   listJobDocuments,
   findLiveAcceptedEstimate,
-  isLiveAcceptedEstimate,
   sumDepositsApplied,
   refreshJobDocumentRollups,
   SINGLE_DOC_ENTITIES,
 } from './documentRules.js';
-import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate, assertWorkItemDeletable } from './lifecycle.js';
+import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
+import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable } from './workItems.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
-import { DEFAULT_SALES_TAX_RATE, resolveSalesTaxRate } from './salesTax.js';
+import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { jobSummary, accountSummaries } from './summary.js';
 import { fromCents } from '../shared/money.js';
 
-const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'WorkOrder', 'ChangeOrder']);
+const MATERIAL_SYNC_ENTITIES = new Set(['Estimate', 'ChangeOrder']);
 
 async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
   if (!jobId) return null;
@@ -306,47 +306,6 @@ export async function createApp(db, env = process.env) {
     });
     res.status(201).json(result);
   });
-  app.post('/api/work-orders/from-estimate', async (req, res) => {
-    const estimateId = z.string().min(1).max(36).parse(req.body.estimate_id);
-    const estimate = await getRecord(db, req.user.id, 'Estimate', estimateId);
-    if (!isLiveAcceptedEstimate(estimate)) {
-      throw fail(400, 'Accept the estimate before creating a work order from it');
-    }
-    let company = null;
-    const profiles = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? ORDER BY created_date DESC LIMIT 1', [req.user.id, 'CompanyProfile']);
-    if (profiles[0]) company = decode(profiles[0]);
-    const result = await ownedTransaction(req.user.id, async tx => {
-      const existingWo = await findActiveJobDocument(tx, req.user.id, 'WorkOrder', estimate.job_id);
-      if (existingWo) return { existing: existingWo };
-      const lines = mapEstimateToWorkOrderLines(estimate);
-      const taxRate = estimate.accepted_snapshot?.tax_rate ?? estimate.tax_rate ?? resolveSalesTaxRate(company);
-      const totals = workOrderTotals(lines, taxRate);
-      const existing = await tx.all('SELECT id FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'WorkOrder', estimate.job_id]);
-      const wo = await saveRecord(tx, req.user.id, 'WorkOrder', {
-        job_id: estimate.job_id,
-        number: `WO-${String(existing.length + 1).padStart(3, '0')}`,
-        related_estimate_id: estimate.id,
-        status: 'draft',
-        tax_rate: taxRate,
-        instructions: estimate.accepted_snapshot?.notes || estimate.notes || '',
-        lines,
-        ...totals,
-      });
-      await saveRecord(tx, req.user.id, 'TimelineEntry', {
-        job_id: estimate.job_id,
-        type: 'work_order_created',
-        text: `Work Order ${wo.number || ''} created from estimate ${estimate.number || ''}`.trim(),
-        category: 'document',
-      });
-      await maybeSyncMaterialOrder(tx, req.user.id, estimate.job_id);
-      return { created: wo };
-    });
-    if (result.existing) {
-      res.json(result.existing);
-      return;
-    }
-    res.status(201).json(result.created);
-  });
   app.get('/api/jobs/:id/authorized-total', async (req, res) => {
     await getRecord(db, req.user.id, 'Job', req.params.id);
     res.json(await jobAuthorizedTotal(db, req.user.id, req.params.id));
@@ -381,7 +340,7 @@ export async function createApp(db, env = process.env) {
     if (profiles[0]) company = decode(profiles[0]);
 
     const result = await ownedTransaction(req.user.id, async tx => {
-      await assertWorkOrderCompleteForInvoice(tx, req.user.id, jobId);
+      await assertInvoiceHasAuthorizedScope(tx, req.user.id, jobId);
       const existingInv = await findActiveJobDocument(tx, req.user.id, 'Invoice', jobId);
       if (existingInv) return { existing: existingInv };
 
@@ -462,10 +421,11 @@ export async function createApp(db, env = process.env) {
     const entity = req.params.entity;
     let body = req.body;
     if (entity === 'Job') body = stripJobDerivedMoney(body);
+    if (entity === 'WorkItem') body = prepareWorkItemCreate(body);
     const created = await ownedTransaction(req.user.id, async tx => {
       if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
         await assertSingularDocument(tx, req.user.id, entity, body.job_id);
-        if (entity === 'Invoice') await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
+        if (entity === 'Invoice') await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
         if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.user.id, 'Estimate', body.job_id)), 'creating');
       }
       let record = await saveRecord(tx, req.user.id, entity, body);
@@ -495,9 +455,10 @@ export async function createApp(db, env = process.env) {
     if (entity === 'Job' && body && typeof body === 'object') {
       body = stripJobDerivedMoney(body);
     }
-    const previous = JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'Estimate' || entity === 'Invoice'
+    const previous = JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'WorkItem'
       ? await getRecord(db, req.user.id, entity, req.params.id)
       : null;
+    if (entity === 'WorkItem') body = prepareWorkItemUpdate(previous, body);
     // Signed/declined/void Estimate and ChangeOrder are frozen; status only ever changes through
     // Send, Decline or Void, never a plain edit. Editing a sent one withdraws it back to draft and
     // kills its outstanding sign link, so a leftover link can't keep pointing at stale content.
@@ -530,9 +491,9 @@ export async function createApp(db, env = process.env) {
     const updated = await ownedTransaction(req.user.id, async tx => {
       if (movingJob && SINGLE_DOC_ENTITIES.has(entity)) {
         await assertSingularDocument(tx, req.user.id, entity, body.job_id, { excludeId: req.params.id });
-        if (entity === 'Invoice') await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
+        if (entity === 'Invoice') await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
       } else if (movingJob && entity === 'Invoice') {
-        await assertWorkOrderCompleteForInvoice(tx, req.user.id, body.job_id);
+        await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
       }
       const saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
       if (withdrawingSignLink) await invalidateSignLinks(tx, req.user.id, entity, req.params.id);
@@ -576,7 +537,12 @@ export async function createApp(db, env = process.env) {
     await ownedTransaction(req.user.id, async tx => {
       const record = await getRecord(tx, req.user.id, req.params.entity, req.params.id);
       if (req.params.entity === 'Estimate' || req.params.entity === 'ChangeOrder') assertScopeDeletable(req.params.entity, record);
-      if (req.params.entity === 'WorkItem') assertWorkItemDeletable(record);
+      if (req.params.entity === 'WorkItem') {
+        const [sourceRow] = record.source_type
+          ? await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND id = ?', [req.user.id, record.source_type, record.source_id])
+          : [];
+        assertWorkItemDeletable(record, sourceRow ? decode(sourceRow) : null);
+      }
       const removedEntries = req.params.entity === 'Job'
         ? [
           ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', record.id])).map(row => JSON.parse(row.data)),
@@ -586,7 +552,8 @@ export async function createApp(db, env = process.env) {
       if (req.params.entity === 'Client' && (await tx.all('SELECT id FROM records WHERE owner_id = ? AND parent_id = ?', [req.user.id, record.id])).length)
         throw fail(409, 'Delete this client’s jobs first');
       if (req.params.entity === 'Job') {
-        for (const child of ['TimelineEntry', 'Expense', 'Payment', ...JOB_DOCUMENT_ENTITIES]) {
+        // 'WorkOrder' clears rows left from before the checklist replaced it (nothing else reads them).
+        for (const child of ['TimelineEntry', 'Expense', 'Payment', 'WorkItem', 'WorkOrder', ...JOB_DOCUMENT_ENTITIES]) {
           await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, child, record.id]);
         }
         await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);

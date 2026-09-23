@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  estimateLineToWorkOrderLines,
-  mapEstimateToWorkOrderLines,
   computeAuthorizedTotal,
   changeOrderNet,
   buildInvoiceAutofill,
@@ -12,7 +10,6 @@ import {
   deriveInvoiceStatus,
   sumActiveInvoiceTotals,
   materialLinesFromEstimate,
-  materialLinesFromWorkOrder,
   materialLinesFromChangeOrder,
   collectJobMaterialLines,
   mergeMaterialOrderLines,
@@ -21,32 +18,6 @@ import {
   filterIncomingNotClaimedElsewhere,
   pickAcceptedEstimate,
 } from './mapping.js';
-
-test('estimate lines map to WO labor/material/equipment rows', () => {
-  const lines = estimateLineToWorkOrderLines({
-    description: 'Replace faucet',
-    category: 'Plumbing',
-    labor_amount: 110,
-    labor_hours: 2,
-    labor_rate: 55,
-    material_amount: 40,
-    equipment_amount: 15,
-  });
-  assert.equal(lines.length, 3);
-  assert.equal(lines[0].kind, 'labor');
-  assert.equal(lines[0].hours, 2);
-  assert.equal(lines[0].rate, 55);
-  assert.equal(lines[0].work_category, 'Plumbing');
-  assert.equal(lines[1].kind, 'material');
-  assert.equal(lines[1].unit_price, 40);
-  assert.equal(lines[2].unit_price, 15);
-
-  const mapped = mapEstimateToWorkOrderLines({
-    accepted_snapshot: { lines: [{ description: 'Filter', labor_hours: 0.5, labor_rate: 55, labor_amount: 27.5, category: 'HVAC' }] },
-  });
-  assert.equal(mapped.length, 1);
-  assert.equal(mapped[0].kind, 'labor');
-});
 
 test('authorized total uses approved COs only', () => {
   assert.equal(changeOrderNet({ added_cost: 100, credit: 25 }), 75);
@@ -186,7 +157,7 @@ test('deriveInvoiceStatus supports partial and paid without promoting drafts', (
   assert.equal(deriveInvoiceStatus({ status: 'void', balance_due: 0 }), 'void');
 });
 
-test('material order lines from estimate / WO / CO; WO Line# is 1-based', () => {
+test('material order lines from estimate / CO', () => {
   const est = materialLinesFromEstimate({
     id: 'est-1',
     status: 'draft',
@@ -203,19 +174,6 @@ test('material order lines from estimate / WO / CO; WO Line# is 1-based', () => 
   assert.equal(est[0].wo_line_number, undefined);
   assert.equal(est[0].line_status, undefined);
 
-  const wo = materialLinesFromWorkOrder({
-    id: 'wo-1',
-    status: 'draft',
-    lines: [
-      { kind: 'labor', description: 'Labor', hours: 2, rate: 55 },
-      { kind: 'material', description: 'Cartridge', qty: 2, unit_price: 12, work_category: 'Plumbing' },
-    ],
-  });
-  assert.equal(wo.length, 1);
-  assert.equal(wo[0].wo_line_number, 2);
-  assert.equal(wo[0].qty, 2);
-  assert.equal(wo[0].unit_price, 12);
-
   const co = materialLinesFromChangeOrder({
     id: 'co-1',
     status: 'draft',
@@ -228,31 +186,23 @@ test('material order lines from estimate / WO / CO; WO Line# is 1-based', () => 
   assert.equal(co[0].unit_price, 80);
 });
 
-test('collectJobMaterialLines prefers WO materials over estimate; merge preserves user fields', () => {
+test('collectJobMaterialLines takes estimate materials; merge preserves user fields', () => {
   const estimate = {
     id: 'est-1', status: 'accepted',
-    lines: [{ description: 'From est', material_amount: 10 }],
+    lines: [{ description: 'From est', material_amount: 22 }],
   };
-  const workOrder = {
-    id: 'wo-1', status: 'draft',
-    lines: [
-      { kind: 'material', description: 'From WO', qty: 1, unit_price: 22 },
-    ],
-  };
-  const collected = collectJobMaterialLines({ estimate, workOrder, changeOrders: [] });
+  const collected = collectJobMaterialLines({ estimate, changeOrders: [] });
   assert.equal(collected.length, 1);
-  assert.equal(collected[0].description, 'From WO');
-  assert.equal(collected[0].wo_line_number, 1);
-
-  const withoutWo = collectJobMaterialLines({ estimate, workOrder: null, changeOrders: [] });
-  assert.equal(withoutWo[0].description, 'From est');
+  assert.equal(collected[0].description, 'From est');
+  assert.equal(collected[0].source_entity, 'Estimate');
+  assert.equal(collectJobMaterialLines({ estimate: { ...estimate, status: 'void' } }).length, 0);
 
   const merged = mergeMaterialOrderLines(
     [{ ...collected[0], supplier: 'Home Depot', on_hand: true, line_status: 'backorder', notes: 'mine' }],
-    [{ ...collected[0], description: 'From WO updated', notes: 'from source' }],
+    [{ ...collected[0], description: 'From est updated', notes: 'from source' }],
   );
   assert.equal(merged.length, 1);
-  assert.equal(merged[0].description, 'From WO updated');
+  assert.equal(merged[0].description, 'From est updated');
   assert.equal(merged[0].supplier, 'Home Depot');
   assert.equal(merged[0].on_hand, true);
   assert.equal(merged[0].line_status, 'backorder');
@@ -303,7 +253,6 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
 
   const collected = collectJobMaterialLines({
     estimate: null,
-    workOrder: null,
     changeOrders: [
       { id: 'co1', number: 'CO-001', status: 'sent', lines: [{ description: 'Tile', amount: 50 }] },
       { id: 'co2', number: 'CO-001-R2', status: 'draft', lines: [{ description: 'Tile', amount: 55 }] },
@@ -334,7 +283,7 @@ test('merge adopts legacy unkeyed lines; CO revise keeps latest stem only; claim
   );
   assert.equal(editedSameSource.length, 0);
 
-  // Purchased Est-keyed line claims later WO autofill by description (no double draft)
+  // Purchased Est-keyed line claims a legacy WO-keyed line by description (no double draft)
   const woAfterPurchase = filterIncomingNotClaimedElsewhere(
     [{
       description: 'Pipe (materials)', qty: 2, unit_price: 40, wo_line_number: 1,

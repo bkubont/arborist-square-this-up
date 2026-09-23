@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
 import EstimateEditorDialog from "@/components/EstimateEditorDialog";
 import MaterialOrderEditorDialog from "@/components/MaterialOrderEditorDialog";
-import WorkOrderEditorDialog from "@/components/WorkOrderEditorDialog";
 import ChangeOrderEditorDialog from "@/components/ChangeOrderEditorDialog";
 import InvoiceEditorDialog from "@/components/InvoiceEditorDialog";
 import {
@@ -13,7 +12,6 @@ import {
   findActiveDocument,
   findLiveAcceptedEstimate,
   hasAcceptedEstimate,
-  hasCompleteWorkOrder,
   SINGLE_DOC_ENTITIES,
 } from "@/lib/documentAvailability";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
@@ -91,18 +89,6 @@ export default function JobDocuments({
         });
       }
 
-      if (entity === "WorkOrder") {
-        const accepted = findLiveAcceptedEstimate(documents);
-        if (!accepted) {
-          alert("Accept the estimate first — then create a Work Order from it.");
-          return;
-        }
-        const created = await api.workOrders.fromEstimate(accepted.id);
-        await onChanged?.();
-        setOpenDoc({ entity: "WorkOrder", document: created });
-        return;
-      }
-
       if (entity === "ChangeOrder") {
         const accepted = findLiveAcceptedEstimate(documents);
         const tax_rate = accepted?.accepted_snapshot?.tax_rate
@@ -119,10 +105,6 @@ export default function JobDocuments({
       }
 
       if (entity === "Invoice") {
-        if (!hasCompleteWorkOrder(documents)) {
-          alert("Complete the Work Order before creating an invoice.");
-          return;
-        }
         const existingInv = findActiveDocument("Invoice", documents);
         if (existingInv) {
           setOpenDoc({ entity: "Invoice", document: { ...existingInv, entity: "Invoice" } });
@@ -152,8 +134,7 @@ export default function JobDocuments({
     return doc.total;
   };
   const accepted = hasAcceptedEstimate(documents);
-  const woComplete = hasCompleteWorkOrder(documents);
-  const showStageHints = !entities || entities.includes("Estimate") || entities.includes("WorkOrder") || entities.includes("Invoice");
+  const showStageHints = !entities || entities.includes("Estimate") || entities.includes("Invoice");
 
   const defaultEmpty =
     allowedSet.has("Estimate") && sorted.length === 0
@@ -182,7 +163,7 @@ export default function JobDocuments({
                     ? gate.reason
                     : gate.openExisting
                       ? `Open existing ${t.label}`
-                      : (t.entity === "WorkOrder" ? "Creates from accepted estimate" : undefined)
+                      : undefined
                 }
               >
                 {!gate.openExisting && <Plus className="w-3.5 h-3.5 mr-1" />}
@@ -196,12 +177,8 @@ export default function JobDocuments({
       {showStageHints && !accepted && allowedSet.has("Estimate") && (
         <p className="text-xs text-slate-500 mb-3">
           New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> under Costs if needed).
-          One Estimate, Work Order, and Invoice per job. Work Order unlocks after accept; Invoice after the Work Order is complete.
-        </p>
-      )}
-      {showStageHints && accepted && !woComplete && (allowedSet.has("WorkOrder") || allowedSet.has("Invoice")) && (
-        <p className="text-xs text-slate-500 mb-3">
-          Work Order and Change Orders are available under Costs. Invoice unlocks when the Work Order status is <strong>complete</strong>.
+          One Estimate and one Invoice per job. Once the customer signs, each line becomes a task on the job
+          checklist, and Change Orders and the Invoice unlock.
         </p>
       )}
 
@@ -260,16 +237,6 @@ export default function JobDocuments({
           jobId={jobId}
           onSaved={onChanged}
           onRevised={(created) => openRevised("MaterialOrder", created)}
-        />
-      )}
-      {allowedSet.has("WorkOrder") && (
-        <WorkOrderEditorDialog
-          open={openDoc?.entity === "WorkOrder"}
-          onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-          document={openDoc?.entity === "WorkOrder" ? openDoc.document : null}
-          jobId={jobId}
-          onSaved={onChanged}
-          onRevised={(created) => openRevised("WorkOrder", created)}
         />
       )}
       {allowedSet.has("ChangeOrder") && (

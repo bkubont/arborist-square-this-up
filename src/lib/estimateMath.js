@@ -76,8 +76,8 @@ export function emptyEstimateLine() {
 export function serializeEstimateLine(line) {
   const num = (v) => (v === "" || v == null ? undefined : Number(v));
   return {
-    // Round-tripped, not editable here yet (stage 3 checklist UI) — must not be dropped on save,
-    // or a signed line's id/steps would silently vanish the next time this estimate is saved.
+    // Round-tripped, not edited here (steps are worked on the job checklist once signed) — must not
+    // be dropped on save, or a line's id/steps would silently vanish the next time it is saved.
     id: line.id || undefined,
     steps: line.steps || undefined,
     description: line.description || "",
