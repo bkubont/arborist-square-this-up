@@ -9,6 +9,7 @@ type AuthContextValue = {
   authError: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
   refresh: () => Promise<void>;
 };
 
@@ -50,6 +51,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const deleteAccount = useCallback(async (password: string) => {
+    await api.auth.deleteAccount(password);
+    setUser(null);
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -58,9 +64,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authError,
       login,
       logout,
+      deleteAccount,
       refresh,
     }),
-    [user, isLoadingAuth, authError, login, logout, refresh],
+    [user, isLoadingAuth, authError, login, logout, deleteAccount, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -72,7 +79,6 @@ export function useAuth() {
   return ctx;
 }
 
-/** Clear any stale token without calling the API (e.g. after a forced sign-out). */
 export async function wipeLocalSession() {
   await clearSessionToken();
 }

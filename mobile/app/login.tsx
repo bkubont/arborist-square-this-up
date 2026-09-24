@@ -1,4 +1,3 @@
-import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,15 +15,11 @@ import { useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX, PRODUCT_NAME } from '@/lib/brand';
 
 export default function LoginScreen() {
-  const { isAuthenticated, isLoadingAuth, login } = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
-  if (!isLoadingAuth && isAuthenticated) {
-    return <Redirect href="/" />;
-  }
 
   const onSubmit = async () => {
     setError('');

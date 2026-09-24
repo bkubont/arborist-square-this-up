@@ -6,6 +6,33 @@ export type AuthUser = {
   created_date?: string;
 };
 
+export type Client = {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  notes?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type Job = {
+  id: string;
+  title: string;
+  client_id: string;
+  client_name?: string;
+  description?: string;
+  status?: string;
+  photo_url?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
 /**
  * Absolute API base (no trailing slash). Examples:
  * - iOS Simulator / Expo web (same machine): http://localhost:3000
@@ -15,14 +42,28 @@ export type AuthUser = {
  */
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 
-async function request(path: string, options: RequestInit = {}) {
+/** Turn `/api/files/:id` (or absolute) into a full URL for native Image / fetch. */
+export function absoluteFileUrl(fileUrl: string | null | undefined): string | null {
+  if (!fileUrl) return null;
+  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
+  if (fileUrl.startsWith('/')) return `${API_URL}${fileUrl}`;
+  return `${API_URL}/${fileUrl}`;
+}
+
+export async function authHeaders(): Promise<Record<string, string>> {
   const token = await getSessionToken();
+  const headers: Record<string, string> = { 'X-Client': 'mobile' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+async function request(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
-  headers.set('X-Client', 'mobile');
-  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const auth = await authHeaders();
+  for (const [key, value] of Object.entries(auth)) headers.set(key, value);
 
   let response: Response;
   try {
@@ -33,18 +74,42 @@ async function request(path: string, options: RequestInit = {}) {
     });
   }
 
-  const data = await response.json().catch(() => ({}));
+  const contentType = response.headers.get('content-type') || '';
+  const data = contentType.includes('json') ? await response.json().catch(() => ({})) : await response.arrayBuffer();
   if (!response.ok) {
     if (response.status === 401) await clearSessionToken();
-    throw Object.assign(new Error((data as { message?: string }).message || 'Request failed'), {
-      status: response.status,
-    });
+    const message =
+      data && typeof data === 'object' && 'message' in data
+        ? String((data as { message?: string }).message)
+        : 'Request failed';
+    throw Object.assign(new Error(message), { status: response.status });
   }
   return data;
 }
 
 const post = (path: string, data: unknown) =>
   request(path, { method: 'POST', body: JSON.stringify(data) });
+
+const PAGE_SIZE_MAX = 500;
+
+const entity = <T extends { id: string }>(name: string) => ({
+  async filter(filters: Record<string, string> = {}, sort = '-created_date', limit = 200): Promise<T[]> {
+    const pageSize = Math.min(Math.max(1, Number(limit) || 200), PAGE_SIZE_MAX);
+    const records: T[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const params = new URLSearchParams({ ...filters, sort, limit: String(pageSize), offset: String(offset) });
+      const page = (await request(`/entities/${name}?${params}`)) as T[];
+      records.push(...page);
+      if (page.length < pageSize) return records;
+    }
+  },
+  list(sort = '-created_date', limit = 200) {
+    return this.filter({}, sort, limit);
+  },
+  get(id: string) {
+    return request(`/entities/${name}/${encodeURIComponent(id)}`) as Promise<T>;
+  },
+});
 
 export const api = {
   baseUrl: API_URL,
@@ -67,5 +132,16 @@ export const api = {
         await clearSessionToken();
       }
     },
+    async deleteAccount(password: string): Promise<void> {
+      try {
+        await request('/auth/account', { method: 'DELETE', body: JSON.stringify({ password }) });
+      } finally {
+        await clearSessionToken();
+      }
+    },
+  },
+  entities: {
+    Client: entity<Client>('Client'),
+    Job: entity<Job>('Job'),
   },
 };
