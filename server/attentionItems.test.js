@@ -51,7 +51,7 @@ describe("buildAttentionItems", () => {
     const rows = buildAttentionItems({
       today: "2026-09-21",
       tomorrow: "2026-09-22",
-      jobs: [{ id: "j1", title: "Kitchen", phase: "working", status: "Waiting on materials", start_date: "2026-09-21" }],
+      jobs: [{ id: "j1", title: "Kitchen", phase: "working", status: "Blocked", start_date: "2026-09-21" }],
       estimates: [],
       changeOrders: [],
       invoices: [],

@@ -129,7 +129,13 @@ test('material order lines come from task materials not on hand, with their pric
   assert.equal(lines[0].source_line_id, 'm-1');
 });
 
-test('collectJobMaterialLines takes task materials only; merge preserves user fields', () => {
+test('collectJobMaterialLines takes job and task materials; merge preserves user fields', () => {
+  const fromJob = collectJobMaterialLines({
+    job: { id: 'j1', materials: [{ id: 'jm-1', description: 'Job caulk', qty: 2, unit_price: 4, have: false }] },
+  });
+  assert.equal(fromJob.length, 1);
+  assert.equal(fromJob[0].source_entity, 'Job');
+
   const workItems = [{ id: 'wi-1', status: 'prep', materials: [{ id: 'm-1', description: 'From est', qty: 1, unit_price: 22 }] }];
   const collected = collectJobMaterialLines({ workItems });
   assert.equal(collected.length, 1);

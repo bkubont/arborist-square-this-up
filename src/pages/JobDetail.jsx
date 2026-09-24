@@ -17,6 +17,8 @@ import { JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
+import JobMaterialsPanel from "@/components/JobMaterialsPanel";
+import MaterialsStatusLine from "@/components/MaterialsStatusLine";
 import TimelineFeed from "@/components/TimelineFeed";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
@@ -117,7 +119,12 @@ export default function JobDetail() {
 
   const activity = useMemo(
     () => composeJobActivity({ entries, documents }),
-    [entries, documents]
+    [entries, documents],
+  );
+
+  const materialOrders = useMemo(
+    () => documents.filter((doc) => doc.entity === "MaterialOrder"),
+    [documents],
   );
 
   const shownTimeline = useMemo(() => {
@@ -249,14 +256,22 @@ export default function JobDetail() {
             )}
           </div>
           <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <JobPhaseStatusSelect
-                phase={job.phase}
-                status={job.status}
-                onChange={changeStatus}
-                className="w-full sm:w-64"
+            <div className="flex flex-col items-stretch sm:items-end gap-1.5 w-full sm:w-auto">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <JobPhaseStatusSelect
+                  phase={job.phase}
+                  status={job.status}
+                  onChange={changeStatus}
+                  className="w-full sm:w-64"
+                />
+                <JobQuickAdd job={job} onSaved={load} />
+              </div>
+              <MaterialsStatusLine
+                job={job}
+                workItems={workItems}
+                materialOrders={materialOrders}
+                className="text-right"
               />
-              <JobQuickAdd job={job} onSaved={load} />
             </div>
             {summary && summary.running_total_basis !== "none" && (
               <div className="text-right">
@@ -286,6 +301,8 @@ export default function JobDetail() {
             </div>
             <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
           </div>
+
+          <JobMaterialsPanel jobId={id} materials={job.materials || []} onChanged={load} />
 
           <JobDocuments
             jobId={id}

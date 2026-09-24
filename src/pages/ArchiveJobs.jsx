@@ -39,7 +39,7 @@ export default function ArchiveJobs() {
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
       <PageHeader
         title="Archive"
-        description={loading ? "Completed and paid jobs" : `${jobs.length} archived`}
+        description={loading ? "Paid, declined, and cancelled jobs" : `${jobs.length} archived`}
         secondary={
           <>
             <Link to="/jobs/active" className="text-sm font-medium text-primary hover:underline px-2">

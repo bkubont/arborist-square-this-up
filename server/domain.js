@@ -121,7 +121,7 @@ export const schemas = {
     phase: z.enum(['lead', 'working', 'payment']).default('lead'),
     status: z.enum([
       'Contact', 'Assessment', 'Plan / draft estimate', 'Waiting on approval', 'Approved', 'Declined',
-      'Prep', 'In progress', 'Waiting on materials', 'Blocked', 'Cancelled', 'Completed',
+      'Prep', 'In progress', 'Blocked', 'Cancelled', 'Completed',
       'Invoiced',
       'Waiting on payment', 'Partial', 'Late', 'Paid',
     ]).default('Contact'),
@@ -129,7 +129,18 @@ export const schemas = {
     /** Set when a job reaches a terminal status — hides it from working lists; view under Archive. */
     archived_at: date.optional(),
     estimate_amount: money.optional(), invoice_amount: money.optional(),
-    deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
+    deposit_amount: money.optional(), materials_cost: money.optional(),
+    /** Job-level materials list (not on estimates). Items not on hand feed the draft Material Order. */
+    materials: z.array(z.object({
+      id: z.string().max(64).optional(),
+      description: text.default(''),
+      qty: money.optional(),
+      unit: z.string().max(40).optional(),
+      unit_price: money.optional(),
+      have: z.boolean().default(false),
+      notes: text.optional(),
+    })).max(500).optional(),
+    notes: text.optional(),
     // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
     // moves them into WorkItems and clears this.
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),

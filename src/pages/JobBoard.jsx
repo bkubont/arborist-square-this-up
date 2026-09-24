@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { api } from "@/api/client";
@@ -47,6 +47,36 @@ export default function JobBoard() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
+  const [activePhase, setActivePhase] = useState(
+    () => searchParams.get("phase") || "working",
+  );
+  const touchStartX = useRef(null);
+
+  useEffect(() => {
+    const phase = searchParams.get("phase");
+    if (phase && JOB_PHASE_ORDER.includes(phase)) setActivePhase(phase);
+  }, [searchParams]);
+
+  const choosePhase = (phase) => {
+    setActivePhase(phase);
+    const params = new URLSearchParams(searchParams);
+    if (phase === "working") params.delete("phase");
+    else params.set("phase", phase);
+    setSearchParams(params, { replace: true });
+  };
+
+  const onPhaseTouchStart = (e) => {
+    touchStartX.current = e.touches[0]?.clientX ?? null;
+  };
+
+  const onPhaseTouchEnd = (e) => {
+    if (touchStartX.current == null) return;
+    const dx = (e.changedTouches[0]?.clientX ?? touchStartX.current) - touchStartX.current;
+    const idx = JOB_PHASE_ORDER.indexOf(activePhase);
+    if (dx < -48 && idx < JOB_PHASE_ORDER.length - 1) choosePhase(JOB_PHASE_ORDER[idx + 1]);
+    if (dx > 48 && idx > 0) choosePhase(JOB_PHASE_ORDER[idx - 1]);
+    touchStartX.current = null;
+  };
 
   const load = useCallback(() => {
     return Promise.all([
@@ -200,22 +230,56 @@ export default function JobBoard() {
         <p className="text-muted-foreground">Loading…</p>
       ) : (
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="space-y-8 pb-8">
+          <div
+            className="lg:hidden mb-4 inline-flex w-full rounded-lg border border-border p-0.5 bg-muted/60"
+            role="tablist"
+            aria-label="Board phase"
+          >
             {JOB_PHASE_ORDER.map((phase) => (
-              <PhaseBoard
+              <button
                 key={phase}
-                phase={phase}
-                label={JOB_PHASES[phase].label}
-                statuses={statusesForPhase(phase)}
-                columns={columnsByPhase[phase]}
-                clientsById={clientsById}
-                estimates={estimates}
-                savingId={savingId}
-                paymentsMap={paymentsMap}
-                depositsMap={depositsMap}
-                invoiceMap={invoiceMap}
-                onChanged={load}
-              />
+                type="button"
+                role="tab"
+                aria-selected={activePhase === phase}
+                onClick={() => choosePhase(phase)}
+                className={cn(
+                  "flex-1 px-2 py-1.5 text-xs font-medium rounded-md",
+                  activePhase === phase
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {JOB_PHASES[phase].label}
+              </button>
+            ))}
+          </div>
+          <p className="lg:hidden text-[11px] text-muted-foreground mb-3 -mt-2">
+            Swipe left or right to change phase
+          </p>
+          <div
+            className="space-y-8 pb-8"
+            onTouchStart={onPhaseTouchStart}
+            onTouchEnd={onPhaseTouchEnd}
+          >
+            {JOB_PHASE_ORDER.map((phase) => (
+              <div
+                key={phase}
+                className={cn(phase !== activePhase && "hidden lg:block")}
+              >
+                <PhaseBoard
+                  phase={phase}
+                  label={JOB_PHASES[phase].label}
+                  statuses={statusesForPhase(phase)}
+                  columns={columnsByPhase[phase]}
+                  clientsById={clientsById}
+                  estimates={estimates}
+                  savingId={savingId}
+                  paymentsMap={paymentsMap}
+                  depositsMap={depositsMap}
+                  invoiceMap={invoiceMap}
+                  onChanged={load}
+                />
+              </div>
             ))}
           </div>
         </DragDropContext>

@@ -41,7 +41,7 @@ import { jobSummary, accountSummaries } from './summary.js';
 import { fromCents } from '../shared/money.js';
 
 /** Saving these re-syncs the job's draft Material Order: only task material lists feed it. */
-const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem']);
+const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem', 'Job']);
 
 async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
   if (!jobId) return null;
@@ -474,8 +474,9 @@ export async function createApp(db, env = process.env) {
           await refreshJobDocumentRollups(tx, req.user.id, record.job_id, { saveRecord, sumActiveInvoiceTotals });
         }
       }
-      if (MATERIAL_SYNC_ENTITIES.has(entity) && record.job_id) {
-        await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
+      const materialSyncJobId = entity === 'Job' ? record.id : record.job_id;
+      if (MATERIAL_SYNC_ENTITIES.has(entity) && materialSyncJobId) {
+        await maybeSyncMaterialOrder(tx, req.user.id, materialSyncJobId);
       }
       return record;
     });
@@ -556,8 +557,9 @@ export async function createApp(db, env = process.env) {
         await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
-    if (MATERIAL_SYNC_ENTITIES.has(entity) && updated.job_id) {
-      await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, updated.job_id));
+    const materialSyncJobId = entity === 'Job' ? updated.id : updated.job_id;
+    if (MATERIAL_SYNC_ENTITIES.has(entity) && materialSyncJobId) {
+      await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, materialSyncJobId));
       if (movingJob && previous.job_id) {
         await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, previous.job_id));
       }

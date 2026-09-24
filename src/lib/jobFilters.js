@@ -194,7 +194,6 @@ export function moneySummary(jobs, estimates = [], changeOrders = [], invoices =
  */
 export function actionReasonsForJob(job, estimates = [], changeOrders = []) {
   const reasons = [];
-  if (job?.status === "Waiting on materials") reasons.push("Waiting on materials");
   if (job?.status === "Blocked") reasons.push("Blocked");
   if (job?.status === "Waiting on approval") reasons.push("Waiting on client approval");
 
