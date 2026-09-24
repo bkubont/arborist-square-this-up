@@ -38,6 +38,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="money"
+        options={{
+          title: 'Money',
+          tabBarLabel: ({ color }) => <TabLabel label="Money" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="more"
         options={{
           title: 'More',

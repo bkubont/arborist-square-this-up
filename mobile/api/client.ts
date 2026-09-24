@@ -67,6 +67,65 @@ export type TimelineEntry = {
   updated_date?: string;
 };
 
+export type Estimate = {
+  id: string;
+  job_id: string;
+  number?: string;
+  status?: string;
+  total?: number;
+  date?: string;
+  notes?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type Invoice = {
+  id: string;
+  job_id: string;
+  number?: string;
+  status?: string;
+  total?: number;
+  balance_due?: number;
+  date?: string;
+  notes?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type Expense = {
+  id: string;
+  amount?: number;
+  date?: string;
+  category?: string;
+  vendor?: string;
+  note?: string;
+  job_id?: string;
+  photo_url?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type AccountSummaries = {
+  jobs: Record<string, {
+    balance_cents?: number;
+    invoiced_cents?: number;
+    paid_cents?: number;
+    running_total_cents?: number;
+    awaiting_approval?: Array<{ entity: string; id: string; job_id?: string; number?: string; amount_cents?: number }>;
+  }>;
+  totals: {
+    invoiced_cents: number;
+    paid_cents: number;
+    outstanding_cents: number;
+    waiting_approval_cents: number;
+    waiting_approval_count: number;
+    waiting_payment_cents: number;
+    waiting_payment_count: number;
+  };
+  waiting_approval: Array<{ entity: string; id: string; job_id?: string; number?: string; amount_cents?: number }>;
+  waiting_payment: Array<{ id: string; job_id?: string; number?: string; status?: string; balance_cents?: number }>;
+};
+
 /**
  * Absolute API base (no trailing slash). Examples:
  * - iOS Simulator / Expo web (same machine): http://localhost:3000
@@ -190,6 +249,13 @@ export const api = {
     Client: entity<Client>('Client'),
     Job: entity<Job>('Job'),
     TimelineEntry: entity<TimelineEntry>('TimelineEntry'),
+    Estimate: entity<Estimate>('Estimate'),
+    Invoice: entity<Invoice>('Invoice'),
+    Expense: entity<Expense>('Expense'),
+  },
+  summaries: {
+    all: () => request('/summaries') as Promise<AccountSummaries>,
+    job: (id: string) => request(`/jobs/${encodeURIComponent(id)}/summary`),
   },
   /** Resize → JPEG, then multipart POST /api/files (Bearer). */
   async uploadFile(localUri: string): Promise<{ file_url: string }> {

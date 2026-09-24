@@ -92,6 +92,7 @@ export const api = {
     loginViaEmailPassword: (email, password) => post('/auth/login', { email, password }),
     register: data => post('/auth/register', data),
     logout: () => post('/auth/logout', {}),
+    deleteAccount: password => request('/auth/account', { method: 'DELETE', body: JSON.stringify({ password }) }),
     resetPasswordRequest: email => post('/auth/forgot-password', { email }),
     resetPassword: data => post('/auth/reset-password', data),
   },
