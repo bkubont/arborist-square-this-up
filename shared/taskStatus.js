@@ -1,6 +1,7 @@
 /** Brittany's task board columns, in order (finish | completed | cancelled at the end). */
 export const TASK_STATUSES = [
   'plan',
+  'materials',
   'permits',
   'waiting_on_approval',
   'blocked',
@@ -13,7 +14,7 @@ export const TASK_STATUSES = [
 export const LEGACY_TASK_STATUS_MAP = {
   prep: 'plan',
   in_progress: 'plan',
-  waiting_materials: 'blocked',
+  waiting_materials: 'materials',
   on_hold: 'blocked',
   done: 'completed',
 };
@@ -48,9 +49,10 @@ export function isTaskClosed(status) {
   return isTaskCompleted(status) || isTaskCancelled(status);
 }
 
-/** Built-in templates start in plan (Prep) or finish (Final walkthrough). */
+/** Built-in templates start in their home column (Prep → plan, Materials → materials, Final walkthrough → finish). */
 export function defaultStatusForTemplate(templateKey) {
   if (templateKey === 'final_walkthrough') return 'finish';
+  if (templateKey === 'materials') return 'materials';
   if (templateKey === 'prep') return 'plan';
   return DEFAULT_TASK_STATUS;
 }

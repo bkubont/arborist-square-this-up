@@ -19,7 +19,7 @@ import { DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskSta
 /** Scope tasks from signed lines sit between Prep and Final walkthrough. */
 function nextScopeSortOrder(existingTasks = []) {
   const scopeOrders = existingTasks
-    .filter((t) => t.template_key !== 'prep' && t.template_key !== 'final_walkthrough')
+    .filter((t) => !['prep', 'materials', 'final_walkthrough'].includes(t.template_key))
     .map((t) => t.sort_order)
     .filter((n) => Number.isFinite(n));
   if (scopeOrders.length) return Math.max(...scopeOrders) + 1000;

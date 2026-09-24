@@ -171,7 +171,7 @@ export const schemas = {
   WorkItem: z.object({
     job_id: id,
     /** Built-in Prep / Final walkthrough rows; set only by attachDefaultJobTasks. */
-    template_key: z.enum(['prep', 'final_walkthrough']).optional(),
+    template_key: z.enum(['prep', 'materials', 'final_walkthrough']).optional(),
     source_type: z.enum(['Estimate', 'ChangeOrder']).optional(),
     source_id: id.optional(),
     line_id: z.string().max(64).optional(),

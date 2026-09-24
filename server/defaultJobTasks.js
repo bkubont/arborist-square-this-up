@@ -1,5 +1,5 @@
 /**
- * Attach the built-in Prep and Final walkthrough tasks to a job. Idempotent: skips templates
+ * Attach built-in Prep, Materials, and Final walkthrough tasks to a job. Idempotent: skips templates
  * already present (by template_key, or by legacy description for older rows).
  */
 import { saveRecord } from './domain.js';
@@ -9,6 +9,7 @@ import { defaultStatusForTemplate } from './taskStatus.js';
 
 const LEGACY_DESCRIPTION = {
   prep: 'prep',
+  materials: 'materials',
   final_walkthrough: 'final walkthrough',
 };
 

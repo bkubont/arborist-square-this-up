@@ -171,6 +171,7 @@ export const STATUS_SEMANTIC_MAP = {
 
   // Job tasks (src/lib/tasks.js)
   plan: "brand",
+  materials: "attention-materials",
   permits: "sky",
   waiting_on_approval: "attention-approval",
   blocked: "danger",

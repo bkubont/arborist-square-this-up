@@ -1,6 +1,7 @@
 /** Job task (WorkItem) statuses, in board-column order — mirrors shared/taskStatus.js. */
 export const TASK_STATUSES = [
   "plan",
+  "materials",
   "permits",
   "waiting_on_approval",
   "blocked",
@@ -12,13 +13,14 @@ export const TASK_STATUSES = [
 const LEGACY_TASK_STATUS_MAP = {
   prep: "plan",
   in_progress: "plan",
-  waiting_materials: "blocked",
+  waiting_materials: "materials",
   on_hold: "blocked",
   done: "completed",
 };
 
 const LABELS = {
   plan: "Plan",
+  materials: "Materials",
   permits: "Permits",
   waiting_on_approval: "Waiting on Approval",
   blocked: "Blocked",
@@ -28,7 +30,7 @@ const LABELS = {
   // Legacy labels (shown only before the server normalizes on save)
   prep: "Plan",
   in_progress: "Plan",
-  waiting_materials: "Blocked",
+  waiting_materials: "Materials",
   on_hold: "Blocked",
   done: "Completed",
 };
@@ -54,12 +56,13 @@ export function sortTasks(items = []) {
     || (a.created_date || "").localeCompare(b.created_date || ""));
 }
 
-/** List view: Prep first, signed scope in the middle, Final walkthrough last — regardless of status. */
+/** List view: Prep, Materials, signed scope, Final walkthrough — regardless of status. */
 export function sortTasksForList(items = []) {
   const band = (item) => {
     if (item?.template_key === "prep") return 0;
-    if (item?.template_key === "final_walkthrough") return 2;
-    return 1;
+    if (item?.template_key === "materials") return 1;
+    if (item?.template_key === "final_walkthrough") return 3;
+    return 2;
   };
   return [...items].sort((a, b) =>
     band(a) - band(b)
