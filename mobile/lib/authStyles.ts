@@ -1,0 +1,75 @@
+import { StyleSheet, Platform } from 'react-native';
+
+import { BRAND_HEX } from '@/lib/brand';
+
+export const authStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#f7f7fb',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 24,
+    paddingBottom: 40,
+    backgroundColor: '#f7f7fb',
+  },
+  hero: { marginBottom: 24, gap: 8 },
+  mark: {
+    width: 36,
+    height: 36,
+    borderWidth: 3,
+    borderColor: BRAND_HEX.royalBlue,
+    borderRightColor: 'transparent',
+    marginBottom: 4,
+  },
+  brand: {
+    fontSize: 34,
+    fontWeight: '700',
+    color: BRAND_HEX.royalBlue,
+    letterSpacing: -0.8,
+  },
+  subtitle: { fontSize: 16, color: '#444' },
+  apiHint: { fontSize: 12, color: '#888' },
+  form: { gap: 10 },
+  label: { fontSize: 13, fontWeight: '600', color: '#333', marginTop: 4 },
+  input: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d8d8e4',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 14 : 10,
+    fontSize: 16,
+    color: BRAND_HEX.black,
+  },
+  error: {
+    backgroundColor: '#fde8ea',
+    color: '#b00020',
+    padding: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  success: {
+    backgroundColor: '#e8f5ec',
+    color: '#1b6b3a',
+    padding: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  button: {
+    marginTop: 12,
+    backgroundColor: BRAND_HEX.royalBlue,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  buttonDisabled: { opacity: 0.6 },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  link: { color: BRAND_HEX.royalBlue, fontWeight: '600', fontSize: 15, marginTop: 16, textAlign: 'center' },
+  hint: { fontSize: 12, color: '#777', marginTop: 4 },
+});

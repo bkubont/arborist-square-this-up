@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api } from "@/api/client";
+import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,7 @@ import { DEFAULT_SALES_TAX_RATE } from "@/lib/salesTax";
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
 export default function CompanySettings() {
+  const { logout } = useAuth();
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     name: "",
@@ -22,6 +24,9 @@ export default function CompanySettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     const rows = await api.entities.CompanyProfile.list("-created_date", 5);
@@ -71,6 +76,34 @@ export default function CompanySettings() {
       await load();
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    setDeleteError("");
+    if (!deletePassword) {
+      setDeleteError("Enter your password to confirm.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Permanently delete this account and all jobs, customers, and photos? This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.auth.deleteAccount(deletePassword);
+      // Session already revoked; logout clears client cache and sends the user to login.
+      try {
+        await logout();
+      } catch {
+        window.location.assign("/login");
+      }
+    } catch (err) {
+      setDeleteError(err.message || "Could not delete account");
+      setDeleting(false);
     }
   };
 
@@ -132,6 +165,34 @@ export default function CompanySettings() {
             <Input value={form.default_payment_terms} onChange={(e) => set("default_payment_terms", e.target.value)} placeholder="Due upon receipt" />
           </div>
         </div>
+      </div>
+
+      <div className="mt-8 bg-white rounded-xl border border-destructive/30 p-5 space-y-3">
+        <h2 className="text-base font-semibold text-destructive">Delete account</h2>
+        <p className="text-sm text-slate-600">
+          Permanently removes this login and all owned jobs, customers, documents, and photos. Invitation-only
+          registration is unchanged — a new invite is required to create another account.
+        </p>
+        <div>
+          <Label htmlFor="delete-password">Confirm with password</Label>
+          <Input
+            id="delete-password"
+            type="password"
+            autoComplete="current-password"
+            value={deletePassword}
+            onChange={(e) => setDeletePassword(e.target.value)}
+            placeholder="Your password"
+          />
+        </div>
+        {deleteError ? <p className="text-sm text-destructive">{deleteError}</p> : null}
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={deleting || !deletePassword}
+          onClick={deleteAccount}
+        >
+          {deleting ? "Deleting…" : "Delete account forever"}
+        </Button>
       </div>
     </div>
   );

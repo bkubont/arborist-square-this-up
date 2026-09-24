@@ -83,6 +83,18 @@ Dictation uses browser SpeechRecognition where supported, with editable text bef
 
 Add/Edit Client can suggest addresses while typing. Set `VITE_GOOGLE_PLACES_API_KEY` (browser Places key, restrict by HTTP referrer) for Google Places (`types: address`). When unset, the API uses free Photon/OSM suggestions at `/api/address-suggest`, filtered to house/street results (US) so city/locality hits do not overwrite the street field. Selecting a suggestion fills street, city, state, and ZIP; fields remain fully editable manually. Street, city, state, and ZIP are required; address line 2 (apt/suite) is not.
 
+## Mobile (Expo)
+
+Native iOS/Android client lives in `mobile/` (Expo managed + Expo Router). Bearer sessions against this API; web still uses cookies. Account deletion: `DELETE /api/auth/account` (Settings on web and More on mobile).
+
+Deep-link verification files live under `public/.well-known/` (Apple/Google placeholders — replace Team ID / SHA-256 before production). See [mobile/README.md](mobile/README.md) for `EXPO_PUBLIC_API_URL`, Universal Links, and EAS human steps.
+
+```sh
+cd mobile
+cp .env.example .env
+npm start
+```
+
 ## Checks
 
 ```sh
@@ -91,5 +103,7 @@ npm run lint
 npm run typecheck
 npm run build
 ```
+
+Mobile typecheck (from `mobile/`): `npm run typecheck`.
 
 The API integration tests use a temporary SQLite database and exercise account isolation, invitations, sessions, origin checks, recovery, deletion and restore. A real Hostinger MySQL acceptance check is required before launch. Local development uses SQLite to avoid requiring a database server installation.

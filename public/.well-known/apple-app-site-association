@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.squarethisup.app",
+        "paths": ["/register", "/register/*", "/reset-password", "/reset-password/*"]
+      }
+    ]
+  }
+}
