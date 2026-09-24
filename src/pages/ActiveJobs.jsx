@@ -7,7 +7,7 @@ import JobFormDialog from "@/components/JobFormDialog";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { money, shortDate } from "@/lib/format";
-import { isActiveJob, isWorkingJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { depositsByJobId, invoicesByJobId, isActiveJob, isWorkingJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ export default function ActiveJobs() {
   const [jobs, setJobs] = useState([]);
   const [clients, setClients] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [jobDialog, setJobDialog] = useState(false);
 
@@ -27,16 +28,20 @@ export default function ActiveJobs() {
       api.entities.Job.listAll("-updated_date"),
       api.entities.Client.list("-created_date", 200),
       api.entities.TimelineEntry.list("-created_date", 1000),
+      api.entities.Invoice.list("-updated_date", 500),
     ])
-      .then(([j, c, tl]) => {
+      .then(([j, c, tl, inv]) => {
         setJobs(j.filter((job) => isWorkingJob(job) && isActiveJob(job)));
         setClients(c);
         setTimeline(tl);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
 
   const saveJob = async (form) => {
     const created = await api.entities.Job.create(form);
@@ -86,7 +91,7 @@ export default function ActiveJobs() {
       ) : (
         <div className="space-y-2">
           {jobs.map((j) => {
-            const balance = jobBalance(j, paymentsMap[j.id] || 0);
+            const balance = jobBalance(j, paymentsMap[j.id] || 0, depositsMap[j.id] || 0, invoiceMap[j.id]);
             return (
               <Link
                 key={j.id}

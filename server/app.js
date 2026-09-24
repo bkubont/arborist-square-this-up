@@ -482,8 +482,11 @@ export async function createApp(db, env = process.env) {
       assertEstimateMutable(previous, body);
     }
     if (entity === 'Invoice' && body && typeof body === 'object' && previous) {
-      const job = await getRecord(db, req.user.id, 'Job', previous.job_id);
-      const timeline = await listJobDocuments(db, req.user.id, 'TimelineEntry', previous.job_id);
+      const targetJobId = Object.prototype.hasOwnProperty.call(body, 'job_id') && body.job_id
+        ? body.job_id
+        : previous.job_id;
+      const job = await getRecord(db, req.user.id, 'Job', targetJobId);
+      const timeline = await listJobDocuments(db, req.user.id, 'TimelineEntry', targetJobId);
       body = prepareInvoicePatch(previous, body, { job, timeline });
     }
 

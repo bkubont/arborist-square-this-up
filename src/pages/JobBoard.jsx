@@ -5,13 +5,14 @@ import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
-import { JOB_STATUSES, isWorkingJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { depositsByJobId, invoicesByJobId, JOB_STATUSES, isWorkingJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
 export default function JobBoard() {
   const [jobs, setJobs] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
 
@@ -19,10 +20,12 @@ export default function JobBoard() {
     return Promise.all([
       api.entities.Job.listAll("-updated_date"),
       api.entities.TimelineEntry.list("-created_date", 1000),
+      api.entities.Invoice.list("-updated_date", 500),
     ])
-      .then(([j, tl]) => {
+      .then(([j, tl, inv]) => {
         setJobs(j.filter(isWorkingJob));
         setTimeline(tl);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -32,6 +35,8 @@ export default function JobBoard() {
   }, [load]);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
 
   const columns = useMemo(() => {
     const map = Object.fromEntries(JOB_STATUSES.map((s) => [s, []]));
@@ -136,7 +141,7 @@ function BoardColumn({ status, jobs, savingId, paymentsMap }) {
           </div>
           <div className="p-2 space-y-2 overflow-y-auto flex-1">
             {jobs.map((job, index) => {
-              const balance = jobBalance(job, paymentsMap[job.id] || 0);
+              const balance = jobBalance(job, paymentsMap[job.id] || 0, depositsMap[job.id] || 0, invoiceMap[job.id]);
               return (
                 <Draggable key={job.id} draggableId={String(job.id)} index={index}>
                   {(dragProvided, dragSnapshot) => (

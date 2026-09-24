@@ -10,6 +10,8 @@ import { buildAttentionItems } from "@/lib/attentionItems";
 import {
   ACTIVE_STATUSES,
   countByStatus,
+  depositsByJobId,
+  invoicesByJobId,
   isWorkingJob,
   jobBalance,
   moneySummary,
@@ -84,6 +86,8 @@ export default function Dashboard() {
   const active = useMemo(() => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)), [jobs]);
   const statusCounts = useMemo(() => countByStatus(jobs), [jobs]);
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
   const moneyBuckets = useMemo(
     () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
     [jobs, estimates, changeOrders, invoices, timeline]
@@ -262,7 +266,13 @@ export default function Dashboard() {
         ) : active.length ? (
           <div className="space-y-2">
             {active.slice(0, ACTIVE_PREVIEW).map((j) => (
-              <JobRow key={j.id} job={j} paymentsLogged={paymentsMap[j.id] || 0} />
+              <JobRow
+                key={j.id}
+                job={j}
+                paymentsLogged={paymentsMap[j.id] || 0}
+                depositsLogged={depositsMap[j.id] || 0}
+                invoice={invoiceMap[j.id]}
+              />
             ))}
             {active.length > ACTIVE_PREVIEW && (
               <p className="text-xs text-muted-foreground px-1">
@@ -390,8 +400,8 @@ function Section({ title, children, action = null }) {
   );
 }
 
-function JobRow({ job, paymentsLogged = 0 }) {
-  const balance = jobBalance(job, paymentsLogged);
+function JobRow({ job, paymentsLogged = 0, depositsLogged = 0, invoice = null }) {
+  const balance = jobBalance(job, paymentsLogged, depositsLogged, invoice);
   return (
     <Link
       to={`/jobs/${job.id}`}

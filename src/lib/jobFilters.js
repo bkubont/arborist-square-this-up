@@ -19,8 +19,11 @@ export const ACTIVE_STATUSES = [
   "Waiting on Materials",
 ];
 
+const ARCHIVE_JOB_STATUSES = new Set(["Completed", "Paid"]);
+
 export function isArchivedJob(job) {
-  return Boolean(job?.archived_at);
+  if (job?.archived_at) return true;
+  return ARCHIVE_JOB_STATUSES.has(job?.status);
 }
 
 /** Non-archived jobs — shown on board, active list, schedule, etc. */
@@ -149,6 +152,7 @@ export function moneySummary(jobs, estimates = [], changeOrders = [], invoices =
   const paymentsMap = paymentsByJobId(timeline);
   const depositsMap = depositsByJobId(timeline);
   const invoiceMap = invoicesByJobId(invoices);
+  const jobIds = new Set(jobs.map((job) => job.id));
   let invoiced = 0;
   let received = 0;
   let outstanding = 0;
@@ -165,6 +169,13 @@ export function moneySummary(jobs, estimates = [], changeOrders = [], invoices =
       received += jobReceived(job, logged, deposits);
       outstanding += jobBalance(job, logged, deposits);
     }
+  }
+  // Archived / completed jobs may be omitted from working lists but still owe on an invoice.
+  for (const invoice of invoices) {
+    if (!invoice?.job_id || invoice.status === "void" || jobIds.has(invoice.job_id)) continue;
+    invoiced += Number(invoice.total) || 0;
+    received += (Number(invoice.deposits_applied) || 0) + (Number(invoice.payments_applied) || 0);
+    outstanding += invoiceBalanceDue(invoice);
   }
 
   const waitingApprovalDocs = [...estimates, ...changeOrders].filter(isAwaitingApproval);

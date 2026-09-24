@@ -39,7 +39,9 @@ export function normalizeInvoicePayments(invoice, { job, timeline = [], requeste
     payments_applied: 0,
   });
   const total = Number(invoice.total ?? totals.total) || 0;
-  const deposits_applied = sumDepositsApplied(job, timeline);
+  const deposits_applied = preferEditorPayments && invoice.deposits_applied != null
+    ? round2(Number(invoice.deposits_applied) || 0)
+    : sumDepositsApplied(job, timeline);
   const timelinePayments = sumTimelinePayments(timeline);
 
   let payments_applied = preferEditorPayments && invoice.payments_applied != null
@@ -73,6 +75,9 @@ export async function refreshInvoicePaymentSync(tx, ownerId, jobId) {
   const job = await getRecord(tx, ownerId, 'Job', jobId);
   const invoice = await findActiveJobDocument(tx, ownerId, 'Invoice', jobId);
   if (!invoice) return null;
+
+  // Brittany: marking paid just totals — do not reopen from timeline drift.
+  if (invoice.status === 'paid') return invoice;
 
   const timeline = await listJobDocuments(tx, ownerId, 'TimelineEntry', jobId);
   const normalized = normalizeInvoicePayments(invoice, { job, timeline });

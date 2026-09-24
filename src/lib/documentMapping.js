@@ -218,7 +218,9 @@ export function normalizeInvoicePayments(invoice, { job, timeline = [], requeste
     payments_applied: 0,
   });
   const total = Number(invoice.total ?? totals.total) || 0;
-  const deposits_applied = sumDepositsFromJob(job, timeline);
+  const deposits_applied = preferEditorPayments && invoice.deposits_applied != null
+    ? round2(Number(invoice.deposits_applied) || 0)
+    : sumDepositsFromJob(job, timeline);
   const timelinePayments = sumTimelinePayments(timeline);
 
   let payments_applied = preferEditorPayments && invoice.payments_applied != null
