@@ -273,7 +273,9 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     start_date,
     end_date,
     notes: 'Demo seed job',
-    deposit_amount: blueprint.deposit || 0,
+    // Prefer timeline deposit_received for demo money (matches UI logDeposit).
+    // Do not also set deposit_amount — FinancialPanel / sumDepositsApplied add both.
+    deposit_amount: 0,
   });
 
   const estimatePayload = {
@@ -380,13 +382,20 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
   }
 
   let invoice;
+  let paymentAmount = money(blueprint.payment || 0);
   if (blueprint.invoice && blueprint.estimate.status === 'accepted') {
     const coNet = changeOrder && changeOrder.status === 'approved' ? Number(changeOrder.net_change) || 0 : 0;
     const invoiceSub = money(totals.subtotal + coNet);
     const invoiceTax = money(invoiceSub * (taxRate / 100));
     const invoiceTotal = money(invoiceSub + invoiceTax);
     const deposits = money(blueprint.deposit || 0);
-    const payments = money(blueprint.payment || 0);
+    // Paid invoices must clear in full (deposit + payment cover tax-inclusive total).
+    if (blueprint.invoice.status === 'paid') {
+      paymentAmount = money(Math.max(0, invoiceTotal - deposits));
+    } else {
+      paymentAmount = money(blueprint.payment || 0);
+    }
+    const payments = paymentAmount;
     const balance = money(Math.max(0, invoiceTotal - deposits - payments));
     invoice = await saveRecord(db, ownerId, 'Invoice', {
       job_id: job.id,
@@ -439,15 +448,15 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
       amount: money(blueprint.deposit),
     });
   }
-  if (invoice) {
+  if (invoice && invoice.status !== 'draft') {
     events.push({ type: 'invoice_sent', category: 'financial', text: `Invoice ${invoice.number} ${invoice.status}` });
   }
-  if (blueprint.payment) {
+  if (paymentAmount > 0) {
     events.push({
       type: 'payment_received',
       category: 'financial',
       text: 'Payment received',
-      amount: money(blueprint.payment),
+      amount: paymentAmount,
     });
   }
   events.push({ type: 'note', category: 'note', text: blueprint.description });
