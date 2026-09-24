@@ -85,11 +85,13 @@ Add/Edit Client can suggest addresses while typing. Set `VITE_GOOGLE_PLACES_API_
 
 ## Mobile (Expo)
 
-Native iOS/Android client lives in `mobile/` (Expo managed + Expo Router). It uses additive **Bearer** sessions against this Express API; the web app still uses cookies. Account deletion for App Store compliance: `DELETE /api/auth/account` with password confirmation (also available under More → Settings in the app). See [mobile/README.md](mobile/README.md) for `EXPO_PUBLIC_API_URL` and how to run.
+Native iOS/Android client lives in `mobile/` (Expo managed + Expo Router). Bearer sessions against this API; web still uses cookies. Account deletion: `DELETE /api/auth/account` (Settings on web and More on mobile).
+
+Deep-link verification files live under `public/.well-known/` (Apple/Google placeholders — replace Team ID / SHA-256 before production). See [mobile/README.md](mobile/README.md) for `EXPO_PUBLIC_API_URL`, Universal Links, and EAS human steps.
 
 ```sh
 cd mobile
-cp .env.example .env   # set EXPO_PUBLIC_API_URL
+cp .env.example .env
 npm start
 ```
 

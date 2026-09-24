@@ -2,12 +2,20 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api, type AuthUser } from '@/api/client';
 import { clearSessionToken } from '@/lib/session';
 
+type RegisterInput = {
+  email: string;
+  password: string;
+  inviteToken: string;
+  default_tax_rate?: number;
+};
+
 type AuthContextValue = {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoadingAuth: boolean;
   authError: string | null;
   login: (email: string, password: string) => Promise<void>;
+  register: (data: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -46,6 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser({ id: result.id, email: result.email });
   }, []);
 
+  const register = useCallback(async (data: RegisterInput) => {
+    setError(null);
+    const result = await api.auth.register(data);
+    setUser({ id: result.id, email: result.email });
+  }, []);
+
   const logout = useCallback(async () => {
     await api.auth.logout();
     setUser(null);
@@ -63,11 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoadingAuth,
       authError,
       login,
+      register,
       logout,
       deleteAccount,
       refresh,
     }),
-    [user, isLoadingAuth, authError, login, logout, deleteAccount, refresh],
+    [user, isLoadingAuth, authError, login, register, logout, deleteAccount, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

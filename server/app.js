@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import multer from 'multer';
 import nodemailer from 'nodemailer';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, fileIdsOf } from './domain.js';
@@ -659,6 +660,18 @@ export async function createApp(db, env = process.env) {
     res.set('Content-Disposition', 'attachment; filename="jobsite-backup.json"').json(data);
   });
   app.use('/api', (req, res, next) => next(fail(404, 'Endpoint not found')));
+  // Universal Links / App Links verification files (placeholders in public/.well-known).
+  const wellKnownFile = name => [resolve('dist/.well-known', name), resolve('public/.well-known', name)].find(existsSync);
+  app.get('/.well-known/apple-app-site-association', (req, res, next) => {
+    const file = wellKnownFile('apple-app-site-association');
+    if (!file) return next();
+    res.type('application/json').sendFile(file);
+  });
+  app.get('/.well-known/assetlinks.json', (req, res, next) => {
+    const file = wellKnownFile('assetlinks.json');
+    if (!file) return next();
+    res.type('application/json').sendFile(file);
+  });
   app.use(express.static(resolve('dist'), { index: false }));
   app.get('/{*path}', (req, res) => res.sendFile(resolve('dist/index.html')));
   app.use((error, req, res, next) => {

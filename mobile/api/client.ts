@@ -230,6 +230,26 @@ export const api = {
       await setSessionToken(result.token);
       return result as AuthUser & { token: string };
     },
+    async register(data: {
+      email: string;
+      password: string;
+      inviteToken: string;
+      default_tax_rate?: number;
+    }): Promise<AuthUser & { token: string }> {
+      const result = (await post('/auth/register', {
+        ...data,
+        client: 'mobile',
+      })) as AuthUser & { token?: string };
+      if (!result.token) throw new Error('Server did not return a session token for mobile register');
+      await setSessionToken(result.token);
+      return result as AuthUser & { token: string };
+    },
+    forgotPassword(email: string): Promise<{ ok: boolean }> {
+      return post('/auth/forgot-password', { email }) as Promise<{ ok: boolean }>;
+    },
+    resetPassword(data: { resetToken: string; newPassword: string }): Promise<{ ok: boolean }> {
+      return post('/auth/reset-password', data) as Promise<{ ok: boolean }>;
+    },
     async logout(): Promise<void> {
       try {
         await post('/auth/logout', {});
