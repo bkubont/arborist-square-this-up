@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   applyJobStatusFields,
   INVOICE_GATE_STATUS,
+  JOB_PHASES,
   migrateLegacyStatus,
   normalizeJobRecord,
   PAYMENT_ENTRY_STATUS,
@@ -41,6 +42,14 @@ describe('job status model', () => {
     ]) {
       assert.ok(phaseForStatus(status));
     }
+  });
+
+  it('working phase excludes Waiting on materials', () => {
+    const working = JOB_PHASES.working.statuses.filter((s) => s !== INVOICE_GATE_STATUS);
+    assert.ok(!working.includes('Waiting on materials'));
+    const normalized = normalizeJobRecord({ status: 'Waiting on materials' });
+    assert.equal(normalized.status, 'In progress');
+    assert.equal(normalized.phase, 'working');
   });
 
   it('invoiced gate moves job to payment waiting on payment', () => {

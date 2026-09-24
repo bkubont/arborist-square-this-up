@@ -256,22 +256,22 @@ export default function JobDetail() {
             )}
           </div>
           <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
-            <div className="flex flex-col items-stretch sm:items-end gap-1.5 w-full sm:w-auto">
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <JobPhaseStatusSelect
-                  phase={job.phase}
-                  status={job.status}
-                  onChange={changeStatus}
-                  className="w-full sm:w-64"
-                />
-                <JobQuickAdd job={job} onSaved={load} />
-              </div>
-              <MaterialsStatusLine
-                job={job}
-                workItems={workItems}
-                materialOrders={materialOrders}
-                className="text-right"
+            <div className="flex items-start gap-2 w-full sm:w-auto">
+              <JobPhaseStatusSelect
+                phase={job.phase}
+                status={job.status}
+                onChange={changeStatus}
+                className="w-full sm:w-64"
+                belowStatus={
+                  <MaterialsStatusLine
+                    job={job}
+                    workItems={workItems}
+                    materialOrders={materialOrders}
+                    className="mt-1.5 text-right sm:text-left"
+                  />
+                }
               />
+              <JobQuickAdd job={job} onSaved={load} />
             </div>
             {summary && summary.running_total_basis !== "none" && (
               <div className="text-right">

@@ -15,6 +15,7 @@ export const ACTIVE_STATUSES = ACTIVE_JOB_STATUSES;
 export { JOB_PHASE_ORDER, JOB_PHASES, ARCHIVE_JOB_STATUSES };
 
 export function isArchivedJob(job) {
+  if (job?.status === "Completed") return false;
   if (job?.archived_at) return true;
   return ARCHIVE_JOB_STATUSES.has(job?.status);
 }

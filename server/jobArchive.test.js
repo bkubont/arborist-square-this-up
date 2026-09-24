@@ -38,4 +38,13 @@ describe('job archive', () => {
     assert.equal(next.archived_at, undefined);
     assert.equal(isArchivedJob(next), false);
   });
+
+  it('completed jobs stay in working even with a legacy archived_at', () => {
+    assert.equal(isArchivedJob({ status: 'Completed', archived_at: '2026-01-01' }), false);
+    const cleared = applyJobArchiveFields(
+      { status: 'Completed' },
+      { status: 'Paid', archived_at: '2026-01-01' },
+    );
+    assert.equal(cleared.archived_at, undefined);
+  });
 });

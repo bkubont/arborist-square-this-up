@@ -20,6 +20,8 @@ export default function JobPhaseStatusSelect({
   onChange,
   className = undefined,
   triggerClassName = undefined,
+  /** Read-only row under the status dropdown (e.g. derived materials status). */
+  belowStatus = undefined,
 }) {
   const resolvedPhase = phase || phaseForStatus(status) || "lead";
   const resolvedStatus = statusesForPhase(resolvedPhase).includes(status)
@@ -76,6 +78,7 @@ export default function JobPhaseStatusSelect({
           })}
         </SelectContent>
       </Select>
+      {belowStatus}
     </div>
   );
 }
