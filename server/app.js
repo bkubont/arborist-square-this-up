@@ -147,6 +147,21 @@ export async function createApp(db, env = process.env) {
     if (req.cookies[cookieName]) await db.run('DELETE FROM sessions WHERE token_hash = ?', [hash(req.cookies[cookieName])]);
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
+  /** App Store 5.1.1(v): password-confirmed wipe of this account and owned data. */
+  app.delete('/api/auth/account', requireUser, async (req, res) => {
+    const password = z.string().max(128).parse(req.body?.password ?? '');
+    if (!await limited(`delete-account:${req.user.id}`, 5)) throw fail(429, 'Too many attempts. Try again in 15 minutes.');
+    await db.transaction(async tx => {
+      const lock = db.dialect === 'mysql' ? ' FOR UPDATE' : '';
+      const [user] = await tx.all('SELECT * FROM users WHERE id = ?' + lock, [req.user.id]);
+      const valid = await verifyPassword(password, user?.password_hash || dummyHash);
+      if (!user || !valid) throw fail(401, 'Incorrect password');
+      // tokens are email-keyed (no FK); sessions/records/files/sign_links cascade from users.
+      await tx.run('DELETE FROM tokens WHERE email = ?', [user.email]);
+      await tx.run('DELETE FROM users WHERE id = ?', [user.id]);
+    });
+    res.clearCookie(cookieName, cookie).json({ ok: true });
+  });
   app.post('/api/auth/register', async (req, res) => {
     const email = emailSchema.parse(req.body.email);
     const invite = z.string().regex(/^[a-f0-9]{64}$/).parse(req.body.inviteToken);

@@ -75,6 +75,83 @@ test('Bearer sessions for mobile clients skip Origin and revoke on logout', asyn
   assert.equal((await request('/auth/me', { origin: null, headers: auth })).status, 401);
 });
 
+test('Bearer can fetch owned files without cookies; wrong owner is 404', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('files-a@example.com');
+  const b = await register('files-b@example.com');
+  const loginA = await request('/auth/login', {
+    method: 'POST', origin: null, headers: { 'x-client': 'mobile' },
+    data: { email: 'files-a@example.com', password: 'strong-password-123', client: 'mobile' },
+  });
+  const loginB = await request('/auth/login', {
+    method: 'POST', origin: null, headers: { 'x-client': 'mobile' },
+    data: { email: 'files-b@example.com', password: 'strong-password-123', client: 'mobile' },
+  });
+  const form = new FormData();
+  form.append('file', new Blob([Uint8Array.of(0xff, 0xd8, 0xff, 0xd9)], { type: 'image/jpeg' }), 'a.jpg');
+  const file = await request('/files', {
+    method: 'POST', origin: null,
+    headers: { authorization: `Bearer ${loginA.data.token}`, 'x-client': 'mobile' },
+    form,
+  });
+  assert.equal(file.status, 201);
+  const path = file.data.file_url.replace('/api', '');
+  const viaBearer = await request(path, {
+    origin: null, headers: { authorization: `Bearer ${loginA.data.token}` },
+  });
+  assert.equal(viaBearer.status, 200);
+  assert.equal((await request(path, { cookie: a.cookie })).status, 200);
+  assert.equal((await request(path, {
+    origin: null, headers: { authorization: `Bearer ${loginB.data.token}` },
+  })).status, 404);
+  assert.equal((await request(path, { cookie: b.cookie })).status, 404);
+});
+
+test('account deletion requires password and wipes owned data only', async t => {
+  const { db, request, register } = await fixture(t);
+  const a = await register('delete-me@example.com');
+  const b = await register('keep-me@example.com');
+  await request('/entities/Client', { method: 'POST', cookie: a.cookie, data: { name: 'Gone', ...CLIENT_ADDR } });
+  await request('/entities/Client', { method: 'POST', cookie: b.cookie, data: { name: 'Stay', ...CLIENT_ADDR } });
+  const form = new FormData();
+  form.append('file', new Blob([Uint8Array.of(0xff, 0xd8, 0xff, 0xd9)], { type: 'image/jpeg' }), 'a.jpg');
+  const file = await request('/files', { method: 'POST', cookie: a.cookie, form });
+  assert.equal(file.status, 201);
+
+  assert.equal((await request('/auth/account', { method: 'DELETE', cookie: a.cookie, data: { password: 'wrong-password-xx' } })).status, 401);
+  assert.equal((await request('/auth/me', { cookie: a.cookie })).status, 200);
+
+  const deleted = await request('/auth/account', {
+    method: 'DELETE', cookie: a.cookie, data: { password: 'strong-password-123' },
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal((await request('/auth/me', { cookie: a.cookie })).status, 401);
+  assert.equal((await request('/auth/login', {
+    method: 'POST', data: { email: 'delete-me@example.com', password: 'strong-password-123' },
+  })).status, 401);
+  assert.equal((await request(file.data.file_url.replace('/api', ''), { cookie: a.cookie })).status, 401);
+  assert.equal((await db.all('SELECT id FROM users WHERE email = ?', ['delete-me@example.com'])).length, 0);
+  assert.equal((await db.all('SELECT id FROM records WHERE owner_id = ?', [a.data.id])).length, 0);
+  assert.equal((await db.all('SELECT id FROM files WHERE owner_id = ?', [a.data.id])).length, 0);
+
+  // Other account untouched
+  assert.equal((await request('/auth/me', { cookie: b.cookie })).data.email, 'keep-me@example.com');
+  assert.equal((await request('/entities/Client', { cookie: b.cookie })).data[0].name, 'Stay');
+
+  // Mobile Bearer path also works
+  const mobile = await register('mobile-delete@example.com');
+  const login = await request('/auth/login', {
+    method: 'POST', origin: null, headers: { 'x-client': 'mobile' },
+    data: { email: 'mobile-delete@example.com', password: 'strong-password-123', client: 'mobile' },
+  });
+  assert.equal((await request('/auth/account', {
+    method: 'DELETE', origin: null,
+    headers: { authorization: `Bearer ${login.data.token}`, 'x-client': 'mobile' },
+    data: { password: 'strong-password-123' },
+  })).status, 200);
+  assert.equal((await request('/auth/me', { cookie: mobile.cookie })).status, 401);
+});
+
 test('invitation-only registration, cookie sessions, logout and CSRF protection', async t => {
   const { request, register } = await fixture(t);
   assert.equal((await request('/entities/Client')).status, 401);
