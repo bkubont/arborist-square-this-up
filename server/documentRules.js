@@ -1,17 +1,10 @@
 /**
- * Brittany document rules: one Estimate / Work Order / Invoice per job,
- * estimate freeze after accept, invoice gated on WO complete.
+ * Brittany document rules: one Estimate / Invoice per job, and an invoice needs something
+ * authorized to bill. Estimate content freeze lives in server/lifecycle.js.
  */
 import { fail, decode } from './domain.js';
 
-export const SINGLE_DOC_ENTITIES = new Set(['Estimate', 'WorkOrder', 'Invoice']);
-
-/** Content + acceptance/signature fields that must not change after an estimate is accepted. */
-export const ESTIMATE_CONTENT_KEYS = [
-  'number', 'date', 'valid_till', 'notes', 'tax_rate', 'lines',
-  'subtotal', 'tax_amount', 'total', 'status',
-  'accepted_snapshot', 'signed_at', 'signer_name', 'signature_file_url',
-];
+export const SINGLE_DOC_ENTITIES = new Set(['Estimate', 'Invoice']);
 
 export function isNonVoid(record) {
   return record && record.status !== 'void';
@@ -50,11 +43,15 @@ export async function assertSingularDocument(db, ownerId, entity, jobId, { exclu
   }
 }
 
-export async function assertWorkOrderCompleteForInvoice(db, ownerId, jobId) {
-  const workOrders = await listJobDocuments(db, ownerId, 'WorkOrder', jobId);
-  const complete = workOrders.some((wo) => wo.status === 'complete');
-  if (!complete) {
-    throw fail(400, 'Complete the Work Order before creating an invoice.');
+/**
+ * There has to be signed scope to bill against. This replaces the old "complete the Work Order
+ * first" gate: work completion now lives on the checklist (WorkItem), which does not gate billing —
+ * progress invoices are raised mid-job on purpose.
+ */
+export async function assertInvoiceHasAuthorizedScope(db, ownerId, jobId) {
+  const estimates = await listJobDocuments(db, ownerId, 'Estimate', jobId);
+  if (!findLiveAcceptedEstimate(estimates)) {
+    throw fail(400, 'Accept an estimate before creating an invoice.');
   }
 }
 
@@ -68,16 +65,6 @@ export function sumDepositsApplied(job, timeline = []) {
     .filter((e) => e.type === 'deposit_received' && e.amount != null)
     .reduce((sum, e) => sum + Number(e.amount), 0);
   return legacy + logged;
-}
-
-/** Reject content / signature mutations on accepted (or snapshotted non-void) estimates. */
-export function assertEstimateMutable(previous, input = {}) {
-  if (!previous) return;
-  // Voided estimates keep snapshot for history but are not editable either.
-  if (!previous.accepted_snapshot && previous.status !== 'accepted') return;
-  const touching = ESTIMATE_CONTENT_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(input, key));
-  if (!touching.length) return;
-  throw fail(400, 'Accepted estimates are print/view only and cannot be edited. Void it if you need to replace it.');
 }
 
 /** Job money scalars are derived; strip client writes (server rollups still use saveRecord directly). */

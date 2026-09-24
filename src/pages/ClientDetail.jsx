@@ -8,7 +8,7 @@ import ClientFormDialog from "@/components/ClientFormDialog";
 import JobFormDialog from "@/components/JobFormDialog";
 import ClientAddress from "@/components/ClientAddress";
 import { money } from "@/lib/format";
-import { jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { depositsByJobId, invoicesByJobId, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -18,26 +18,31 @@ export default function ClientDetail() {
   const [client, setClient] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editClient, setEditClient] = useState(false);
   const [jobDialog, setJobDialog] = useState(false);
 
   const load = async () => {
     try {
-      const [c, allJobs, tl] = await Promise.all([
+      const [c, allJobs, tl, inv] = await Promise.all([
         api.entities.Client.get(id),
         api.entities.Job.list("-created_date", 200),
         api.entities.TimelineEntry.list("-created_date", 1000),
+        api.entities.Invoice.list("-updated_date", 500),
       ]);
       setClient(c);
       setJobs(allJobs.filter((j) => j.client_id === id));
       setTimeline(tl);
+      setInvoices(inv);
     } finally {
       setLoading(false);
     }
   };
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
 
   useEffect(() => {
     load();
@@ -94,7 +99,7 @@ export default function ClientDetail() {
       ) : (
         <div className="space-y-2">
           {jobs.map((j) => {
-            const balance = jobBalance(j, paymentsMap[j.id] || 0);
+            const balance = jobBalance(j, paymentsMap[j.id] || 0, depositsMap[j.id] || 0, invoiceMap[j.id]);
             return (
               <Link
                 key={j.id}

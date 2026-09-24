@@ -58,6 +58,21 @@ describe("payment-aware money helpers", () => {
     assert.equal(summary.outstanding, 600);
   });
 
+  it("moneySummary includes outstanding invoices on archived jobs", () => {
+    const workingJobs = [{ id: "j1", invoice_amount: 0 }];
+    const invoices = [{
+      job_id: "j-archived",
+      status: "sent",
+      total: 800,
+      deposits_applied: 0,
+      payments_applied: 0,
+      balance_due: 800,
+    }];
+    const summary = moneySummary(workingJobs, [], [], invoices, []);
+    assert.equal(summary.outstanding, 800);
+    assert.equal(summary.invoiced, 800);
+  });
+
   it("waitingPayment prefers balance_due with total fallback", () => {
     assert.equal(invoiceBalanceDue({ total: 1000, balance_due: 600 }), 600);
     assert.equal(

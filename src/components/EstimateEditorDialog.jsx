@@ -9,8 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CatalogTypeahead from "@/components/CatalogTypeahead";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
-import StatusSelect from "@/components/StatusSelect";
-import { DOCUMENT_STATUSES } from "@/lib/documents";
+import StatusOverrideSelect from "@/components/StatusOverrideSelect";
 import { WORK_CATEGORIES } from "@/lib/documentMapping";
 import { money, shortDate } from "@/lib/format";
 import {
@@ -143,41 +142,34 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     }
   };
 
-  const save = async ({ markSent = false } = {}) => {
+  // Status changes through sign link, StatusOverrideSelect, or Void — not plain save.
+  const persist = async () => {
+    if (readOnly) return;
+    const serialized = lines.map(serializeEstimateLine).filter((line) =>
+      line.description || line.labor_amount
+    );
+    const nextTotals = estimateTotals(serialized, form.tax_rate);
+    await api.entities.Estimate.update(document.id, {
+      number: form.number || undefined,
+      date: form.date,
+      valid_till: form.valid_till,
+      notes: form.notes,
+      tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
+      lines: serialized,
+      subtotal: nextTotals.subtotal,
+      tax_amount: nextTotals.tax_amount,
+      total: nextTotals.total,
+    });
+    try {
+      await api.entities.Job.update(jobId, { estimate_amount: nextTotals.total });
+    } catch { /* non-blocking */ }
+  };
+
+  const save = async () => {
     if (readOnly) return;
     setSaving(true);
     try {
-      const nextStatus = markSent ? "sent" : form.status;
-      const serialized = lines.map(serializeEstimateLine).filter((line) =>
-        line.description || line.labor_amount
-      );
-      const nextTotals = estimateTotals(serialized, form.tax_rate);
-      const payload = {
-        number: form.number || undefined,
-        status: nextStatus,
-        date: form.date,
-        valid_till: form.valid_till,
-        notes: form.notes,
-        tax_rate: form.tax_rate === "" ? undefined : Number(form.tax_rate),
-        lines: serialized,
-        subtotal: nextTotals.subtotal,
-        tax_amount: nextTotals.tax_amount,
-        total: nextTotals.total,
-      };
-      const previousStatus = document.status;
-      await api.entities.Estimate.update(document.id, payload);
-      try {
-        await api.entities.Job.update(jobId, { estimate_amount: nextTotals.total });
-      } catch { /* non-blocking */ }
-
-      if (nextStatus === "sent" && previousStatus !== "sent" && previousStatus !== "accepted") {
-        await api.entities.TimelineEntry.create({
-          job_id: jobId,
-          type: "estimate_sent",
-          text: `Estimate ${form.number || ""} sent to client`.trim(),
-          category: "financial",
-        });
-      }
+      await persist();
       onSaved?.();
       onOpenChange(false);
     } finally {
@@ -306,7 +298,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
               <>Accepted. </>
             )}
             This estimate is <strong>print / view only</strong> — content cannot be edited.
-            Snapshot total {money(document.accepted_snapshot?.total ?? document.total)} carries to the Work Order.
+            Snapshot total {money(document.accepted_snapshot?.total ?? document.total)} carries to job tasks.
           </div>
         )}
 
@@ -320,11 +312,14 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             {readOnly ? (
               <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
             ) : (
-              <StatusSelect
-                value={form.status}
-                onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
-                statuses={DOCUMENT_STATUSES.Estimate}
+              <StatusOverrideSelect
                 entity="Estimate"
+                document={document}
+                beforeChange={persist}
+                onChanged={(updated) => {
+                  setForm((f) => ({ ...f, status: updated.status }));
+                  onSaved?.();
+                }}
               />
             )}
           </div>
@@ -522,11 +517,8 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             <Button variant="outline" onClick={printEstimate} disabled={saving}>
               <Printer className="w-4 h-4 mr-1" /> Print
             </Button>
-            {!readOnly && form.status !== "sent" && form.status !== "accepted" && form.status !== "void" && (
-              <Button variant="outline" onClick={() => save({ markSent: true })} disabled={saving}>Mark sent</Button>
-            )}
             {!readOnly && (
-              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving || form.status === "void"}>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={save} disabled={saving || form.status === "void"}>
                 {saving ? "Saving…" : "Save estimate"}
               </Button>
             )}

@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import { useJobCardData, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import { money, shortDate } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NAV_ICONS } from "@/lib/navIcons";
-import { JOB_STATUSES, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { depositsByJobId, invoicesByJobId, JOB_STATUSES, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -15,22 +16,33 @@ const AllJobsIcon = NAV_ICONS.allJobs;
 export default function AllJobs() {
   const [jobs, setJobs] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
 
-  useEffect(() => {
-    Promise.all([
+  const { clientsById, summaries, reload } = useJobCardData();
+
+  const load = useCallback(() => {
+    return Promise.all([
       api.entities.Job.listAll("-created_date"),
       api.entities.TimelineEntry.list("-created_date", 1000),
+      api.entities.Invoice.list("-updated_date", 500),
     ])
-      .then(([j, tl]) => {
+      .then(([j, tl, inv]) => {
         setJobs(j);
         setTimeline(tl);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
   const shown = filter === "All" ? jobs : jobs.filter((j) => j.status === filter);
   const filterColors = filter === "All" ? null : statusColors(filter);
 
@@ -88,7 +100,7 @@ export default function AllJobs() {
       ) : (
         <div className="space-y-2">
           {shown.map((j) => {
-            const balance = jobBalance(j, paymentsMap[j.id] || 0);
+            const balance = jobBalance(j, paymentsMap[j.id] || 0, depositsMap[j.id] || 0, invoiceMap[j.id]);
             return (
               <Link
                 key={j.id}
@@ -100,16 +112,18 @@ export default function AllJobs() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-foreground truncate">{j.title}</div>
-                  <div className="text-sm text-muted-foreground truncate">{j.client_name || "—"}</div>
+                  <JobCustomer job={j} client={clientsById[j.client_id]} />
                   {j.archived_at && (
                     <div className="text-xs text-muted-foreground mt-0.5">Archived {shortDate(j.archived_at)}</div>
                   )}
                 </div>
-                <div className="text-right hidden sm:block">
+                <div className="text-right shrink-0">
+                  <JobRunningTotal summary={summaries[j.id]} />
                   {balance > 0 && <div className="text-xs font-semibold text-attention">{money(balance)} due</div>}
-                  {j.start_date && <div className="text-xs text-muted-foreground">{shortDate(j.start_date)}</div>}
+                  {j.start_date && <div className="text-xs text-muted-foreground hidden sm:block">{shortDate(j.start_date)}</div>}
                 </div>
                 <StatusBadge status={j.status} />
+                <JobQuickAdd job={j} onSaved={() => { load(); reload(); }} />
               </Link>
             );
           })}

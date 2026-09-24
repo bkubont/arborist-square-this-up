@@ -77,6 +77,15 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     const expenses = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'Expense']);
     assert.equal(expenses.length, 4);
 
+    // Tasks stand where Work Orders did: none of the retired type, a task per signed line.
+    assert.equal((await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'WorkOrder'])).length, 0);
+    const tasks = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'WorkItem'])).map((r) => JSON.parse(r.data));
+    assert.ok(tasks.some((task) => task.source_type === 'Estimate' && task.status === 'in_progress'));
+    assert.ok(tasks.some((task) => task.source_type === 'ChangeOrder'), 'the approved change order has its tasks');
+    assert.equal(tasks.filter((task) => task.template_key === 'prep').length, 14);
+    assert.equal(tasks.filter((task) => task.template_key === 'final_walkthrough').length, 14);
+    assert.ok(jobs.every((j) => JSON.parse(j.data).checklist === undefined), 'no old free-text checklist');
+
     // Deposits must not double-count: do not set both deposit_amount and timeline amounts.
     const { sumDepositsApplied } = await import('./documentRules.js');
     const timeline = await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'TimelineEntry']);

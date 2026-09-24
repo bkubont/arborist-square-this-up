@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Printer, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Printer } from "lucide-react";
 import { api } from "@/api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -75,7 +75,6 @@ export default function InvoiceEditorDialog({
   const [misc, setMisc] = useState([emptyMisc()]);
   const [company, setCompany] = useState(null);
   const [authorizedTotal, setAuthorizedTotal] = useState(null);
-  const [billingCeiling, setBillingCeiling] = useState(null);
   const [priorInvoiced, setPriorInvoiced] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -134,7 +133,6 @@ export default function InvoiceEditorDialog({
       .catch(() => setCompany(null));
 
     setPriorInvoiced(document.prior_invoiced ?? 0);
-    setBillingCeiling(document.billing_ceiling ?? null);
     if (document.authorized_total != null) {
       setAuthorizedTotal(document.authorized_total);
     } else if (jobId) {
@@ -156,10 +154,6 @@ export default function InvoiceEditorDialog({
       }),
     [materials, labor, misc, form.tax_rate, form.deposits_applied, form.payments_applied]
   );
-
-  const ceiling = billingCeiling != null ? Number(billingCeiling) : authorizedTotal != null ? Number(authorizedTotal) : null;
-  const cumulative = (Number(priorInvoiced) || 0) + totals.total;
-  const overAuthorized = ceiling != null && cumulative > ceiling + 0.009;
 
   if (!document) return null;
 
@@ -406,28 +400,10 @@ export default function InvoiceEditorDialog({
           <DialogTitle>Invoice{form.number ? ` · ${form.number}` : ""}</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-slate-500 -mt-1">
-          Prefill from accepted estimate + approved change orders. Edit lines for progress billing. All fields stay editable. No client e-sign on invoices.
+          Filled from the accepted estimate + approved change orders. Remove any line you're not billing yet, or add your own. All fields stay editable. No client e-sign on invoices.
         </p>
 
-        {overAuthorized && (
-          <div className="flex items-start gap-2 rounded-lg border border-attention bg-attention-muted px-3 py-2 text-sm text-attention-foreground">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>
-              {priorInvoiced > 0 ? (
-                <>
-                  Cumulative invoiced ({money(cumulative)}) exceeds the billing ceiling ({money(ceiling)}),
-                  which includes tax on approved change orders. Adjust progress lines or add an approved CO.
-                </>
-              ) : (
-                <>
-                  Invoice total ({money(totals.total)}) exceeds the billing ceiling ({money(ceiling)}),
-                  which includes tax on approved change-order nets. Add an approved change order or adjust lines before sending.
-                </>
-              )}
-            </span>
-          </div>
-        )}
-        {priorInvoiced > 0 && !overAuthorized && (
+        {priorInvoiced > 0 && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             Prior active invoices: {money(priorInvoiced)}. Edit this invoice for progress billing; void unused drafts so they stay out of the rollup.
           </div>
@@ -521,7 +497,7 @@ export default function InvoiceEditorDialog({
                   <div className="text-xs text-right text-slate-600 tabular-nums">
                     {money((Number(row.qty) || 0) * (Number(row.unit_price) || 0))}
                   </div>
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMaterials((r) => (r.length <= 1 ? [emptyMaterial()] : r.filter((_, j) => j !== i)))}>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" aria-label="Remove line" title="Remove line" onClick={() => setMaterials((r) => (r.length <= 1 ? [emptyMaterial()] : r.filter((_, j) => j !== i)))}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -555,7 +531,7 @@ export default function InvoiceEditorDialog({
                     <div className="text-xs text-right text-slate-600 tabular-nums">
                       {money((Number(row.hours) || 0) * (Number(row.rate) || 0))}
                     </div>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLabor((r) => (r.length <= 1 ? [emptyLabor()] : r.filter((_, j) => j !== i)))}>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" aria-label="Remove line" title="Remove line" onClick={() => setLabor((r) => (r.length <= 1 ? [emptyLabor()] : r.filter((_, j) => j !== i)))}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -581,7 +557,7 @@ export default function InvoiceEditorDialog({
                   <div key={i} className="grid grid-cols-[1fr_6rem_2rem] gap-1 items-center">
                     <Input value={row.description} onChange={(e) => patchRow(setMisc, i, { description: e.target.value })} placeholder="Description" />
                     <Input type="number" value={row.amount} onChange={(e) => patchRow(setMisc, i, { amount: e.target.value })} />
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMisc((r) => (r.length <= 1 ? [emptyMisc()] : r.filter((_, j) => j !== i)))}>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" aria-label="Remove line" title="Remove line" onClick={() => setMisc((r) => (r.length <= 1 ? [emptyMisc()] : r.filter((_, j) => j !== i)))}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -638,9 +614,6 @@ export default function InvoiceEditorDialog({
               </div>
               {authorizedTotal != null && (
                 <div className="text-xs text-slate-500 pt-1">Authorized total: {money(authorizedTotal)}</div>
-              )}
-              {billingCeiling != null && billingCeiling !== authorizedTotal && (
-                <div className="text-xs text-slate-500">Billing ceiling (w/ CO tax): {money(billingCeiling)}</div>
               )}
             </div>
           </div>

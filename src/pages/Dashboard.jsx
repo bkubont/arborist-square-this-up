@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
+import { JobCardDataProvider, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import { Calendar, AlertTriangle, Inbox } from "lucide-react";
 import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMark";
 import PageHeader from "@/components/PageHeader";
@@ -10,6 +11,8 @@ import { buildAttentionItems } from "@/lib/attentionItems";
 import {
   ACTIVE_STATUSES,
   countByStatus,
+  depositsByJobId,
+  invoicesByJobId,
   isWorkingJob,
   jobBalance,
   moneySummary,
@@ -46,6 +49,14 @@ const ACTIVITY_PREVIEW = 10;
  * Reuses existing money / action / job data; preserves links to Board, Action items, Invoices.
  */
 export default function Dashboard() {
+  return (
+    <JobCardDataProvider>
+      <DashboardPage />
+    </JobCardDataProvider>
+  );
+}
+
+function DashboardPage() {
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
@@ -54,8 +65,8 @@ export default function Dashboard() {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
+  const load = useCallback(() => {
+    return Promise.all([
       api.entities.Job.listAll("-updated_date"),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
@@ -74,6 +85,10 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const today = new Date().toISOString().slice(0, 10);
   const tomorrow = useMemo(() => {
     const d = new Date();
@@ -84,6 +99,8 @@ export default function Dashboard() {
   const active = useMemo(() => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)), [jobs]);
   const statusCounts = useMemo(() => countByStatus(jobs), [jobs]);
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
   const moneyBuckets = useMemo(
     () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
     [jobs, estimates, changeOrders, invoices, timeline]
@@ -215,9 +232,7 @@ export default function Dashboard() {
             value={
               loading
                 ? "…"
-                : String(
-                    ACTIVE_STATUSES.reduce((sum, s) => sum + (statusCounts[s] || 0), 0)
-                  )
+                : String(ACTIVE_STATUSES.reduce((sum, s) => sum + (statusCounts[s] || 0), 0))
             }
             hint={
               loading
@@ -259,7 +274,14 @@ export default function Dashboard() {
         ) : active.length ? (
           <div className="space-y-2">
             {active.slice(0, ACTIVE_PREVIEW).map((j) => (
-              <JobRow key={j.id} job={j} paymentsLogged={paymentsMap[j.id] || 0} />
+              <JobRow
+                key={j.id}
+                job={j}
+                paymentsLogged={paymentsMap[j.id] || 0}
+                depositsLogged={depositsMap[j.id] || 0}
+                invoice={invoiceMap[j.id]}
+                onQuickAdded={load}
+              />
             ))}
             {active.length > ACTIVE_PREVIEW && (
               <p className="text-xs text-muted-foreground px-1">
@@ -387,8 +409,8 @@ function Section({ title, children, action = null }) {
   );
 }
 
-function JobRow({ job, paymentsLogged = 0 }) {
-  const balance = jobBalance(job, paymentsLogged);
+function JobRow({ job, paymentsLogged = 0, depositsLogged = 0, invoice = null, onQuickAdded = undefined }) {
+  const balance = jobBalance(job, paymentsLogged, depositsLogged, invoice);
   return (
     <Link
       to={`/jobs/${job.id}`}
@@ -400,12 +422,14 @@ function JobRow({ job, paymentsLogged = 0 }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-foreground truncate">{job.title}</div>
-          <div className="text-sm text-muted-foreground truncate">{job.client_name || "—"}</div>
+          <JobCustomer job={job} />
         </div>
         <div className="flex flex-col items-end gap-1">
           <StatusBadge status={job.status} />
+          <JobRunningTotal job={job} />
           {balance > 0 && <span className="text-xs font-semibold text-attention">{money(balance)} due</span>}
         </div>
+        <JobQuickAdd job={job} onSaved={onQuickAdded} />
       </div>
       {(job.start_date || job.end_date) && (
         <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">

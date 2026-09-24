@@ -29,6 +29,8 @@ export default function JobKanbanCard({
   client,
   estimates = [],
   paymentsLogged = 0,
+  depositsLogged = 0,
+  activeInvoice = null,
   href,
   dragProvided,
   dragSnapshot,
@@ -46,7 +48,7 @@ export default function JobKanbanCard({
   const mapsUrl = client ? googleMapsUrl(client) : null;
   const phoneDigits = phone ? phone.replace(/[^\d+]/g, "") : "";
   const rollup = jobEstimateRollup(job, estimates);
-  const balance = jobBalance(job, paymentsLogged);
+  const balance = jobBalance(job, paymentsLogged, depositsLogged, activeInvoice);
 
   const quickPhoto = async (fileList) => {
     const file = fileList?.[0];

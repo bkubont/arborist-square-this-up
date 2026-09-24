@@ -5,7 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
 import { NAV_ICONS } from "@/lib/navIcons";
-import { isArchivedJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { depositsByJobId, invoicesByJobId, isArchivedJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -14,21 +14,26 @@ const ArchiveIcon = NAV_ICONS.archive;
 export default function ArchiveJobs() {
   const [jobs, setJobs] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.entities.Job.listAll("-updated_date"),
       api.entities.TimelineEntry.list("-created_date", 1000),
+      api.entities.Invoice.list("-updated_date", 500),
     ])
-      .then(([j, tl]) => {
+      .then(([j, tl, inv]) => {
         setJobs(j.filter(isArchivedJob));
         setTimeline(tl);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
 
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
@@ -58,7 +63,7 @@ export default function ArchiveJobs() {
       ) : (
         <div className="space-y-2">
           {jobs.map((j) => {
-            const balance = jobBalance(j, paymentsMap[j.id] || 0);
+            const balance = jobBalance(j, paymentsMap[j.id] || 0, depositsMap[j.id] || 0, invoiceMap[j.id]);
             return (
               <Link
                 key={j.id}

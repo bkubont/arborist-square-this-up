@@ -45,4 +45,31 @@ describe('invoice payment sync', () => {
   it('sums timeline payments', () => {
     assert.equal(sumTimelinePayments(timeline), 200);
   });
+
+  it('honors editor deposits when preferEditorPayments is set', () => {
+    const result = normalizeInvoicePayments(
+      { status: 'sent', total: 1000, deposits_applied: 250, payments_applied: 0, material_lines: [], labor_lines: [], misc_lines: [] },
+      { job, timeline: [], preferEditorPayments: true },
+    );
+    assert.equal(result.deposits_applied, 250);
+    assert.equal(result.balance_due, 750);
+  });
+
+  it('does not reopen paid invoices during timeline sync', () => {
+    const result = normalizeInvoicePayments(
+      {
+        status: 'paid',
+        total: 1000,
+        deposits_applied: 100,
+        payments_applied: 900,
+        balance_due: 0,
+        material_lines: [],
+        labor_lines: [],
+        misc_lines: [],
+      },
+      { job, timeline: [{ type: 'payment_received', amount: 50 }] },
+    );
+    assert.equal(result.status, 'paid');
+    assert.equal(result.balance_due, 0);
+  });
 });

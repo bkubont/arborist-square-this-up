@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
 import EstimateEditorDialog from "@/components/EstimateEditorDialog";
 import MaterialOrderEditorDialog from "@/components/MaterialOrderEditorDialog";
-import WorkOrderEditorDialog from "@/components/WorkOrderEditorDialog";
 import ChangeOrderEditorDialog from "@/components/ChangeOrderEditorDialog";
 import InvoiceEditorDialog from "@/components/InvoiceEditorDialog";
 import {
@@ -13,7 +12,6 @@ import {
   findActiveDocument,
   findLiveAcceptedEstimate,
   hasAcceptedEstimate,
-  hasCompleteWorkOrder,
   SINGLE_DOC_ENTITIES,
 } from "@/lib/documentAvailability";
 import { DOCUMENT_TYPES, defaultDocumentNumber, documentTypeLabel } from "@/lib/documents";
@@ -32,6 +30,12 @@ export default function JobDocuments({
   onChanged,
   /** Limit to these entity types (default: all document types). */
   entities = null,
+  /**
+   * Also list (and open) documents outside `entities` that match this test, without a create
+   * button for their type — e.g. the signed estimate beside the change orders it is the base of.
+   * @type {null | ((doc: any) => boolean)}
+   */
+  alsoShow = null,
   title = "Documents",
   emptyHint = null,
   className = "",
@@ -91,18 +95,6 @@ export default function JobDocuments({
         });
       }
 
-      if (entity === "WorkOrder") {
-        const accepted = findLiveAcceptedEstimate(documents);
-        if (!accepted) {
-          alert("Accept the estimate first — then create a Work Order from it.");
-          return;
-        }
-        const created = await api.workOrders.fromEstimate(accepted.id);
-        await onChanged?.();
-        setOpenDoc({ entity: "WorkOrder", document: created });
-        return;
-      }
-
       if (entity === "ChangeOrder") {
         const accepted = findLiveAcceptedEstimate(documents);
         const tax_rate = accepted?.accepted_snapshot?.tax_rate
@@ -119,10 +111,6 @@ export default function JobDocuments({
       }
 
       if (entity === "Invoice") {
-        if (!hasCompleteWorkOrder(documents)) {
-          alert("Complete the Work Order before creating an invoice.");
-          return;
-        }
         const existingInv = findActiveDocument("Invoice", documents);
         if (existingInv) {
           setOpenDoc({ entity: "Invoice", document: { ...existingInv, entity: "Invoice" } });
@@ -145,15 +133,18 @@ export default function JobDocuments({
     }
   };
 
-  const filtered = documents.filter((d) => allowedSet.has(d.entity));
-  const sorted = [...filtered].sort((a, b) => (b.created_date || "").localeCompare(a.created_date || ""));
+  const filtered = documents.filter((d) => allowedSet.has(d.entity) || alsoShow?.(d));
+  // The estimate is the base the rest build on, so it leads; everything else newest first.
+  const sorted = [...filtered].sort((a, b) =>
+    Number(b.entity === "Estimate") - Number(a.entity === "Estimate")
+    || (b.created_date || "").localeCompare(a.created_date || ""));
+  const openable = new Set([...allowedSet, ...filtered.map((d) => d.entity)]);
   const displayMoney = (doc) => {
     if (doc.entity === "ChangeOrder") return doc.revised_contract_total ?? doc.net_change;
     return doc.total;
   };
   const accepted = hasAcceptedEstimate(documents);
-  const woComplete = hasCompleteWorkOrder(documents);
-  const showStageHints = !entities || entities.includes("Estimate") || entities.includes("WorkOrder") || entities.includes("Invoice");
+  const showStageHints = !entities || entities.includes("Estimate") || entities.includes("Invoice");
 
   const defaultEmpty =
     allowedSet.has("Estimate") && sorted.length === 0
@@ -182,7 +173,7 @@ export default function JobDocuments({
                     ? gate.reason
                     : gate.openExisting
                       ? `Open existing ${t.label}`
-                      : (t.entity === "WorkOrder" ? "Creates from accepted estimate" : undefined)
+                      : undefined
                 }
               >
                 {!gate.openExisting && <Plus className="w-3.5 h-3.5 mr-1" />}
@@ -195,13 +186,9 @@ export default function JobDocuments({
 
       {showStageHints && !accepted && allowedSet.has("Estimate") && (
         <p className="text-xs text-slate-500 mb-3">
-          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> under Costs if needed).
-          One Estimate, Work Order, and Invoice per job. Work Order unlocks after accept; Invoice after the Work Order is complete.
-        </p>
-      )}
-      {showStageHints && accepted && !woComplete && (allowedSet.has("WorkOrder") || allowedSet.has("Invoice")) && (
-        <p className="text-xs text-slate-500 mb-3">
-          Work Order and Change Orders are available under Costs. Invoice unlocks when the Work Order status is <strong>complete</strong>.
+          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> under Money if needed).
+          One Estimate and one Invoice per job. Once the customer signs, each line becomes a job task
+          (see Tasks), and Change Orders and the Invoice unlock.
         </p>
       )}
 
@@ -241,7 +228,7 @@ export default function JobDocuments({
         </ul>
       )}
 
-      {allowedSet.has("Estimate") && (
+      {openable.has("Estimate") && (
         <EstimateEditorDialog
           open={openDoc?.entity === "Estimate"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
@@ -252,7 +239,7 @@ export default function JobDocuments({
           onRevised={(created) => openRevised("Estimate", created)}
         />
       )}
-      {allowedSet.has("MaterialOrder") && (
+      {openable.has("MaterialOrder") && (
         <MaterialOrderEditorDialog
           open={openDoc?.entity === "MaterialOrder"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
@@ -262,17 +249,7 @@ export default function JobDocuments({
           onRevised={(created) => openRevised("MaterialOrder", created)}
         />
       )}
-      {allowedSet.has("WorkOrder") && (
-        <WorkOrderEditorDialog
-          open={openDoc?.entity === "WorkOrder"}
-          onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
-          document={openDoc?.entity === "WorkOrder" ? openDoc.document : null}
-          jobId={jobId}
-          onSaved={onChanged}
-          onRevised={(created) => openRevised("WorkOrder", created)}
-        />
-      )}
-      {allowedSet.has("ChangeOrder") && (
+      {openable.has("ChangeOrder") && (
         <ChangeOrderEditorDialog
           open={openDoc?.entity === "ChangeOrder"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}
@@ -282,7 +259,7 @@ export default function JobDocuments({
           onRevised={(created) => openRevised("ChangeOrder", created)}
         />
       )}
-      {allowedSet.has("Invoice") && (
+      {openable.has("Invoice") && (
         <InvoiceEditorDialog
           open={openDoc?.entity === "Invoice"}
           onOpenChange={(next) => { if (!next) setOpenDoc(null); }}

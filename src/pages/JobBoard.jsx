@@ -1,10 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { api } from "@/api/client";
 import JobKanbanCard from "@/components/JobKanbanCard";
+import JobTasks from "@/components/JobTasks";
 import PageHeader from "@/components/PageHeader";
-import { isWorkingJob, paymentsByJobId, JOB_PHASES, JOB_PHASE_ORDER } from "@/lib/jobFilters";
+import {
+  depositsByJobId,
+  invoicesByJobId,
+  isWorkingJob,
+  paymentsByJobId,
+  JOB_PHASES,
+  JOB_PHASE_ORDER,
+} from "@/lib/jobFilters";
 import { applyInvoicedGate, statusesForPhase } from "@/lib/jobStatus";
 import { statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -27,10 +35,16 @@ function jobCardHref(job) {
 }
 
 export default function JobBoard() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mode = searchParams.get("view") === "tasks" ? "tasks" : "jobs";
+  const setMode = (next) => setSearchParams(next === "tasks" ? { view: "tasks" } : {}, { replace: true });
+  const [tasks, setTasks] = useState(null);
+  const [scopeDocs, setScopeDocs] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [clients, setClients] = useState([]);
   const [estimates, setEstimates] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
 
@@ -40,12 +54,14 @@ export default function JobBoard() {
       api.entities.Client.list("-created_date", 500),
       api.entities.Estimate.list("-updated_date", 500),
       api.entities.TimelineEntry.list("-created_date", 1000),
+      api.entities.Invoice.list("-updated_date", 500),
     ])
-      .then(([j, c, est, tl]) => {
+      .then(([j, c, est, tl, inv]) => {
         setJobs(j.filter(isWorkingJob));
         setClients(c);
         setEstimates(est);
         setTimeline(tl);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -54,12 +70,27 @@ export default function JobBoard() {
     load();
   }, [load]);
 
+  const loadTasks = useCallback(() => Promise.all([
+    api.entities.WorkItem.list("-created_date", 2000),
+    api.entities.Estimate.list("-updated_date", 500),
+    api.entities.ChangeOrder.list("-updated_date", 500),
+  ]).then(([items, estimateDocs, changeOrders]) => {
+    setTasks(items);
+    setScopeDocs([...estimateDocs, ...changeOrders]);
+  }), []);
+
+  useEffect(() => {
+    if (mode === "tasks") loadTasks();
+  }, [mode, loadTasks]);
+
+  const jobsById = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j])), [jobs]);
   const clientsById = useMemo(
     () => Object.fromEntries(clients.map((c) => [c.id, c])),
-    [clients]
+    [clients],
   );
-
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
 
   const columnsByPhase = useMemo(() => {
     const result = {};
@@ -91,8 +122,8 @@ export default function JobBoard() {
     const nextFields = applyInvoicedGate({ phase: target.phase, status: target.status });
     setJobs((list) =>
       list.map((j) =>
-        String(j.id) === String(jobId) ? { ...j, ...nextFields } : j
-      )
+        String(j.id) === String(jobId) ? { ...j, ...nextFields } : j,
+      ),
     );
     setSavingId(jobId);
     try {
@@ -112,8 +143,8 @@ export default function JobBoard() {
     } catch {
       setJobs((list) =>
         list.map((j) =>
-          String(j.id) === String(jobId) ? { ...j, phase: previous.phase, status: previous.status } : j
-        )
+          String(j.id) === String(jobId) ? { ...j, phase: previous.phase, status: previous.status } : j,
+        ),
       );
     } finally {
       setSavingId(null);
@@ -125,15 +156,47 @@ export default function JobBoard() {
       <PageHeader
         className="mb-4 shrink-0"
         title="Board"
-        description="Lead, Working, and Payment — drag jobs across all three boards"
+        description={mode === "tasks"
+          ? "Every job's tasks — drag a task to change its status"
+          : "Lead, Working, and Payment — drag jobs across all three boards"}
         secondary={
-          <Link to="/jobs" className="text-sm font-medium text-primary hover:underline shrink-0">
-            List view
-          </Link>
+          <div className="flex items-center gap-3">
+            <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/60" role="group" aria-label="Board shows">
+              {[["jobs", "Jobs"], ["tasks", "Tasks"]].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={mode === value}
+                  onClick={() => setMode(value)}
+                  className={cn(
+                    "px-3 py-1 text-xs font-medium rounded-md",
+                    mode === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Link to="/jobs" className="text-sm font-medium text-primary hover:underline shrink-0">
+              List view
+            </Link>
+          </div>
         }
       />
 
-      {loading ? (
+      {mode === "tasks" ? (
+        tasks == null ? (
+          <p className="text-muted-foreground">Loading…</p>
+        ) : (
+          <JobTasks
+            items={tasks}
+            documents={scopeDocs}
+            jobsById={jobsById}
+            onChanged={() => { loadTasks(); load(); }}
+            view="board"
+          />
+        )
+      ) : loading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : (
         <DragDropContext onDragEnd={onDragEnd}>
@@ -149,6 +212,8 @@ export default function JobBoard() {
                 estimates={estimates}
                 savingId={savingId}
                 paymentsMap={paymentsMap}
+                depositsMap={depositsMap}
+                invoiceMap={invoiceMap}
                 onChanged={load}
               />
             ))}
@@ -168,6 +233,8 @@ function PhaseBoard({
   estimates,
   savingId,
   paymentsMap,
+  depositsMap,
+  invoiceMap,
   onChanged,
 }) {
   const jobCount = statuses.reduce((sum, s) => sum + (columns[s]?.length || 0), 0);
@@ -189,6 +256,8 @@ function PhaseBoard({
             estimates={estimates}
             savingId={savingId}
             paymentsMap={paymentsMap}
+            depositsMap={depositsMap}
+            invoiceMap={invoiceMap}
             onChanged={onChanged}
           />
         ))}
@@ -205,6 +274,8 @@ function BoardColumn({
   estimates,
   savingId,
   paymentsMap,
+  depositsMap,
+  invoiceMap,
   onChanged,
 }) {
   const colors = statusColors(status);
@@ -219,7 +290,7 @@ function BoardColumn({
           className={cn(
             "w-64 shrink-0 rounded-xl border-2 bg-surface-muted/80 flex flex-col max-h-[28rem]",
             colors.column,
-            snapshot.isDraggingOver && cn("ring-2", colors.ring, colors.columnHeader)
+            snapshot.isDraggingOver && cn("ring-2", colors.ring, colors.columnHeader),
           )}
         >
           <div className={cn("px-3 py-2 border-b sticky top-0 rounded-t-[10px] z-10", colors.columnHeader)}>
@@ -240,6 +311,8 @@ function BoardColumn({
                     client={clientsById[job.client_id]}
                     estimates={estimates}
                     paymentsLogged={paymentsMap[job.id] || 0}
+                    depositsLogged={depositsMap[job.id] || 0}
+                    activeInvoice={invoiceMap[job.id]}
                     href={jobCardHref(job)}
                     dragProvided={dragProvided}
                     dragSnapshot={dragSnapshot}
