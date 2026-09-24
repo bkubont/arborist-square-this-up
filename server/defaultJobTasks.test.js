@@ -7,6 +7,7 @@ import { saveRecord } from './domain.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { createWorkItemsForLines } from './workItems.js';
 import { PREP_TASK_STEPS, FINAL_WALKTHROUGH_STEPS } from '../shared/taskTemplates.js';
+import { normalizeTaskStatus } from '../shared/taskStatus.js';
 
 async function createUser(db, email) {
   const id = randomUUID();
@@ -48,6 +49,8 @@ test('attachDefaultJobTasks adds Prep first and Final walkthrough last with temp
     assert.equal(rows[1].template_key, 'final_walkthrough');
     assert.equal(rows[1].description, 'Final walkthrough');
     assert.deepEqual(rows[1].steps.map((s) => s.text), FINAL_WALKTHROUGH_STEPS.map((s) => s.text));
+    assert.equal(rows[0].status, 'plan');
+    assert.equal(rows[1].status, 'finish');
   } finally {
     await db.close();
   }
@@ -107,7 +110,7 @@ test('attachDefaultJobTasks adopts legacy Final walkthrough rows without duplica
     assert.equal(rows.filter((r) => r.description.toLowerCase() === 'final walkthrough').length, 1);
     const walkthrough = rows.find((r) => r.template_key === 'final_walkthrough');
     assert.equal(walkthrough.id, legacy.id);
-    assert.equal(walkthrough.status, 'done');
+    assert.equal(normalizeTaskStatus(walkthrough.status), 'completed', 'legacy done normalizes to completed');
   } finally {
     await db.close();
   }

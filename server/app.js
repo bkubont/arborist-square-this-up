@@ -31,6 +31,7 @@ import {
 } from './invoiceSync.js';
 import { applyJobArchiveFields } from './jobArchive.js';
 import { applyJobStatusFields, normalizeJobRecord } from './jobStatus.js';
+import { normalizeWorkItemRecord } from './taskStatus.js';
 import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
 import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable, completeJobWhenTasksDone } from './workItems.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
@@ -50,6 +51,12 @@ async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
     await refreshJobDocumentRollups(tx, ownerId, synced.job_id, { saveRecord, sumActiveInvoiceTotals });
   }
   return synced;
+}
+
+function normalizeEntityRecord(entity, record) {
+  if (entity === 'Job') return normalizeJobRecord(record);
+  if (entity === 'WorkItem') return normalizeWorkItemRecord(record);
+  return record;
 }
 
 export async function createApp(db, env = process.env) {
@@ -247,11 +254,11 @@ export async function createApp(db, env = process.env) {
       [req.user.id, req.params.entity, ...(parent ? [parent] : [])]
     );
     const records = rows.map(decode);
-    res.json(req.params.entity === 'Job' ? records.map(normalizeJobRecord) : records);
+    res.json(records.map((record) => normalizeEntityRecord(req.params.entity, record)));
   });
   app.get('/api/entities/:entity/:id', async (req, res) => {
     const record = await getRecord(db, req.user.id, req.params.entity, req.params.id);
-    res.json(req.params.entity === 'Job' ? normalizeJobRecord(record) : record);
+    res.json(normalizeEntityRecord(req.params.entity, record));
   });
   // Lock the owner's row to serialize relationships, deletes, quotas and exports.
   const ownedTransaction = (owner, fn) => db.transaction(async tx => {
@@ -483,7 +490,7 @@ export async function createApp(db, env = process.env) {
     if (entity === 'TimelineEntry' && isFinancialTimelineEntry(created) && created.job_id) {
       await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, created.job_id));
     }
-    res.status(201).json(entity === 'Job' ? normalizeJobRecord(created) : created);
+    res.status(201).json(normalizeEntityRecord(entity, created));
   });
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
@@ -570,7 +577,7 @@ export async function createApp(db, env = process.env) {
         await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
-    res.json(entity === 'Job' ? normalizeJobRecord(updated) : updated);
+    res.json(normalizeEntityRecord(entity, updated));
   });
   app.delete('/api/entities/:entity/:id', async (req, res) => {
     let financialTimelineJobId = null;

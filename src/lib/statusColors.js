@@ -171,14 +171,17 @@ export const STATUS_SEMANTIC_MAP = {
 
   // Job tasks (src/lib/tasks.js)
   plan: "brand",
-  prep: "neutral",
   permits: "sky",
-  in_progress: "blue",
-  waiting_materials: "attention-materials",
   waiting_on_approval: "attention-approval",
   blocked: "danger",
-  on_hold: "hold",
+  finish: "blue",
+  completed: "success",
   cancelled: "danger",
+  // Legacy task statuses (normalized on read)
+  prep: "brand",
+  in_progress: "brand",
+  waiting_materials: "danger",
+  on_hold: "danger",
   done: "success",
 };
 

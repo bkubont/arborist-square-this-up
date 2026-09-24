@@ -15,6 +15,7 @@ import { listJobDocuments, refreshJobDocumentRollups } from './documentRules.js'
 import { invalidateSignLinks } from './documents.js';
 import { acceptScopeDocument } from './sign.js';
 import { sumActiveInvoiceTotals } from './mapping.js';
+import { DEFAULT_TASK_STATUS, LEGACY_TASK_STATUS_MAP, normalizeTaskStatus } from './taskStatus.js';
 
 export const OVERRIDE_STATUSES = {
   Estimate: ['draft', 'sent', 'accepted', 'declined'],
@@ -25,7 +26,10 @@ const noun = entity => (entity === 'ChangeOrder' ? 'change order' : 'estimate');
 
 /** A task the owner has done something with, so reopening its document must not delete it. */
 function taskStarted(item) {
-  return (item.status && item.status !== 'prep')
+  const raw = item.status;
+  const normalized = normalizeTaskStatus(raw ?? (item.done ? 'completed' : DEFAULT_TASK_STATUS));
+  return (normalized !== DEFAULT_TASK_STATUS)
+    || (raw && raw in LEGACY_TASK_STATUS_MAP)
     || (item.steps || []).some(step => step.done)
     || (item.status_notes || []).length > 0
     || (item.materials || []).length > 0

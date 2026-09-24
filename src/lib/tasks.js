@@ -1,34 +1,49 @@
-/** Job task (WorkItem) statuses, in board-column order — mirrors TASK_STATUSES in server/domain.js. */
+/** Job task (WorkItem) statuses, in board-column order — mirrors shared/taskStatus.js. */
 export const TASK_STATUSES = [
   "plan",
-  "prep",
   "permits",
-  "in_progress",
-  "waiting_materials",
   "waiting_on_approval",
   "blocked",
-  "on_hold",
+  "finish",
+  "completed",
   "cancelled",
-  "done",
 ];
+
+const LEGACY_TASK_STATUS_MAP = {
+  prep: "plan",
+  in_progress: "plan",
+  waiting_materials: "blocked",
+  on_hold: "blocked",
+  done: "completed",
+};
 
 const LABELS = {
   plan: "Plan",
-  prep: "Prep",
   permits: "Permits",
-  in_progress: "In Progress",
-  waiting_materials: "Waiting on Materials",
   waiting_on_approval: "Waiting on Approval",
   blocked: "Blocked",
-  on_hold: "On Hold",
+  finish: "Finish",
+  completed: "Completed",
   cancelled: "Cancelled",
+  // Legacy labels (shown only before the server normalizes on save)
+  prep: "Plan",
+  in_progress: "Plan",
+  waiting_materials: "Blocked",
+  on_hold: "Blocked",
   done: "Completed",
 };
 
-export const taskStatusLabel = (status) => LABELS[status] || status;
+export const normalizeTaskStatus = (status) => {
+  if (!status) return "plan";
+  return LEGACY_TASK_STATUS_MAP[status] || (TASK_STATUSES.includes(status) ? status : "plan");
+};
+
+export const isTaskCompleted = (status) => normalizeTaskStatus(status) === "completed";
+
+export const taskStatusLabel = (status) => LABELS[normalizeTaskStatus(status)] || status;
 
 /** A task's status; tasks saved before statuses existed fall back to their old done flag. */
-export const taskStatus = (item) => item?.status || (item?.done ? "done" : "prep");
+export const taskStatus = (item) => normalizeTaskStatus(item?.status || (item?.done ? "completed" : "plan"));
 
 /** Board/list order: by status column, then position, then age. */
 export function sortTasks(items = []) {
@@ -60,10 +75,8 @@ export const taskDeletable = (item, documents = []) => !item?.source_type || tas
 
 /** Statuses that usually need a reason; moving a task into one opens its card note. */
 export const NOTE_PROMPT_STATUSES = [
-  "waiting_materials",
   "waiting_on_approval",
   "blocked",
-  "on_hold",
   "cancelled",
 ];
 
@@ -77,5 +90,5 @@ export function formatHours(hours) {
 
 /** Expected hours still to go: tasks not completed or cancelled. */
 export const hoursRemaining = (items = []) => items
-  .filter((item) => !["done", "cancelled"].includes(taskStatus(item)))
+  .filter((item) => !isTaskCompleted(taskStatus(item)) && taskStatus(item) !== "cancelled")
   .reduce((sum, item) => sum + (Number(item.labor_hours) || 0), 0);

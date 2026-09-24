@@ -69,7 +69,7 @@ const JOB_BLUEPRINTS = [
     status: 'Prep',
     description: 'Accepted; crew scheduled next week.',
     estimate: { status: 'accepted', labor: 640, material: 210 },
-    tasks: 'in_progress',
+    tasks: 'plan',
     materialOrder: { status: 'purchased' },
     deposit: 200,
   },
@@ -79,7 +79,7 @@ const JOB_BLUEPRINTS = [
     status: 'Prep',
     description: 'Materials staged; start date set.',
     estimate: { status: 'accepted', labor: 900, material: 450 },
-    tasks: 'in_progress',
+    tasks: 'plan',
     materialOrder: { status: 'quote' },
     deposit: 300,
   },
@@ -89,7 +89,7 @@ const JOB_BLUEPRINTS = [
     status: 'Blocked',
     description: 'Inspector rescheduled — cannot close wall until pass.',
     estimate: { status: 'accepted', labor: 1100, material: 780 },
-    tasks: 'in_progress',
+    tasks: 'plan',
     materialOrder: { status: 'received' },
     deposit: 400,
   },
@@ -99,7 +99,7 @@ const JOB_BLUEPRINTS = [
     status: 'In progress',
     description: 'Blown-in in progress; access from garage.',
     estimate: { status: 'accepted', labor: 750, material: 520 },
-    tasks: 'in_progress',
+    tasks: 'plan',
     changeOrder: { status: 'sent', amount: 180 },
     deposit: 250,
   },
@@ -110,7 +110,7 @@ const JOB_BLUEPRINTS = [
     description: 'Valve on backorder from supplier.',
     jobMaterials: [{ description: 'Shower valve cartridge', qty: 1, unit_price: 85, have: false }],
     estimate: { status: 'accepted', labor: 380, material: 160 },
-    tasks: 'in_progress',
+    tasks: 'plan',
     materialOrder: { status: 'partial', lineStatus: 'backorder' },
     deposit: 150,
   },
@@ -121,7 +121,7 @@ const JOB_BLUEPRINTS = [
     description: 'Custom hinges ordered.',
     jobMaterials: [{ description: 'Gate hinges', qty: 2, unit_price: 42, have: false }],
     estimate: { status: 'accepted', labor: 260, material: 140 },
-    tasks: 'prep',
+    tasks: 'plan',
     materialOrder: { status: 'quote' },
   },
   {
@@ -130,7 +130,7 @@ const JOB_BLUEPRINTS = [
     status: 'Waiting on payment',
     description: 'Punch list done; invoice ready to send.',
     estimate: { status: 'accepted', labor: 1400, material: 380 },
-    tasks: 'done',
+    tasks: 'completed',
     materialOrder: { status: 'received' },
     invoice: { status: 'draft' },
     deposit: 500,
@@ -141,7 +141,7 @@ const JOB_BLUEPRINTS = [
     status: 'Waiting on payment',
     description: 'Work finished; invoice out for payment.',
     estimate: { status: 'accepted', labor: 320, material: 410 },
-    tasks: 'done',
+    tasks: 'completed',
     invoice: { status: 'sent' },
     deposit: 100,
   },
@@ -151,7 +151,7 @@ const JOB_BLUEPRINTS = [
     status: 'Paid',
     description: 'Fully paid and closed.',
     estimate: { status: 'accepted', labor: 680, material: 240 },
-    tasks: 'done',
+    tasks: 'completed',
     invoice: { status: 'paid' },
     deposit: 200,
     payment: 720,
@@ -162,7 +162,7 @@ const JOB_BLUEPRINTS = [
     status: 'Paid',
     description: 'Paid in full after partial deposit.',
     estimate: { status: 'accepted', labor: 540, material: 360 },
-    tasks: 'done',
+    tasks: 'completed',
     invoice: { status: 'paid' },
     deposit: 150,
     payment: 750,
@@ -180,7 +180,7 @@ const JOB_BLUEPRINTS = [
     status: 'In progress',
     description: 'Tile set curing; CO approved for extra outlet.',
     estimate: { status: 'accepted', labor: 820, material: 390 },
-    tasks: 'in_progress',
+    tasks: 'plan',
     materialOrder: { status: 'purchased' },
     changeOrder: { status: 'approved', amount: 220 },
     deposit: 300,
@@ -327,13 +327,13 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
   };
   if (blueprint.estimate.status === 'accepted') {
     await createWorkItemsForLines(db, ownerId, { jobId: job.id, sourceType: 'Estimate', sourceId: estimate.id, lines: estimate.accepted_snapshot.lines });
-    await setTaskStatuses(estimate.id, blueprint.tasks || 'prep');
+    await setTaskStatuses(estimate.id, blueprint.tasks || 'plan');
   }
   if (['Completed', 'Paid'].includes(blueprint.status)) {
     const rows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'WorkItem', job.id]);
     for (const item of rows.map(decode)) {
       if (item.template_key === 'final_walkthrough') {
-        await saveRecord(db, ownerId, 'WorkItem', { status: 'done' }, item.id);
+        await saveRecord(db, ownerId, 'WorkItem', { status: 'completed' }, item.id);
       }
     }
   }
@@ -395,7 +395,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
 
   if (changeOrder?.status === 'approved') {
     await createWorkItemsForLines(db, ownerId, { jobId: job.id, sourceType: 'ChangeOrder', sourceId: changeOrder.id, lines: changeOrder.accepted_snapshot.lines });
-    await setTaskStatuses(changeOrder.id, blueprint.tasks || 'prep');
+    await setTaskStatuses(changeOrder.id, blueprint.tasks || 'plan');
   }
 
   let invoice;

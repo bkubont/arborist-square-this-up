@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
+import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 
 const text = z.string().max(20000);
 const id = z.string().min(1).max(36);
@@ -71,19 +72,8 @@ const signMeta = {
   signature_file_url: z.string().max(200).optional(),
 };
 
-/** Job task statuses, in board-column order. */
-export const TASK_STATUSES = [
-  'plan',
-  'prep',
-  'permits',
-  'in_progress',
-  'waiting_materials',
-  'waiting_on_approval',
-  'blocked',
-  'on_hold',
-  'cancelled',
-  'done',
-];
+/** Job task statuses, in board-column order — see shared/taskStatus.js. */
+export { TASK_STATUSES } from './taskStatus.js';
 
 /** Job-linked document entities (parent_id = job_id). */
 export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice'];
@@ -193,8 +183,8 @@ export const schemas = {
     notes: text.optional(),
     steps: z.array(lineStep).max(200).optional(),
     /** Where this task stands; each task moves independently (see TASK_STATUSES). */
-    status: z.enum(TASK_STATUSES).default('prep'),
-    /** Derived from status ('done') by saveRecord, kept for billing "completed work". */
+    status: z.enum(ALL_TASK_STATUSES).default(DEFAULT_TASK_STATUS),
+    /** Derived from status ('completed') by saveRecord, kept for billing "completed work". */
     done: z.boolean().default(false),
     done_at: z.string().max(40).optional(),
     /** Expected labor, from the signed line's labor_hours; editable as a planning figure. */
@@ -207,7 +197,7 @@ export const schemas = {
     status_notes: z.array(z.object({
       id: z.string().max(64).optional(),
       text: z.string().trim().min(1).max(500),
-      status: z.enum(TASK_STATUSES).optional(),
+      status: z.enum(ALL_TASK_STATUSES).optional(),
       created_at: z.string().max(40).optional(),
     })).max(200).optional(),
     /** The single card note tasks had before status_notes; carryOverChecklists moves it over. */
@@ -402,7 +392,13 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   if (!schemas[entity]) throw fail(404, 'Unknown record type');
   const previous = recordId ? await getRecord(db, owner, entity, recordId) : {};
   const merged = { ...previous, ...input };
-  if (entity === 'WorkItem' && merged.status === undefined) merged.status = merged.done ? 'done' : 'prep';
+  if (entity === 'WorkItem') {
+    if (merged.status !== undefined) {
+      const parsed = parseTaskStatusForWrite(merged.status);
+      if (parsed === null) throw fail(400, `Invalid task status: ${merged.status}`);
+      merged.status = parsed;
+    } else merged.status = merged.done ? 'completed' : DEFAULT_TASK_STATUS;
+  }
   const data = schemas[entity].parse(merged);
   // Every line gets a stable id the first time it's saved with none, so a signed line can be
   // linked to its WorkItem later. Lines that already carry one (round-tripped by the editor) keep it.
@@ -418,11 +414,11 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   }
   if (entity === 'WorkItem') {
     for (const key of ['steps', 'measurements', 'materials']) if (data[key]) data[key] = withIds(data[key]);
-    data.done = data.status === 'done';
+    data.done = isTaskCompleted(data.status);
     // A new card note is stamped with when it was written and the status the task had then.
     if (data.status_notes) {
       const now = new Date().toISOString();
-      data.status_notes = data.status_notes.map(note => (note.id ? note : { ...note, id: randomUUID(), status: note.status || data.status, created_at: now }));
+      data.status_notes = data.status_notes.map(note => (note.id ? note : { ...note, id: randomUUID(), status: normalizeTaskStatus(note.status || data.status), created_at: now }));
     }
   }
   if (entity === 'Client' && !opts.skipClientAddressCheck) {

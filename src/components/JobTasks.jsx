@@ -7,7 +7,7 @@ import StatusSelect from "@/components/StatusSelect";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 import TaskNotes from "@/components/TaskNotes";
 import { moneyCents } from "@/lib/format";
-import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining } from "@/lib/tasks";
+import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining, isTaskCompleted } from "@/lib/tasks";
 import { statusColors, statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +37,7 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
     const merged = items.map((item) => (pending[item.id] ? { ...item, ...pending[item.id] } : item));
     return view === "list" ? sortTasksForList(merged) : sortTasks(merged);
   }, [items, pending, view]);
-  const doneCount = shown.filter((i) => taskStatus(i) === "done").length;
+  const doneCount = shown.filter((i) => isTaskCompleted(taskStatus(i))).length;
   const openItem = items.find((i) => i.id === openId) || null;
 
   const run = async (itemId, action) => {
@@ -201,12 +201,12 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   const [expanded, setExpanded] = useState(true);
   const status = taskStatus(item);
   const steps = item.steps || [];
-  const closed = status === "done" || status === "cancelled";
-  const done = status === "done";
+  const closed = isTaskCompleted(status) || status === "cancelled";
+  const done = isTaskCompleted(status);
 
   const toggleDone = () => {
     if (status === "cancelled") return;
-    onStatus(item, done ? "prep" : "done");
+    onStatus(item, done ? "plan" : "completed");
   };
   const toggleStep = (stepId) => onPatch(item, { steps: steps.map((s) => (s.id === stepId ? { ...s, done: !s.done } : s)) });
   // New steps go up without an id; the server assigns one.

@@ -14,6 +14,7 @@ import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { estimateLineAmount, changeOrderLineAmount } from './mapping.js';
 import { toCents } from '../shared/money.js';
 import { JOB_TASK_SORT } from '../shared/taskTemplates.js';
+import { DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 
 /** Scope tasks from signed lines sit between Prep and Final walkthrough. */
 function nextScopeSortOrder(existingTasks = []) {
@@ -25,7 +26,7 @@ function nextScopeSortOrder(existingTasks = []) {
   return JOB_TASK_SORT.prep + 1000;
 }
 
-// `done` follows `status` (saveRecord), so it is server-owned too: set status 'done' instead.
+// `done` follows `status` (saveRecord), so it is server-owned too: set status 'completed' instead.
 const SERVER_OWNED_FIELDS = ['template_key', 'source_type', 'source_id', 'line_id', 'amount_cents', 'billed_invoice_id', 'done', 'done_at'];
 const EDITABLE_FIELDS = new Set(['description', 'category', 'tools', 'notes', 'steps', 'status', 'sort_order', 'measurements', 'materials', 'labor_hours', 'status_notes']);
 
@@ -84,7 +85,10 @@ function assertNoServerOwnedFields(input) {
 /** Owner-created tasks are always free-standing; signed-line tasks only come from signing. */
 export function prepareWorkItemCreate(input) {
   assertNoServerOwnedFields(input);
-  return input?.status === 'done' ? { ...input, done_at: new Date().toISOString() } : input;
+  if (input?.status === undefined) return input;
+  const parsed = parseTaskStatusForWrite(input.status);
+  if (parsed === null) throw fail(400, `Invalid task status: ${input.status}`);
+  return isTaskCompleted(parsed) ? { ...input, status: parsed, done_at: new Date().toISOString() } : { ...input, status: parsed };
 }
 
 /**
@@ -93,7 +97,7 @@ export function prepareWorkItemCreate(input) {
  */
 export function prepareWorkItemUpdate(previous, input) {
   // null clears an optional field (JSON has no undefined): { labor_hours: null } removes the hours.
-  const body = Object.fromEntries(Object.entries(input && typeof input === 'object' ? input : {})
+  let body = Object.fromEntries(Object.entries(input && typeof input === 'object' ? input : {})
     .map(([key, value]) => [key, value === null ? undefined : value]));
   assertNoServerOwnedFields(body);
   const other = Object.keys(body).filter(key => !EDITABLE_FIELDS.has(key));
@@ -101,9 +105,16 @@ export function prepareWorkItemUpdate(previous, input) {
   if (previous.source_type && Object.prototype.hasOwnProperty.call(body, 'description') && body.description !== previous.description) {
     throw fail(400, 'A task from a signed document keeps its signed description. Add a note instead.');
   }
-  const wasDone = previous.status ? previous.status === 'done' : !!previous.done;
-  if (body.status === undefined || (body.status === 'done') === wasDone) return body;
-  return { ...body, done_at: body.status === 'done' ? new Date().toISOString() : undefined };
+  const prevStatus = normalizeTaskStatus(previous.status ?? (previous.done ? 'completed' : DEFAULT_TASK_STATUS));
+  const wasDone = isTaskCompleted(prevStatus);
+  let nextStatus;
+  if (body.status !== undefined) {
+    nextStatus = parseTaskStatusForWrite(body.status);
+    if (nextStatus === null) throw fail(400, `Invalid task status: ${body.status}`);
+    body = { ...body, status: nextStatus };
+  }
+  if (nextStatus === undefined || isTaskCompleted(nextStatus) === wasDone) return body;
+  return { ...body, done_at: isTaskCompleted(nextStatus) ? new Date().toISOString() : undefined };
 }
 
 /**
@@ -129,8 +140,8 @@ const JOB_FINISHED_STATUSES = new Set(['Completed', 'Paid']);
  */
 export async function completeJobWhenTasksDone(tx, ownerId, jobId) {
   const tasks = (await listJobDocuments(tx, ownerId, 'WorkItem', jobId))
-    .filter(task => (task.status || (task.done ? 'done' : 'prep')) !== 'cancelled');
-  if (!tasks.length || !tasks.every(task => (task.status || (task.done ? 'done' : 'prep')) === 'done')) return null;
+    .filter(task => normalizeTaskStatus(task.status ?? (task.done ? 'completed' : DEFAULT_TASK_STATUS)) !== 'cancelled');
+  if (!tasks.length || !tasks.every(task => isTaskCompleted(task.status ?? (task.done ? 'completed' : DEFAULT_TASK_STATUS)))) return null;
   const job = await getRecord(tx, ownerId, 'Job', jobId);
   if (JOB_FINISHED_STATUSES.has(job.status)) return null;
   const updated = await saveRecord(tx, ownerId, 'Job', { status: 'Completed' }, jobId);
@@ -166,7 +177,7 @@ export async function carryOverChecklists(db) {
       for (const item of items.filter(i => !i.status)) await saveRecord(tx, ownerId, 'WorkItem', {}, item.id);
       for (const item of items.filter(i => i.status_note !== undefined)) {
         const text = String(item.status_note || '').trim();
-        const moved = text ? [{ text, status: item.status || (item.done ? 'done' : 'prep'), created_at: item.updated_date }] : [];
+        const moved = text ? [{ text, status: normalizeTaskStatus(item.status ?? (item.done ? 'completed' : DEFAULT_TASK_STATUS)), created_at: item.updated_date }] : [];
         await saveRecord(tx, ownerId, 'WorkItem', { status_notes: [...moved, ...(item.status_notes || [])], status_note: undefined }, item.id);
       }
       const estimates = new Map((await ownerRows(tx, ownerId, 'Estimate')).map(decode).map(e => [e.id, e]));
@@ -181,7 +192,7 @@ export async function carryOverChecklists(db) {
         created += await attachDefaultJobTasks(tx, ownerId, job.id);
         if (!Array.isArray(job.checklist) || !job.checklist.length) continue;
         for (const entry of job.checklist.filter(e => String(e?.text || '').trim())) {
-          await saveRecord(tx, ownerId, 'WorkItem', { job_id: job.id, description: entry.text.trim(), status: entry.done ? 'done' : 'prep' });
+          await saveRecord(tx, ownerId, 'WorkItem', { job_id: job.id, description: entry.text.trim(), status: entry.done ? 'completed' : DEFAULT_TASK_STATUS });
           created += 1;
         }
         await saveRecord(tx, ownerId, 'Job', { checklist: undefined }, job.id);
