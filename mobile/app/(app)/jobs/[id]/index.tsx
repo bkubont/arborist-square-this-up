@@ -1,9 +1,9 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { api, type Client, type Job } from '@/api/client';
-import { AuthenticatedImage } from '@/components/AuthenticatedImage';
+import { api, type Client, type Job, type TimelineEntry } from '@/api/client';
+import { JobPhotosSection } from '@/components/JobPhotosSection';
 import { BRAND_HEX } from '@/lib/brand';
 
 export default function JobDetailScreen() {
@@ -11,38 +11,40 @@ export default function JobDetailScreen() {
   const router = useRouter();
   const [job, setJob] = useState<Job | null>(null);
   const [client, setClient] = useState<Client | null>(null);
+  const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!id) return;
-      setLoading(true);
-      setError('');
-      try {
-        const next = await api.entities.Job.get(id);
-        if (cancelled) return;
-        setJob(next);
-        if (next.client_id) {
-          try {
-            setClient(await api.entities.Client.get(next.client_id));
-          } catch {
-            setClient(null);
-          }
+  const load = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const next = await api.entities.Job.get(id);
+      const timeline = await api.entities.TimelineEntry.filter({ job_id: id }, '-created_date', 500);
+      setJob(next);
+      setEntries(timeline);
+      if (next.client_id) {
+        try {
+          setClient(await api.entities.Client.get(next.client_id));
+        } catch {
+          setClient(null);
         }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load job');
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load job');
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
-  if (loading) {
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  if (loading && !job) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={BRAND_HEX.royalBlue} />
@@ -64,9 +66,9 @@ export default function JobDetailScreen() {
       <Text style={styles.badge}>{job.status || '—'}</Text>
       {job.description ? <Text style={styles.body}>{job.description}</Text> : null}
 
-      {job.photo_url ? (
-        <AuthenticatedImage fileUrl={job.photo_url} style={styles.photo} />
-      ) : null}
+      <Pressable style={styles.editBtn} onPress={() => router.push(`/(app)/jobs/${job.id}/edit`)}>
+        <Text style={styles.editText}>Edit job</Text>
+      </Pressable>
 
       <View style={styles.card}>
         <Text style={styles.label}>Customer</Text>
@@ -77,13 +79,15 @@ export default function JobDetailScreen() {
           </Pressable>
         ) : null}
       </View>
+
+      <JobPhotosSection jobId={job.id} entries={entries} onChanged={load} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f7f7fb' },
-  content: { padding: 20, gap: 12 },
+  content: { padding: 20, gap: 12, paddingBottom: 40 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   title: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.black },
   badge: {
@@ -98,7 +102,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   body: { fontSize: 15, color: '#444', lineHeight: 22 },
-  photo: { width: '100%', height: 200, borderRadius: 12 },
+  editBtn: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: BRAND_HEX.royalBlue,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  editText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,

@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { api, type Client, type Job } from '@/api/client';
@@ -13,32 +13,29 @@ export default function CustomerDetailScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!id) return;
-      setLoading(true);
-      setError('');
-      try {
-        const next = await api.entities.Client.get(id);
-        const related = (await api.entities.Job.filter({ client_id: id }, '-updated_date')).filter(
-          job => job.client_id === id,
-        );
-        if (cancelled) return;
-        setClient(next);
-        setJobs(related);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load customer');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const next = await api.entities.Client.get(id);
+      const related = await api.entities.Job.filter({ client_id: id }, '-updated_date');
+      setClient(next);
+      setJobs(related);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load customer');
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
-  if (loading) {
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  if (loading && !client) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={BRAND_HEX.royalBlue} />
@@ -70,6 +67,20 @@ export default function CustomerDetailScreen() {
           {client.phone ? <Text style={styles.meta}>{client.phone}</Text> : null}
           {client.email ? <Text style={styles.meta}>{client.email}</Text> : null}
           {address ? <Text style={styles.meta}>{address}</Text> : null}
+          <View style={styles.actions}>
+            <Pressable
+              style={styles.actionBtn}
+              onPress={() => router.push(`/(app)/customers/${client.id}/edit`)}
+            >
+              <Text style={styles.actionText}>Edit</Text>
+            </Pressable>
+            <Pressable
+              style={styles.actionBtn}
+              onPress={() => router.push({ pathname: '/(app)/jobs/new', params: { clientId: client.id } })}
+            >
+              <Text style={styles.actionText}>Add job</Text>
+            </Pressable>
+          </View>
           <Text style={styles.section}>Jobs</Text>
           {!jobs.length ? <Text style={styles.meta}>No jobs for this customer</Text> : null}
         </View>
@@ -94,6 +105,15 @@ const styles = StyleSheet.create({
   header: { padding: 20, gap: 6 },
   title: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.black, marginBottom: 4 },
   meta: { fontSize: 14, color: '#555', lineHeight: 20 },
+  actions: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 4 },
+  actionBtn: {
+    borderWidth: 1,
+    borderColor: BRAND_HEX.royalBlue,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  actionText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
   section: { marginTop: 16, fontSize: 13, fontWeight: '700', textTransform: 'uppercase', color: '#666' },
   row: {
     backgroundColor: '#fff',

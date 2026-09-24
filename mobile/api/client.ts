@@ -1,4 +1,5 @@
 import { clearSessionToken, getSessionToken, setSessionToken } from '@/lib/session';
+import { preparePhoto } from '@/lib/preparePhoto';
 
 export type AuthUser = {
   id: string;
@@ -21,14 +22,47 @@ export type Client = {
   updated_date?: string;
 };
 
+export type JobStatus =
+  | 'Estimate'
+  | 'Scheduled'
+  | 'In Progress'
+  | 'Waiting on Materials'
+  | 'On Hold'
+  | 'Completed'
+  | 'Paid';
+
+export const JOB_STATUSES: JobStatus[] = [
+  'Estimate',
+  'Scheduled',
+  'In Progress',
+  'Waiting on Materials',
+  'On Hold',
+  'Completed',
+  'Paid',
+];
+
 export type Job = {
   id: string;
   title: string;
   client_id: string;
   client_name?: string;
   description?: string;
-  status?: string;
+  status?: JobStatus | string;
+  start_date?: string;
+  end_date?: string;
+  notes?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type TimelineEntry = {
+  id: string;
+  job_id: string;
+  type: string;
+  text?: string;
   photo_url?: string;
+  category?: string;
+  amount?: number;
   created_date?: string;
   updated_date?: string;
 };
@@ -109,6 +143,18 @@ const entity = <T extends { id: string }>(name: string) => ({
   get(id: string) {
     return request(`/entities/${name}/${encodeURIComponent(id)}`) as Promise<T>;
   },
+  create(data: Partial<T>) {
+    return post(`/entities/${name}`, data) as Promise<T>;
+  },
+  update(id: string, data: Partial<T>) {
+    return request(`/entities/${name}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }) as Promise<T>;
+  },
+  delete(id: string) {
+    return request(`/entities/${name}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
 });
 
 export const api = {
@@ -143,5 +189,17 @@ export const api = {
   entities: {
     Client: entity<Client>('Client'),
     Job: entity<Job>('Job'),
+    TimelineEntry: entity<TimelineEntry>('TimelineEntry'),
+  },
+  /** Resize → JPEG, then multipart POST /api/files (Bearer). */
+  async uploadFile(localUri: string): Promise<{ file_url: string }> {
+    const prepared = await preparePhoto(localUri);
+    const form = new FormData();
+    form.append('file', {
+      uri: prepared.uri,
+      name: 'photo.jpg',
+      type: 'image/jpeg',
+    } as unknown as Blob);
+    return request('/files', { method: 'POST', body: form }) as Promise<{ file_url: string }>;
   },
 };

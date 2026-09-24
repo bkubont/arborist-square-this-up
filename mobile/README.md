@@ -5,9 +5,11 @@ Native iOS/Android client for Square This Up. Talks to the existing Express API 
 ## Features (current)
 
 - Login / logout / session restore (SecureStore)
-- Home, Jobs list → detail, Customers list → detail
-- Settings: logout + **delete account** (password confirm → `DELETE /api/auth/account`)
-- Authenticated file images via Bearer (`AuthenticatedImage` + `absoluteFileUrl`)
+- Home, Jobs, Customers, More tabs
+- **Customers:** list → detail → create/edit (name, address, phone, email, notes)
+- **Jobs:** list → detail → create/edit (title, customer, status, dates, notes)
+- **Photos:** camera/library → resize (≤1800px JPEG) → `POST /api/files` → TimelineEntry on the job; display via Bearer `AuthenticatedImage`
+- Settings: logout + delete account
 
 ## Prerequisites
 
@@ -16,8 +18,6 @@ Native iOS/Android client for Square This Up. Talks to the existing Express API 
 - An invited account (`npm run account -- invite you@example.com` from the repo root)
 
 ## Configure API URL
-
-Copy the example env and point at your API:
 
 ```sh
 cp .env.example .env
@@ -29,8 +29,6 @@ cp .env.example .env
 | Android Emulator | `http://10.0.2.2:3000` |
 | Physical device (same LAN) | `http://<your-computer-lan-ip>:3000` |
 | Production / staging | `https://jobs.yourdomain.com` |
-
-Restart Expo after changing env vars.
 
 ## Run
 
@@ -49,6 +47,6 @@ npm run typecheck  # tsc --noEmit
 ## Notes
 
 - Session token is in **SecureStore** (localStorage fallback on web for local checks only).
-- File URLs are relative (`/api/files/:id`); the client prefixes `EXPO_PUBLIC_API_URL` and sends Bearer.
+- Photo attach matches web: TimelineEntry with `photo_url` + category (before/after/…).
 - Do not commit `.env`, tokens, or invitation links.
-- Create/edit forms, photo upload UI, register/forgot-password, and EAS submit are still ahead.
+- Register/forgot-password, Money tabs, and EAS submit are still ahead.

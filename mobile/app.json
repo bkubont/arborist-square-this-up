@@ -9,7 +9,11 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.squarethisup.app"
+      "bundleIdentifier": "com.squarethisup.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Square This Up uses the camera to capture jobsite photos.",
+        "NSPhotoLibraryUsageDescription": "Square This Up uses your photo library to attach jobsite photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +23,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "package": "com.squarethisup.app",
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
     },
     "web": {
       "bundler": "metro",
@@ -37,7 +42,14 @@
         }
       ],
       "expo-secure-store",
-      "expo-image"
+      "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Square This Up to attach jobsite photos from your library.",
+          "cameraPermission": "Allow Square This Up to take jobsite photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,5 +1,5 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useLayoutEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -15,10 +15,21 @@ import { BRAND_HEX } from '@/lib/brand';
 
 export default function CustomersListScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable onPress={() => router.push('/(app)/customers/new')}>
+          <Text style={styles.headerAdd}>Add</Text>
+        </Pressable>
+      ),
+    });
+  }, [navigation, router]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -80,6 +91,7 @@ const styles = StyleSheet.create({
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { color: '#666', fontSize: 15 },
   error: { color: '#b00020', padding: 12, backgroundColor: '#fde8ea' },
+  headerAdd: { color: BRAND_HEX.royalBlue, fontWeight: '700', fontSize: 16, paddingHorizontal: 4 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
