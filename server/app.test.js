@@ -20,8 +20,17 @@ async function fixture(t) {
   const addr = server.address();
   const port = addr && typeof addr === 'object' ? addr.port : 0;
   const base = `http://127.0.0.1:${port}`;
-  const request = async (path, { method = 'GET', data, cookie, origin = 'http://localhost:5173', form } = {}) => {
-    const response = await fetch(base + '/api' + path, { method, headers: { origin, ...(cookie ? { cookie } : {}), ...(!form ? { 'content-type': 'application/json' } : {}) }, body: form || (data ? JSON.stringify(data) : undefined) });
+  const request = async (path, { method = 'GET', data, cookie, origin = 'http://localhost:5173', form, headers = {} } = {}) => {
+    const response = await fetch(base + '/api' + path, {
+      method,
+      headers: {
+        ...(origin !== null ? { origin } : {}),
+        ...(cookie ? { cookie } : {}),
+        ...(!form ? { 'content-type': 'application/json' } : {}),
+        ...headers,
+      },
+      body: form || (data ? JSON.stringify(data) : undefined),
+    });
     return { status: response.status, cookie: response.headers.get('set-cookie')?.split(';')[0], response,
       data: response.headers.get('content-type')?.includes('json') ? await response.json() : await response.arrayBuffer() };
   };
@@ -34,6 +43,38 @@ async function fixture(t) {
   };
   return { db, request, register };
 }
+test('Bearer sessions for mobile clients skip Origin and revoke on logout', async t => {
+  const { request, register } = await fixture(t);
+  await register('mobile@example.com');
+  // Mobile login: no browser Origin, X-Client header, returns token (no cookie required).
+  const login = await request('/auth/login', {
+    method: 'POST',
+    origin: null,
+    headers: { 'x-client': 'mobile' },
+    data: { email: 'mobile@example.com', password: 'strong-password-123', client: 'mobile' },
+  });
+  assert.equal(login.status, 200);
+  assert.ok(login.data.token);
+  assert.equal(login.data.email, 'mobile@example.com');
+  assert.equal(login.cookie, undefined);
+  const auth = { authorization: `Bearer ${login.data.token}` };
+  assert.equal((await request('/auth/me', { origin: null, headers: auth })).data.email, 'mobile@example.com');
+  // Authenticated mutations work without Origin when Bearer is present.
+  const client = await request('/entities/Client', {
+    method: 'POST',
+    origin: null,
+    headers: auth,
+    data: { name: 'Mobile Client', ...CLIENT_ADDR },
+  });
+  assert.equal(client.status, 201);
+  // Invalid Bearer is rejected; missing Origin without Bearer still CSRF-blocked.
+  assert.equal((await request('/auth/me', { origin: null, headers: { authorization: 'Bearer deadbeef' } })).status, 401);
+  assert.equal((await request('/entities/Client', { method: 'POST', origin: null, data: { name: 'Nope', ...CLIENT_ADDR } })).status, 403);
+  // Logout revokes the Bearer session.
+  assert.equal((await request('/auth/logout', { method: 'POST', origin: null, headers: { ...auth, 'x-client': 'mobile' }, data: {} })).status, 200);
+  assert.equal((await request('/auth/me', { origin: null, headers: auth })).status, 401);
+});
+
 test('invitation-only registration, cookie sessions, logout and CSRF protection', async t => {
   const { request, register } = await fixture(t);
   assert.equal((await request('/entities/Client')).status, 401);

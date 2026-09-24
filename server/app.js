@@ -65,10 +65,21 @@ export async function createApp(db, env = process.env) {
     upgradeInsecureRequests: production ? [] : null,
   } }, strictTransportSecurity: production ? undefined : false }));
   app.use(cookieParser());
+  /** Raw session token from Authorization: Bearer … (native clients). */
+  const bearerToken = req => {
+    const header = req.get('authorization') || '';
+    const match = /^Bearer\s+(\S+)$/i.exec(header);
+    return match?.[1] || null;
+  };
+  /** Native / Expo clients: X-Client: mobile or body.client === "mobile". */
+  const isMobileClient = req => req.get('x-client') === 'mobile' || req.body?.client === 'mobile';
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    // Require the configured frontend origin on every mutation, including login.
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.get('origin') !== origin)
+    // Browser CSRF: require APP_ORIGIN on mutations. Bearer / mobile clients skip Origin.
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)
+      && !bearerToken(req)
+      && req.get('x-client') !== 'mobile'
+      && req.get('origin') !== origin)
       return next(fail(403, 'Invalid request origin'));
     next();
   });
@@ -98,34 +109,41 @@ export async function createApp(db, env = process.env) {
     next();
   });
   const requireUser = async (req, res, next) => {
-    const value = req.cookies[cookieName];
+    const value = bearerToken(req) || req.cookies[cookieName];
     const [user] = value ? await db.all('SELECT users.id, users.email, users.created_date FROM users JOIN sessions ON sessions.user_id = users.id WHERE sessions.token_hash = ? AND sessions.expires_at > ?', [hash(value), Date.now()]) : [];
     if (!user) throw fail(401, 'Please log in');
     req.user = user;
+    req.sessionToken = value;
     next();
   };
-  const session = async (res, userId, connection = db) => {
+  const session = async (res, userId, connection = db, { setCookie = true } = {}) => {
     const value = token();
     const maxAge = 7 * 24 * 60 * 60 * 1000;
     await connection.run('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)', [hash(value), userId, Date.now() + maxAge]);
-    res.cookie(cookieName, value, { ...cookie, maxAge });
+    if (setCookie) res.cookie(cookieName, value, { ...cookie, maxAge });
+    return value;
   };
   app.get('/api/health', async (req, res) => { await db.all('SELECT 1 AS ok'); res.json({ ok: true }); });
   app.get('/api/auth/me', requireUser, (req, res) => res.json(req.user));
   app.post('/api/auth/login', async (req, res) => {
     const email = emailSchema.parse(req.body.email);
     if (!await limited(`login:${email}`)) throw fail(429, 'Too many attempts. Try again in 15 minutes.');
+    const mobile = isMobileClient(req);
     const user = await db.transaction(async tx => {
       const [user] = await tx.all('SELECT * FROM users WHERE email = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [email]);
       const valid = await verifyPassword(req.body.password, user?.password_hash || dummyHash);
       if (!user || !valid) throw fail(401, 'Invalid email or password');
       if (req.cookies[cookieName]) await tx.run('DELETE FROM sessions WHERE token_hash = ?', [hash(req.cookies[cookieName])]);
-      await session(res, user.id, tx);
-      return user;
+      const sessionToken = await session(res, user.id, tx, { setCookie: !mobile });
+      return { user, sessionToken };
     });
-    res.json({ id: user.id, email: user.email });
+    const payload = { id: user.user.id, email: user.user.email };
+    if (mobile) payload.token = user.sessionToken;
+    res.json(payload);
   });
   app.post('/api/auth/logout', async (req, res) => {
+    const bearer = bearerToken(req);
+    if (bearer) await db.run('DELETE FROM sessions WHERE token_hash = ?', [hash(bearer)]);
     if (req.cookies[cookieName]) await db.run('DELETE FROM sessions WHERE token_hash = ?', [hash(req.cookies[cookieName])]);
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
@@ -139,6 +157,7 @@ export async function createApp(db, env = process.env) {
       : z.number().finite().min(0).max(100).parse(Number(taxRaw));
     const digest = await passwordHash(password);
     const userId = randomUUID();
+    const mobile = isMobileClient(req);
     await db.transaction(async tx => {
       const lock = db.dialect === 'mysql' ? ' FOR UPDATE' : '';
       const [row] = await tx.all('SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND email = ? AND expires_at > ?' + lock, [hash(invite), 'invite', email, Date.now()]);
@@ -152,8 +171,10 @@ export async function createApp(db, env = process.env) {
         default_tax_rate: defaultTaxRate,
       });
     });
-    await session(res, userId);
-    res.status(201).json({ id: userId, email, default_tax_rate: defaultTaxRate });
+    const sessionToken = await session(res, userId, db, { setCookie: !mobile });
+    const payload = { id: userId, email, default_tax_rate: defaultTaxRate };
+    if (mobile) payload.token = sessionToken;
+    res.status(201).json(payload);
   });
   app.post('/api/auth/forgot-password', async (req, res) => {
     if (!env.SMTP_HOST || !env.MAIL_FROM) throw fail(503, 'Email recovery is not configured. Contact the app owner for a reset link.');
