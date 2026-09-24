@@ -45,6 +45,16 @@ npm run account -- reset you@example.com
 
 The reset command prints a private, single-use link valid for 30 minutes. Completing a reset revokes all existing sessions. Share links securely with the intended owner. Never paste them into public tickets or logs.
 
+### Demo wipe and seed (one account)
+
+To clear **business data** for a single account and load a fixed demo set (15 clients, 14 jobs across statuses, documents, timeline, and a few expenses), run:
+
+```sh
+npm run account -- seed-demo you@example.com --yes
+```
+
+Without `--yes`, the command prompts and requires typing `YES`. It keeps the login and **CompanyProfile** (sales tax, company name, logo). It does **not** touch other accounts. Safe for local SQLite and production MySQL when pointed at the same database credentials as the running app. Download a backup first if you might need the old data.
+
 For email password recovery, configure SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD and MAIL_FROM. If SMTP is absent, the reset page explains that the owner must provide a reset link. No mail is sent by the CLI. Check mailbox pricing/renewal and sending limits in your existing hosting subscription.
 
 ## Backups and migration from Base44
