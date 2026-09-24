@@ -5,7 +5,7 @@ import pluginReactHooks from "eslint-plugin-react-hooks";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 
 export default [
-  { ignores: ['node_modules/**', 'dist/**', '.agents/**', '.data/**'] },
+  { ignores: ['node_modules/**', 'dist/**', '.agents/**', '.data/**', 'mobile/**'] },
   {
     files: ['server/**/*.js'],
     ...pluginJs.configs.recommended,
