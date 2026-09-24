@@ -31,8 +31,8 @@ describe("buildAttentionItems", () => {
       today: "2026-09-21",
       tomorrow: "2026-09-22",
       jobs: [
-        { id: "j1", title: "Kitchen", status: "Estimate" },
-        { id: "j2", title: "Deck", status: "Scheduled", start_date: "2026-09-21" },
+        { id: "j1", title: "Kitchen", phase: "lead", status: "Plan / draft estimate" },
+        { id: "j2", title: "Deck", phase: "working", status: "Prep", start_date: "2026-09-21" },
       ],
       estimates: [{ id: "e1", job_id: "j1", status: "sent" }],
       changeOrders: [],
@@ -51,7 +51,7 @@ describe("buildAttentionItems", () => {
     const rows = buildAttentionItems({
       today: "2026-09-21",
       tomorrow: "2026-09-22",
-      jobs: [{ id: "j1", title: "Kitchen", status: "Waiting on Materials", start_date: "2026-09-21" }],
+      jobs: [{ id: "j1", title: "Kitchen", phase: "working", status: "Waiting on materials", start_date: "2026-09-21" }],
       estimates: [],
       changeOrders: [],
       invoices: [],

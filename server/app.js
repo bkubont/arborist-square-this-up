@@ -32,6 +32,7 @@ import {
   refreshInvoicePaymentSync,
 } from './invoiceSync.js';
 import { applyJobArchiveFields } from './jobArchive.js';
+import { applyJobStatusFields, normalizeJobRecord } from './jobStatus.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE, resolveSalesTaxRate } from './salesTax.js';
 
@@ -240,9 +241,13 @@ export async function createApp(db, env = process.env) {
       `SELECT * FROM records WHERE owner_id = ? AND entity = ?${parent ? ' AND parent_id = ?' : ''} ORDER BY ${sortColumn} ${sortDir}, id ASC LIMIT ${limit} OFFSET ${offset}`,
       [req.user.id, req.params.entity, ...(parent ? [parent] : [])]
     );
-    res.json(rows.map(decode));
+    const records = rows.map(decode);
+    res.json(req.params.entity === 'Job' ? records.map(normalizeJobRecord) : records);
   });
-  app.get('/api/entities/:entity/:id', async (req, res) => res.json(await getRecord(db, req.user.id, req.params.entity, req.params.id)));
+  app.get('/api/entities/:entity/:id', async (req, res) => {
+    const record = await getRecord(db, req.user.id, req.params.entity, req.params.id);
+    res.json(req.params.entity === 'Job' ? normalizeJobRecord(record) : record);
+  });
   // Lock the owner's row to serialize relationships, deletes, quotas and exports.
   const ownedTransaction = (owner, fn) => db.transaction(async tx => {
     await tx.all('SELECT id FROM users WHERE id = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [owner]);
@@ -437,6 +442,7 @@ export async function createApp(db, env = process.env) {
     let body = req.body;
     if (entity === 'Job') {
       body = stripJobDerivedMoney(body);
+      body = applyJobStatusFields(body);
       body = applyJobArchiveFields(body);
     }
     const created = await ownedTransaction(req.user.id, async tx => {
@@ -466,7 +472,7 @@ export async function createApp(db, env = process.env) {
     if (entity === 'TimelineEntry' && isFinancialTimelineEntry(created) && created.job_id) {
       await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, created.job_id));
     }
-    res.status(201).json(created);
+    res.status(201).json(entity === 'Job' ? normalizeJobRecord(created) : created);
   });
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
@@ -476,6 +482,7 @@ export async function createApp(db, env = process.env) {
       : null;
     if (entity === 'Job' && body && typeof body === 'object') {
       body = stripJobDerivedMoney(body);
+      body = applyJobStatusFields(body, previous);
       body = applyJobArchiveFields(body, previous);
     }
     if (entity === 'Estimate' && previous) {
@@ -539,7 +546,7 @@ export async function createApp(db, env = process.env) {
         await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
-    res.json(updated);
+    res.json(entity === 'Job' ? normalizeJobRecord(updated) : updated);
   });
   app.delete('/api/entities/:entity/:id', async (req, res) => {
     let financialTimelineJobId = null;

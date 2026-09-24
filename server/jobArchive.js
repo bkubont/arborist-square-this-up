@@ -1,5 +1,6 @@
-/** Completed / paid jobs leave working lists and land in the archive. */
-export const ARCHIVE_JOB_STATUSES = new Set(['Completed', 'Paid']);
+import { ARCHIVE_JOB_STATUSES } from './jobStatus.js';
+
+export { ARCHIVE_JOB_STATUSES };
 
 export function isArchivedJob(record) {
   return Boolean(record?.archived_at);

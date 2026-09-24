@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import StatusSelect from "@/components/StatusSelect";
+import JobPhaseStatusSelect from "@/components/JobPhaseStatusSelect";
+import { JOB_PHASES } from "@/lib/jobStatus";
 import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
@@ -24,6 +25,7 @@ const DOC_ENTITIES = ["Estimate", "MaterialOrder", "WorkOrder", "ChangeOrder", "
 
 const JOB_TABS = [
   "overview",
+  "tasks",
   "costs",
   "photos",
   "notes",
@@ -137,12 +139,13 @@ export default function JobDetail() {
     load();
   };
 
-  const changeStatus = async (status) => {
-    await api.entities.Job.update(id, { status });
+  const changeStatus = async ({ phase, status }) => {
+    await api.entities.Job.update(id, { phase, status });
+    const phaseLabel = JOB_PHASES[phase]?.label || phase;
     await api.entities.TimelineEntry.create({
       job_id: id,
       type: "status_change",
-      text: `Status changed to ${status}`,
+      text: `Status changed to ${phaseLabel} · ${status}`,
       category: "note",
     });
     load();
@@ -211,7 +214,12 @@ export default function JobDetail() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              <h1 className="text-2xl font-bold text-foreground">{job.title}</h1>
+              <h1 className="text-2xl font-bold text-foreground">
+                {job.title?.trim() || client?.name || "Job"}
+              </h1>
+              {job.title?.trim() && client?.name && (
+                <span className="text-sm font-normal text-muted-foreground">{client.name}</span>
+              )}
               <JobPhotoButton jobId={id} entries={entries} onUploaded={load} onChanged={load} />
             </div>
             {client && (
@@ -223,7 +231,12 @@ export default function JobDetail() {
               </div>
             )}
           </div>
-          <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
+          <JobPhaseStatusSelect
+            phase={job.phase}
+            status={job.status}
+            onChange={changeStatus}
+            className="w-full sm:w-64"
+          />
         </div>
         {job.description && <p className="text-sm text-muted-foreground mt-3">{job.description}</p>}
       </div>
@@ -231,6 +244,7 @@ export default function JobDetail() {
       <Tabs value={activeTab} onValueChange={setTab} className="w-full">
         <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/80 p-1 mb-4">
           <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
+          <TabsTrigger value="tasks" className="text-xs sm:text-sm">Tasks</TabsTrigger>
           <TabsTrigger value="costs" className="text-xs sm:text-sm">Costs</TabsTrigger>
           <TabsTrigger value="photos" className="text-xs sm:text-sm">Photos</TabsTrigger>
           <TabsTrigger value="notes" className="text-xs sm:text-sm">Notes</TabsTrigger>
@@ -282,6 +296,17 @@ export default function JobDetail() {
                 <p className="text-sm text-foreground whitespace-pre-wrap">{job.notes}</p>
               </div>
             ) : null}
+          </div>
+        </TabsContent>
+
+        {/* Working kanban cards land here (?tab=tasks). Full task board statuses
+            (plan, permits, waiting on approval, blocked) are owned by prep auto-attach — do not duplicate here. */}
+        <TabsContent value="tasks" className="mt-0">
+          <div className="bg-card rounded-xl border border-border p-4">
+            <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              Task board
+            </div>
+            <Checklist items={job.checklist || []} onChange={saveChecklist} />
           </div>
         </TabsContent>
 

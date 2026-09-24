@@ -93,10 +93,15 @@ export const schemas = {
     email: text.optional(),
     notes: text.optional(),
   }),
-  Job: z.object({ title: z.string().trim().min(1).max(250), client_id: id, client_name: text.optional(), description: text.optional(),
-    status: z.enum(['Estimate','Scheduled','In Progress','Waiting on Materials','Completed','Paid']).default('Estimate'),
+  Job: z.object({ title: z.string().trim().max(250).optional(), client_id: id, client_name: text.optional(), description: text.optional(),
+    phase: z.enum(['lead', 'working', 'payment']).default('lead'),
+    status: z.enum([
+      'Contact', 'Assessment', 'Plan / draft estimate', 'Waiting on approval', 'Approved', 'Declined',
+      'Prep', 'In progress', 'Waiting on materials', 'Blocked', 'Cancelled', 'Completed',
+      'Invoiced', 'Waiting on payment', 'Partial', 'Late', 'Paid',
+    ]).default('Contact'),
     start_date: date.optional(), end_date: date.optional(),
-    /** Set when a job is Completed/Paid — hides it from working lists; view under Archive. */
+    /** Set when a job reaches a terminal status — hides it from working lists; view under Archive. */
     archived_at: date.optional(),
     estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),

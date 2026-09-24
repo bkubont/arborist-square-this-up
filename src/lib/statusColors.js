@@ -122,11 +122,25 @@ export const STATUS_SEMANTICS = {
  * Use statusColors(status, { entity }) when entity is known.
  */
 export const STATUS_SEMANTIC_MAP = {
-  Estimate: "brand",
-  Scheduled: "sky",
-  "In Progress": "blue",
-  "Waiting on Materials": "attention-materials",
+  // Lead
+  Contact: "brand",
+  Assessment: "sky",
+  "Plan / draft estimate": "brand",
+  "Waiting on approval": "attention-approval",
+  Approved: "success",
+  Declined: "danger",
+  // Working
+  Prep: "sky",
+  "In progress": "blue",
+  "Waiting on materials": "attention-materials",
+  Blocked: "danger",
+  Cancelled: "closed",
   Completed: "success",
+  // Payment
+  Invoiced: "sky",
+  "Waiting on payment": "attention-payment",
+  Partial: "attention-payment",
+  Late: "danger",
   Paid: "closed",
 
   draft: "neutral",

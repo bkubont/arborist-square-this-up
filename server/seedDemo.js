@@ -48,19 +48,22 @@ const JOBS_PER_CLIENT = [1, 1, 1, 1, 2, 2, 3, 3, 0, 0, 0, 0, 0, 0, 0];
 const JOB_BLUEPRINTS = [
   {
     title: 'Guest bath vanity swap',
-    status: 'Estimate',
+    phase: 'lead',
+    status: 'Plan / draft estimate',
     description: 'Replace vanity, faucet, and mirror.',
     estimate: { status: 'draft', labor: 480, material: 320 },
   },
   {
     title: 'Kitchen faucet + shutoffs',
-    status: 'Estimate',
+    phase: 'lead',
+    status: 'Waiting on approval',
     description: 'Quote sent; waiting on client approval.',
     estimate: { status: 'sent', labor: 220, material: 95 },
   },
   {
     title: 'Front porch railing repair',
-    status: 'Scheduled',
+    phase: 'working',
+    status: 'Prep',
     description: 'Accepted; crew scheduled next week.',
     estimate: { status: 'accepted', labor: 640, material: 210 },
     workOrder: { status: 'issued' },
@@ -69,7 +72,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Basement egress window trim',
-    status: 'Scheduled',
+    phase: 'working',
+    status: 'Prep',
     description: 'Materials staged; start date set.',
     estimate: { status: 'accepted', labor: 900, material: 450 },
     workOrder: { status: 'issued' },
@@ -78,7 +82,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Laundry room flooring',
-    status: 'In Progress',
+    phase: 'working',
+    status: 'In progress',
     description: 'Demo complete; laying LVP.',
     estimate: { status: 'accepted', labor: 1100, material: 780 },
     workOrder: { status: 'issued' },
@@ -87,7 +92,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Attic insulation top-off',
-    status: 'In Progress',
+    phase: 'working',
+    status: 'In progress',
     description: 'Blown-in in progress; access from garage.',
     estimate: { status: 'accepted', labor: 750, material: 520 },
     workOrder: { status: 'issued' },
@@ -96,7 +102,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Master shower valve rebuild',
-    status: 'Waiting on Materials',
+    phase: 'working',
+    status: 'Waiting on materials',
     description: 'Valve on backorder from supplier.',
     estimate: { status: 'accepted', labor: 380, material: 160 },
     workOrder: { status: 'issued' },
@@ -105,7 +112,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Fence gate hardware refresh',
-    status: 'Waiting on Materials',
+    phase: 'working',
+    status: 'Waiting on materials',
     description: 'Custom hinges ordered.',
     estimate: { status: 'accepted', labor: 260, material: 140 },
     workOrder: { status: 'draft' },
@@ -113,7 +121,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Office paint + trim',
-    status: 'Completed',
+    phase: 'payment',
+    status: 'Invoiced',
     description: 'Punch list done; invoice ready to send.',
     estimate: { status: 'accepted', labor: 1400, material: 380 },
     workOrder: { status: 'complete' },
@@ -123,7 +132,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Garage door opener install',
-    status: 'Completed',
+    phase: 'payment',
+    status: 'Waiting on payment',
     description: 'Work finished; invoice out for payment.',
     estimate: { status: 'accepted', labor: 320, material: 410 },
     workOrder: { status: 'complete' },
@@ -132,6 +142,7 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Deck power-wash + seal',
+    phase: 'payment',
     status: 'Paid',
     description: 'Fully paid and closed.',
     estimate: { status: 'accepted', labor: 680, material: 240 },
@@ -142,6 +153,7 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Ceiling fan replacements (3)',
+    phase: 'payment',
     status: 'Paid',
     description: 'Paid in full after partial deposit.',
     estimate: { status: 'accepted', labor: 540, material: 360 },
@@ -152,13 +164,15 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Half-bath exhaust fan',
-    status: 'Estimate',
+    phase: 'lead',
+    status: 'Plan / draft estimate',
     description: 'New lead; draft estimate only.',
     estimate: { status: 'draft', labor: 180, material: 75 },
   },
   {
     title: 'Kitchen backsplash repair',
-    status: 'In Progress',
+    phase: 'working',
+    status: 'In progress',
     description: 'Tile set curing; CO approved for extra outlet.',
     estimate: { status: 'accepted', labor: 820, material: 390 },
     workOrder: { status: 'issued' },
@@ -267,14 +281,22 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     client_id: client.id,
     client_name: client.name,
     description: blueprint.description,
+    phase: blueprint.phase,
     status: blueprint.status,
     start_date,
     end_date,
     notes: 'Demo seed job',
     checklist: [
-      { text: 'Confirm access', done: blueprint.status !== 'Estimate' },
-      { text: 'Protect floors', done: ['In Progress', 'Waiting on Materials', 'Completed', 'Paid'].includes(blueprint.status) },
-      { text: 'Final walkthrough', done: ['Completed', 'Paid'].includes(blueprint.status) },
+      { text: 'Confirm access', done: blueprint.phase !== 'lead' || blueprint.status !== 'Contact' },
+      {
+        text: 'Protect floors',
+        done: blueprint.phase === 'working' && blueprint.status !== 'Prep'
+          || blueprint.phase === 'payment',
+      },
+      {
+        text: 'Final walkthrough',
+        done: blueprint.status === 'Completed' || blueprint.phase === 'payment',
+      },
     ],
     // Prefer timeline deposit_received for demo money (matches UI logDeposit).
     // Do not also set deposit_amount — FinancialPanel / sumDepositsApplied add both.

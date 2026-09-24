@@ -52,7 +52,16 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     assert.equal(15 - byClient.size, 7);
 
     const statuses = new Set(jobs.map((j) => JSON.parse(j.data).status));
-    for (const needed of ['Estimate', 'Scheduled', 'In Progress', 'Waiting on Materials', 'Completed', 'Paid']) {
+    for (const needed of [
+      'Plan / draft estimate',
+      'Waiting on approval',
+      'Prep',
+      'In progress',
+      'Waiting on materials',
+      'Invoiced',
+      'Waiting on payment',
+      'Paid',
+    ]) {
       assert.ok(statuses.has(needed), `missing job status ${needed}`);
     }
 
@@ -109,11 +118,11 @@ test('demo wipe is account-scoped and preserves other accounts', async () => {
     const clientA = await saveRecord(db, a, 'Client', {
       name: 'A client', address: '1 A St', city: 'Springfield', state: 'IL', zip: '62701',
     });
-    await saveRecord(db, a, 'Job', { title: 'A job', client_id: clientA.id, status: 'Estimate' });
+    await saveRecord(db, a, 'Job', { title: 'A job', client_id: clientA.id, phase: 'lead', status: 'Contact' });
     const clientB = await saveRecord(db, b, 'Client', {
       name: 'B client', address: '2 B St', city: 'Springfield', state: 'IL', zip: '62702',
     });
-    await saveRecord(db, b, 'Job', { title: 'B job', client_id: clientB.id, status: 'Paid' });
+    await saveRecord(db, b, 'Job', { title: 'B job', client_id: clientB.id, phase: 'payment', status: 'Paid' });
 
     await wipeAndSeedAccount(db, 'a@example.com', { yes: true });
 

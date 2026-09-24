@@ -216,16 +216,13 @@ export default function Dashboard() {
               loading
                 ? "…"
                 : String(
-                    statusCounts.Estimate +
-                      statusCounts.Scheduled +
-                      statusCounts["In Progress"] +
-                      statusCounts["Waiting on Materials"]
+                    ACTIVE_STATUSES.reduce((sum, s) => sum + (statusCounts[s] || 0), 0)
                   )
             }
             hint={
               loading
                 ? undefined
-                : `Est ${statusCounts.Estimate || 0} · Sched ${statusCounts.Scheduled || 0} · Prog ${statusCounts["In Progress"] || 0}`
+                : `Lead ${(statusCounts["Plan / draft estimate"] || 0) + (statusCounts["Waiting on approval"] || 0)} · Work ${statusCounts["In progress"] || 0} · Pay ${statusCounts["Waiting on payment"] || 0}`
             }
           />
         </div>
