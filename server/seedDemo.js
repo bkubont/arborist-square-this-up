@@ -86,8 +86,8 @@ const JOB_BLUEPRINTS = [
   {
     title: 'Laundry room flooring',
     phase: 'working',
-    status: 'In progress',
-    description: 'Demo complete; laying LVP.',
+    status: 'Blocked',
+    description: 'Inspector rescheduled — cannot close wall until pass.',
     estimate: { status: 'accepted', labor: 1100, material: 780 },
     tasks: 'in_progress',
     materialOrder: { status: 'received' },

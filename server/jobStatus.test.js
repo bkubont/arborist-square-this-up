@@ -44,12 +44,22 @@ describe('job status model', () => {
     }
   });
 
-  it('working phase excludes Waiting on materials', () => {
-    const working = JOB_PHASES.working.statuses.filter((s) => s !== INVOICE_GATE_STATUS);
-    assert.ok(!working.includes('Waiting on materials'));
+  it('working phase excludes Waiting on materials but includes Blocked for the board', () => {
+    assert.deepEqual(JOB_PHASES.working.statuses, [
+      'Prep',
+      'In progress',
+      'Blocked',
+      'Cancelled',
+      'Completed',
+      INVOICE_GATE_STATUS,
+    ]);
+    const stored = JOB_PHASES.working.statuses.filter((s) => s !== INVOICE_GATE_STATUS);
+    assert.ok(!stored.includes('Waiting on materials'));
+    assert.ok(stored.includes('Blocked'));
     const normalized = normalizeJobRecord({ status: 'Waiting on materials' });
     assert.equal(normalized.status, 'In progress');
     assert.equal(normalized.phase, 'working');
+    assert.notEqual(normalized.status, 'Blocked');
   });
 
   it('invoiced gate moves job to payment waiting on payment', () => {

@@ -88,6 +88,7 @@ export function formatJobStatus(job) {
   return job.status || '';
 }
 
+/** Kanban columns for a phase — every status renders as a droppable column (incl. Blocked on Working). */
 export function statusesForPhase(phase) {
-  return JOB_PHASES[phase]?.statuses || [];
+  return JOB_PHASES[phase]?.statuses ? [...JOB_PHASES[phase].statuses] : [];
 }
