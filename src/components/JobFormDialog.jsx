@@ -6,13 +6,14 @@ import { Label } from "@/components/ui/label";
 import FieldLabel from "@/components/FieldLabel";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import StatusSelect from "@/components/StatusSelect";
+import JobPhaseStatusSelect from "@/components/JobPhaseStatusSelect";
 
 export default function JobFormDialog({ open, onOpenChange, onSave, job = null, clients, defaultClientId = "" }) {
   const [form, setForm] = useState({
     title: "",
     description: "",
-    status: "Estimate",
+    phase: "lead",
+    status: "Contact",
     client_id: "",
     start_date: "",
     end_date: "",
@@ -26,7 +27,8 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
           ? {
               title: job.title || "",
               description: job.description || "",
-              status: job.status || "Estimate",
+              phase: job.phase || "lead",
+              status: job.status || "Contact",
               client_id: job.client_id || "",
               start_date: job.start_date || "",
               end_date: job.end_date || "",
@@ -35,7 +37,8 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
           : {
               title: "",
               description: "",
-              status: "Estimate",
+              phase: "lead",
+              status: "Contact",
               client_id: defaultClientId || "",
               start_date: "",
               end_date: "",
@@ -48,8 +51,11 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = () => {
-    if (!form.title?.trim() || !form.client_id) return;
-    onSave({ ...form });
+    if (!form.client_id) return;
+    onSave({
+      ...form,
+      title: form.title?.trim() || undefined,
+    });
   };
 
   return (
@@ -60,7 +66,7 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <FieldLabel required>Title</FieldLabel>
+            <FieldLabel>Title (optional)</FieldLabel>
             <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Kitchen faucet replacement" />
           </div>
           <div>
@@ -83,8 +89,12 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
             <Textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} />
           </div>
           <div>
-            <Label>Status</Label>
-            <StatusSelect value={form.status} onValueChange={(v) => set("status", v)} />
+            <Label>Phase & status</Label>
+            <JobPhaseStatusSelect
+              phase={form.phase}
+              status={form.status}
+              onChange={({ phase, status }) => setForm((f) => ({ ...f, phase, status }))}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

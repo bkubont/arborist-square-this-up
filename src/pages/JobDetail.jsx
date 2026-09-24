@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import StatusSelect from "@/components/StatusSelect";
+import JobPhaseStatusSelect from "@/components/JobPhaseStatusSelect";
+import { JOB_PHASES } from "@/lib/jobStatus";
 import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
@@ -16,6 +17,8 @@ import { JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
+import JobMaterialsPanel from "@/components/JobMaterialsPanel";
+import MaterialsStatusLine from "@/components/MaterialsStatusLine";
 import TimelineFeed from "@/components/TimelineFeed";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
@@ -116,7 +119,12 @@ export default function JobDetail() {
 
   const activity = useMemo(
     () => composeJobActivity({ entries, documents }),
-    [entries, documents]
+    [entries, documents],
+  );
+
+  const materialOrders = useMemo(
+    () => documents.filter((doc) => doc.entity === "MaterialOrder"),
+    [documents],
   );
 
   const shownTimeline = useMemo(() => {
@@ -166,12 +174,13 @@ export default function JobDetail() {
     load();
   };
 
-  const changeStatus = async (status) => {
-    await api.entities.Job.update(id, { status });
+  const changeStatus = async ({ phase, status }) => {
+    await api.entities.Job.update(id, { phase, status });
+    const phaseLabel = JOB_PHASES[phase]?.label || phase;
     await api.entities.TimelineEntry.create({
       job_id: id,
       type: "status_change",
-      text: `Status changed to ${status}`,
+      text: `Status changed to ${phaseLabel} · ${status}`,
       category: "note",
     });
     load();
@@ -221,7 +230,12 @@ export default function JobDetail() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              <h1 className="text-2xl font-bold text-foreground">{job.title}</h1>
+              <h1 className="text-2xl font-bold text-foreground">
+                {job.title?.trim() || client?.name || "Job"}
+              </h1>
+              {job.title?.trim() && client?.name && (
+                <span className="text-sm font-normal text-muted-foreground">{client.name}</span>
+              )}
               <JobPhotoButton jobId={id} entries={entries} onUploaded={load} onChanged={load} />
             </div>
             {client && (
@@ -241,9 +255,22 @@ export default function JobDetail() {
               </div>
             )}
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
-              <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
+          <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
+            <div className="flex items-start gap-2 w-full sm:w-auto">
+              <JobPhaseStatusSelect
+                phase={job.phase}
+                status={job.status}
+                onChange={changeStatus}
+                className="w-full sm:w-64"
+                belowStatus={
+                  <MaterialsStatusLine
+                    job={job}
+                    workItems={workItems}
+                    materialOrders={materialOrders}
+                    className="mt-1.5 text-right sm:text-left"
+                  />
+                }
+              />
               <JobQuickAdd job={job} onSaved={load} />
             </div>
             {summary && summary.running_total_basis !== "none" && (
@@ -274,6 +301,8 @@ export default function JobDetail() {
             </div>
             <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
           </div>
+
+          <JobMaterialsPanel jobId={id} materials={job.materials || []} onChanged={load} />
 
           <JobDocuments
             jobId={id}

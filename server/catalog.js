@@ -53,19 +53,20 @@ function catalogNotes(item) {
   return parts.join(' · ');
 }
 
-/** Map a catalog row into an editable Estimate line (Decision #5). */
+/** Map a catalog row into an editable Estimate line (whole-line amount, materials included). */
 export function catalogItemToEstimateLine(item) {
   const hours = item.hours_mid ?? null;
   const rate = item.labor_rate ?? 55;
-  const labor = item.est_labor_cost ?? (hours != null ? hours * rate : undefined);
-  const materials = item.est_materials_cost;
+  const labor = item.est_labor_cost ?? (hours != null ? hours * rate : 0);
+  const materials = Number(item.est_materials_cost) || 0;
+  const wholeLine = Math.round((Number(labor || 0) + materials) * 100) / 100;
   return {
     description: item.task,
     category: item.category || '',
-    labor_amount: labor != null ? Math.round(labor * 100) / 100 : undefined,
+    labor_amount: wholeLine > 0 ? wholeLine : undefined,
     labor_hours: hours != null ? hours : undefined,
     labor_rate: rate,
-    material_amount: materials != null ? Math.round(Number(materials) * 100) / 100 : undefined,
+    material_amount: undefined,
     equipment_amount: undefined,
     notes: catalogNotes(item),
     tools: item.tools || undefined,

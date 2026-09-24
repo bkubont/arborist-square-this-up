@@ -62,8 +62,8 @@ export default function ActiveJobs() {
         title="Jobs"
         description={
           loading
-            ? "Estimate, Scheduled, In Progress, Waiting on Materials, or On Hold"
-            : `${jobs.length} active · Estimate, Scheduled, In Progress, Waiting on Materials, or On Hold`
+            ? "Lead, working, and payment jobs in play"
+            : `${jobs.length} active · non-terminal statuses across all phases`
         }
         primaryAction={
           <Button

@@ -132,12 +132,25 @@ export const STATUS_SEMANTICS = {
  * Use statusColors(status, { entity }) when entity is known.
  */
 export const STATUS_SEMANTIC_MAP = {
-  Estimate: "brand",
-  Scheduled: "sky",
-  "In Progress": "blue",
-  "Waiting on Materials": "attention-materials",
-  "On Hold": "hold",
+  // Lead
+  Contact: "brand",
+  Assessment: "sky",
+  "Plan / draft estimate": "brand",
+  "Waiting on approval": "attention-approval",
+  Approved: "success",
+  Declined: "danger",
+  // Working
+  Prep: "sky",
+  "In progress": "blue",
+  "Waiting on materials": "attention-materials",
+  Blocked: "danger",
+  Cancelled: "closed",
   Completed: "success",
+  // Payment
+  Invoiced: "sky",
+  "Waiting on payment": "attention-payment",
+  Partial: "attention-payment",
+  Late: "danger",
   Paid: "closed",
 
   draft: "neutral",
@@ -158,14 +171,18 @@ export const STATUS_SEMANTIC_MAP = {
 
   // Job tasks (src/lib/tasks.js)
   plan: "brand",
-  prep: "neutral",
+  materials: "attention-materials",
   permits: "sky",
-  in_progress: "blue",
-  waiting_materials: "attention-materials",
   waiting_on_approval: "attention-approval",
   blocked: "danger",
-  on_hold: "hold",
+  finish: "blue",
+  completed: "success",
   cancelled: "danger",
+  // Legacy task statuses (normalized on read)
+  prep: "brand",
+  in_progress: "brand",
+  waiting_materials: "danger",
+  on_hold: "danger",
   done: "success",
 };
 

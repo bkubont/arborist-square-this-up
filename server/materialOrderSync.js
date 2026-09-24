@@ -29,7 +29,10 @@ function draftHasSyncedSourceLines(order) {
 
 /** Build incoming MO lines from live job documents. */
 export async function collectMaterialLinesForJob(db, ownerId, jobId) {
-  return collectJobMaterialLines({ workItems: await listJobDocuments(db, ownerId, 'WorkItem', jobId) });
+  const { getRecord } = await import('./domain.js');
+  const job = await getRecord(db, ownerId, 'Job', jobId);
+  const workItems = await listJobDocuments(db, ownerId, 'WorkItem', jobId);
+  return collectJobMaterialLines({ job, workItems });
 }
 
 /**

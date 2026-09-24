@@ -1,29 +1,21 @@
-/**
- * Job status columns used by Dashboard Jobs tile, lists, and Kanban.
- * Active / in-play first; Completed & Paid are terminal but shown on board.
- */
-export const JOB_STATUSES = [
-  "Estimate",
-  "Scheduled",
-  "In Progress",
-  "Waiting on Materials",
-  "On Hold",
-  "Completed",
-  "Paid",
-];
+import {
+  ACTIVE_JOB_STATUSES,
+  ARCHIVE_JOB_STATUSES,
+  JOB_PHASE_ORDER,
+  JOB_PHASES,
+  STORED_JOB_STATUSES,
+} from "./jobStatus.js";
 
-/** Statuses still in play (Dashboard Active list). Terminal: Completed, Paid. */
-export const ACTIVE_STATUSES = [
-  "Estimate",
-  "Scheduled",
-  "In Progress",
-  "Waiting on Materials",
-  "On Hold",
-];
+/** Stored job statuses across Lead, Working, and Payment (excludes Invoiced gate). */
+export const JOB_STATUSES = STORED_JOB_STATUSES;
 
-const ARCHIVE_JOB_STATUSES = new Set(["Completed", "Paid"]);
+/** Statuses still in play on working lists (non-terminal). */
+export const ACTIVE_STATUSES = ACTIVE_JOB_STATUSES;
+
+export { JOB_PHASE_ORDER, JOB_PHASES, ARCHIVE_JOB_STATUSES };
 
 export function isArchivedJob(job) {
+  if (job?.status === "Completed") return false;
   if (job?.archived_at) return true;
   return ARCHIVE_JOB_STATUSES.has(job?.status);
 }
@@ -203,8 +195,8 @@ export function moneySummary(jobs, estimates = [], changeOrders = [], invoices =
  */
 export function actionReasonsForJob(job, estimates = [], changeOrders = []) {
   const reasons = [];
-  if (job?.status === "Waiting on Materials") reasons.push("Waiting on materials");
-  if (job?.status === "On Hold") reasons.push("On hold");
+  if (job?.status === "Blocked") reasons.push("Blocked");
+  if (job?.status === "Waiting on approval") reasons.push("Waiting on client approval");
 
   const jobEstimates = estimates.filter((e) => e.job_id === job.id && isAwaitingApproval(e));
   if (jobEstimates.length) reasons.push("Estimate awaiting approval");

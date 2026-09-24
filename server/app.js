@@ -31,6 +31,8 @@ import {
   refreshInvoicePaymentSync,
 } from './invoiceSync.js';
 import { applyJobArchiveFields } from './jobArchive.js';
+import { applyJobStatusFields, normalizeJobRecord } from './jobStatus.js';
+import { normalizeWorkItemRecord } from './taskStatus.js';
 import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
 import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable, completeJobWhenTasksDone } from './workItems.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
@@ -41,7 +43,7 @@ import { jobSummary, accountSummaries } from './summary.js';
 import { fromCents } from '../shared/money.js';
 
 /** Saving these re-syncs the job's draft Material Order: only task material lists feed it. */
-const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem']);
+const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem', 'Job']);
 
 async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
   if (!jobId) return null;
@@ -50,6 +52,12 @@ async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
     await refreshJobDocumentRollups(tx, ownerId, synced.job_id, { saveRecord, sumActiveInvoiceTotals });
   }
   return synced;
+}
+
+function normalizeEntityRecord(entity, record) {
+  if (entity === 'Job') return normalizeJobRecord(record);
+  if (entity === 'WorkItem') return normalizeWorkItemRecord(record);
+  return record;
 }
 
 export async function createApp(db, env = process.env) {
@@ -282,9 +290,13 @@ export async function createApp(db, env = process.env) {
       `SELECT * FROM records WHERE owner_id = ? AND entity = ?${parent ? ' AND parent_id = ?' : ''} ORDER BY ${sortColumn} ${sortDir}, id ASC LIMIT ${limit} OFFSET ${offset}`,
       [req.user.id, req.params.entity, ...(parent ? [parent] : [])]
     );
-    res.json(rows.map(decode));
+    const records = rows.map(decode);
+    res.json(records.map((record) => normalizeEntityRecord(req.params.entity, record)));
   });
-  app.get('/api/entities/:entity/:id', async (req, res) => res.json(await getRecord(db, req.user.id, req.params.entity, req.params.id)));
+  app.get('/api/entities/:entity/:id', async (req, res) => {
+    const record = await getRecord(db, req.user.id, req.params.entity, req.params.id);
+    res.json(normalizeEntityRecord(req.params.entity, record));
+  });
   // Lock the owner's row to serialize relationships, deletes, quotas and exports.
   const ownedTransaction = (owner, fn) => db.transaction(async tx => {
     await tx.all('SELECT id FROM users WHERE id = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [owner]);
@@ -480,6 +492,7 @@ export async function createApp(db, env = process.env) {
     let body = req.body;
     if (entity === 'Job') {
       body = stripJobDerivedMoney(body);
+      body = applyJobStatusFields(body);
       body = applyJobArchiveFields(body);
     }
     if (entity === 'WorkItem') body = prepareWorkItemCreate(body);
@@ -505,15 +518,16 @@ export async function createApp(db, env = process.env) {
           await refreshJobDocumentRollups(tx, req.user.id, record.job_id, { saveRecord, sumActiveInvoiceTotals });
         }
       }
-      if (MATERIAL_SYNC_ENTITIES.has(entity) && record.job_id) {
-        await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
+      const materialSyncJobId = entity === 'Job' ? record.id : record.job_id;
+      if (MATERIAL_SYNC_ENTITIES.has(entity) && materialSyncJobId) {
+        await maybeSyncMaterialOrder(tx, req.user.id, materialSyncJobId);
       }
       return record;
     });
     if (entity === 'TimelineEntry' && isFinancialTimelineEntry(created) && created.job_id) {
       await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, created.job_id));
     }
-    res.status(201).json(created);
+    res.status(201).json(normalizeEntityRecord(entity, created));
   });
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
@@ -523,6 +537,7 @@ export async function createApp(db, env = process.env) {
       : null;
     if (entity === 'Job' && body && typeof body === 'object') {
       body = stripJobDerivedMoney(body);
+      body = applyJobStatusFields(body, previous);
       body = applyJobArchiveFields(body, previous);
     }
     if (entity === 'WorkItem') body = prepareWorkItemUpdate(previous, body);
@@ -586,8 +601,9 @@ export async function createApp(db, env = process.env) {
         await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
-    if (MATERIAL_SYNC_ENTITIES.has(entity) && updated.job_id) {
-      await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, updated.job_id));
+    const materialSyncJobId = entity === 'Job' ? updated.id : updated.job_id;
+    if (MATERIAL_SYNC_ENTITIES.has(entity) && materialSyncJobId) {
+      await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, materialSyncJobId));
       if (movingJob && previous.job_id) {
         await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, previous.job_id));
       }
@@ -598,7 +614,7 @@ export async function createApp(db, env = process.env) {
         await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
-    res.json(updated);
+    res.json(normalizeEntityRecord(entity, updated));
   });
   app.delete('/api/entities/:entity/:id', async (req, res) => {
     let financialTimelineJobId = null;

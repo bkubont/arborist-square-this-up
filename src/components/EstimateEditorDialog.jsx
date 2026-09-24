@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Printer, Send, Camera, Loader2 } from "lucide-react";
+import { Plus, Trash2, Printer, Send, Camera, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,18 +7,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import ScopeLinesEditor from "@/components/ScopeLinesEditor";
-import StatusOverrideSelect from "@/components/StatusOverrideSelect";
+import CatalogTypeahead from "@/components/CatalogTypeahead";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
+import StatusOverrideSelect from "@/components/StatusOverrideSelect";
+import { WORK_CATEGORIES } from "@/lib/documentMapping";
 import { money, shortDate } from "@/lib/format";
 import {
   addDaysIso,
+  catalogItemToFormLine,
   DEFAULT_LABOR_RATE,
   emptyEstimateLine,
   ESTIMATE_VALID_DAYS,
+  estimateLineAmount,
   estimateTotals,
-  lineTotal,
-  scopeLineToForm,
+  normalizeEstimateLinesForEditor,
+  laborAmountFromHours,
   serializeEstimateLine,
   todayIso,
 } from "@/lib/estimateMath";
@@ -26,8 +29,8 @@ import { isEstimateReadOnly } from "@/lib/documentAvailability";
 import { loadAccountTaxRate } from "@/lib/salesTax";
 
 /**
- * Estimate editor: simplified lines + catalog typeahead + client e-sign + job photo capture.
- * Hours × default/catalog rate → Est. Labor under the hood; hours are copied onto each line's task.
+ * Estimate editor: whole-line amounts (materials included) + catalog typeahead + e-sign.
+ * Hours × rate can suggest the line amount; hours kept for Work Order mapping.
  * After client accept: print/view only (no content edits).
  */
 export default function EstimateEditorDialog({ open, onOpenChange, document, jobId, jobTitle, onSaved, onRevised }) {
@@ -63,7 +66,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       tax_rate: document.tax_rate ?? "",
     });
     const existing = Array.isArray(document.lines) && document.lines.length
-      ? document.lines.map(scopeLineToForm)
+      ? normalizeEstimateLinesForEditor(document.lines)
       : [emptyEstimateLine()];
     setLines(existing);
 
@@ -83,6 +86,37 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   if (!document) return null;
 
   const readOnly = isEstimateReadOnly(document);
+
+  const setLine = (index, patch) => {
+    if (readOnly) return;
+    setLines((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+
+  const setHours = (index, hoursValue) => {
+    if (readOnly) return;
+    setLines((rows) => rows.map((row, i) => {
+      if (i !== index) return row;
+      const rate = row.labor_rate || defaultLaborRate;
+      const suggested = laborAmountFromHours(hoursValue, rate, defaultLaborRate);
+      return {
+        ...row,
+        labor_hours: hoursValue,
+        labor_rate: row.labor_rate || String(defaultLaborRate),
+        line_amount: suggested === "" ? row.line_amount : suggested,
+      };
+    }));
+  };
+
+  const addLine = () => { if (!readOnly) setLines((rows) => [...rows, emptyEstimateLine()]); };
+  const removeLine = (index) => {
+    if (readOnly) return;
+    setLines((rows) => (rows.length <= 1 ? [emptyEstimateLine()] : rows.filter((_, i) => i !== index)));
+  };
+
+  const onCatalogPick = (index, item) => {
+    if (readOnly) return;
+    setLine(index, catalogItemToFormLine(item, defaultLaborRate));
+  };
 
   const captureJobPhoto = async (files) => {
     if (!files?.length || !jobId) return;
@@ -108,12 +142,11 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     }
   };
 
-  // Status changes through its own actions (Send sign link, the status override, Void) —
-  // server/lifecycle.js rejects a status field in a plain edit, so this never sends one.
+  // Status changes through sign link, StatusOverrideSelect, or Void — not plain save.
   const persist = async () => {
     if (readOnly) return;
     const serialized = lines.map(serializeEstimateLine).filter((line) =>
-      line.description || line.material_amount || line.labor_amount || line.equipment_amount
+      line.description || line.labor_amount
     );
     const nextTotals = estimateTotals(serialized, form.tax_rate);
     await api.entities.Estimate.update(document.id, {
@@ -150,7 +183,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     setSignResult(null);
     try {
       const serialized = lines.map(serializeEstimateLine).filter((line) =>
-        line.description || line.material_amount || line.labor_amount || line.equipment_amount
+        line.description || line.labor_amount
       );
       const nextTotals = estimateTotals(serialized, form.tax_rate);
       await api.entities.Estimate.update(document.id, {
@@ -188,9 +221,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
         <td>${escapeHtml(line.category || "")}</td>
         <td>${escapeHtml(line.description || "")}</td>
         <td class="num">${line.labor_hours != null ? escapeHtml(String(line.labor_hours)) : "—"}</td>
-        <td class="num">${fmt(line.material_amount)}</td>
-        <td class="num">${fmt(line.labor_amount)}</td>
-        <td class="num">${fmt(lineTotal(line))}</td>
+        <td class="num">${fmt(estimateLineAmount(line))}</td>
       </tr>`).join("");
     w.document.write(`<!doctype html><html><head><title>Estimate ${escapeHtml(form.number || "")}</title>
       <style>
@@ -209,8 +240,8 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       <h1>Construction Estimate</h1>
       <div class="meta">${escapeHtml(jobTitle || "Job")} · ${escapeHtml(form.number || "Draft")}
         ${form.date ? ` · ${escapeHtml(form.date)}` : ""}${form.valid_till ? ` · Valid until ${escapeHtml(form.valid_till)}` : ""}</div>
-      <table><thead><tr><th>Category</th><th>Description</th><th class="num">Hrs</th><th class="num">Material</th><th class="num">Labor</th><th class="num">Total</th></tr></thead>
-      <tbody>${rows || "<tr><td colspan=6>No lines</td></tr>"}</tbody></table>
+      <table><thead><tr><th>Category</th><th>Description</th><th class="num">Hrs</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows || "<tr><td colspan=4>No lines</td></tr>"}</tbody></table>
       <div class="totals">
         <div><span>Subtotal</span><span>${fmt(t.subtotal)}</span></div>
         <div><span>Tax (${escapeHtml(String(form.tax_rate || 0))}%)</span><span>${fmt(t.tax_amount)}</span></div>
@@ -267,7 +298,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
               <>Accepted. </>
             )}
             This estimate is <strong>print / view only</strong> — content cannot be edited.
-            Snapshot total {money(document.accepted_snapshot?.total ?? document.total)} carries to the Work Order.
+            Snapshot total {money(document.accepted_snapshot?.total ?? document.total)} carries to job tasks.
           </div>
         )}
 
@@ -278,13 +309,19 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           <div>
             <Label>Status</Label>
-            {/* Its own action, never part of a content edit; unsaved edits are saved first. */}
-            <StatusOverrideSelect
-              entity="Estimate"
-              document={document}
-              beforeChange={persist}
-              onChanged={() => { onSaved?.(); onOpenChange(false); }}
-            />
+            {readOnly ? (
+              <Input value={form.status} readOnly className="bg-slate-50 capitalize" />
+            ) : (
+              <StatusOverrideSelect
+                entity="Estimate"
+                document={document}
+                beforeChange={persist}
+                onChanged={(updated) => {
+                  setForm((f) => ({ ...f, status: updated.status }));
+                  onSaved?.();
+                }}
+              />
+            )}
           </div>
           <div>
             <Label>Date</Label>
@@ -324,11 +361,89 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           {!readOnly && (
             <p className="text-xs text-slate-500 mb-2">
-              Type in Description to pick from the catalog. Hrs × rate fills Est. Labor; the hours also show on the line's task.
+              Type in Description to pick from the catalog. Each line is one whole-line amount (materials included). Hrs × rate can suggest the amount.
             </p>
           )}
 
-          <ScopeLinesEditor lines={lines} setLines={setLines} readOnly={readOnly} defaultLaborRate={defaultLaborRate} idPrefix="est" />
+          <div className="space-y-3">
+            {lines.map((line, index) => (
+              <div key={index} className="rounded-lg border border-slate-200 p-3 bg-slate-50/50 space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-[minmax(7rem,9rem)_1fr_4.5rem_auto] gap-2 items-end">
+                  <div>
+                    <Label className="text-xs">Category</Label>
+                    <Input
+                      className={readOnly ? "bg-slate-50" : "bg-white"}
+                      list={readOnly ? undefined : `est-cat-${index}`}
+                      value={line.category}
+                      onChange={(e) => setLine(index, { category: e.target.value })}
+                      placeholder="e.g. Plumbing"
+                      readOnly={readOnly}
+                    />
+                    {!readOnly && (
+                      <datalist id={`est-cat-${index}`}>
+                        {WORK_CATEGORIES.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-xs">Description</Label>
+                    {readOnly ? (
+                      <Input className="bg-slate-50" value={line.description} readOnly />
+                    ) : (
+                      <CatalogTypeahead
+                        value={line.description}
+                        onChange={(description) => setLine(index, { description, catalog_id: "" })}
+                        onPick={(item) => onCatalogPick(index, item)}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-xs">Hrs.</Label>
+                    <Input
+                      type="number"
+                      className={readOnly ? "bg-slate-50" : "bg-white"}
+                      value={line.labor_hours}
+                      onChange={(e) => setHours(index, e.target.value)}
+                      placeholder="—"
+                      readOnly={readOnly}
+                    />
+                  </div>
+                  {!readOnly && (
+                    <Button type="button" variant="outline" size="icon" className="shrink-0 text-red-600 mb-0.5" onClick={() => removeLine(index)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Notes</Label>
+                    <Input className={readOnly ? "bg-slate-50" : "bg-white"} value={line.notes} onChange={(e) => setLine(index, { notes: e.target.value })} readOnly={readOnly} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Line amount $</Label>
+                    <Input
+                      type="number"
+                      className={readOnly ? "bg-slate-50" : "bg-white"}
+                      value={line.line_amount}
+                      onChange={(e) => setLine(index, { line_amount: e.target.value })}
+                      placeholder="0"
+                      readOnly={readOnly}
+                    />
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500 text-right">Row total {money(estimateLineAmount(line))}</div>
+              </div>
+            ))}
+          </div>
+          {!readOnly && (
+            <div className="mt-2">
+              <Button type="button" variant="outline" size="sm" onClick={addLine}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Line
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4 mt-4">
@@ -403,7 +518,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
               <Printer className="w-4 h-4 mr-1" /> Print
             </Button>
             {!readOnly && (
-              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => save()} disabled={saving}>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={save} disabled={saving || form.status === "void"}>
                 {saving ? "Saving…" : "Save estimate"}
               </Button>
             )}

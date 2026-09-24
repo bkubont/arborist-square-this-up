@@ -17,7 +17,7 @@ export function NoteList({ notes = [], onRemove = undefined, className = undefin
   return (
     <ul className={cn("space-y-1", className)}>
       {notes.map((note) => {
-        const colors = statusColors(note.status || "prep");
+        const colors = statusColors(note.status || "plan");
         return (
           <li
             key={note.id}
@@ -29,7 +29,7 @@ export function NoteList({ notes = [], onRemove = undefined, className = undefin
             <span className="flex-1 min-w-0">
               <span className="whitespace-pre-wrap break-words">{note.text}</span>
               <span className="block text-[10px] opacity-70">
-                {taskStatusLabel(note.status || "prep")}{note.created_at ? ` · ${shortDate(note.created_at)}` : ""}
+                {taskStatusLabel(note.status || "plan")}{note.created_at ? ` · ${shortDate(note.created_at)}` : ""}
               </span>
             </span>
             {onRemove && (

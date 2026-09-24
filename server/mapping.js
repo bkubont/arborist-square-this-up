@@ -321,6 +321,24 @@ export function materialOrderClaimIdentity(line = {}) {
  * Task materials still needed (not on hand) → MO lines. Cancelled tasks contribute nothing, and
  * ticking an item "have" drops it from the draft on the next sync.
  */
+export function materialLinesFromJob(job) {
+  if (!job?.id) return [];
+  return (job.materials || []).flatMap((material, index) => {
+    if (material.have || !String(material.description || '').trim()) return [];
+    return [{
+      description: material.description,
+      qty: num(material.qty),
+      unit_price: num(material.unit_price),
+      notes: [material.unit, material.notes].filter(Boolean).join(' · ') || undefined,
+      source_entity: 'Job',
+      source_id: job.id,
+      source_line_index: index,
+      source_line_id: material.id,
+      on_hand: false,
+    }];
+  });
+}
+
 export function materialLinesFromWorkItems(workItems = []) {
   return (workItems || []).flatMap((item) => {
     if (!item?.id || item.status === 'cancelled') return [];
@@ -345,10 +363,10 @@ export function materialLinesFromWorkItems(workItems = []) {
 /**
  * Collect job materials for MO autofill: the material lists on the job's tasks, items not yet on
  * hand. Estimates and change orders no longer feed Material Orders directly.
- * @param {{ workItems?: object[] }} [args]
+ * @param {{ job?: object, workItems?: object[] }} [args]
  */
-export function collectJobMaterialLines({ workItems = [] } = {}) {
-  return materialLinesFromWorkItems(workItems);
+export function collectJobMaterialLines({ job, workItems = [] } = {}) {
+  return [...materialLinesFromJob(job), ...materialLinesFromWorkItems(workItems)];
 }
 
 /**

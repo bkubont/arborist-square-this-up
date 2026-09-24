@@ -206,8 +206,8 @@ test('accounts cannot read, modify, delete, link or export each other’s data o
   const ownJob = await create('Job', { title: 'B job', client_id: ownClient.id }, b.cookie);
   assert.equal((await request('/entities/TimelineEntry', { method: 'POST', cookie: b.cookie, data: { job_id: ownJob.id, type: 'photo', photo_url: file.data.file_url } })).status, 400);
   const exported = (await request('/export', { cookie: b.cookie })).data;
-  // Client + Job + registration-seeded CompanyProfile + built-in Prep and Final walkthrough tasks
-  assert.equal(exported.records.length, 5); assert.deepEqual(exported.files, []);
+  // Client + Job + registration-seeded CompanyProfile + built-in Prep, Materials, and Final walkthrough tasks
+  assert.equal(exported.records.length, 6); assert.deepEqual(exported.files, []);
   assert.ok(exported.records.some((r) => r.entity === 'CompanyProfile'));
   assert.equal((await request(`/entities/Client/${client.id}`, { method: 'DELETE', cookie: a.cookie })).status, 409);
   assert.equal((await request(`/entities/Job/${job.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
@@ -1259,22 +1259,33 @@ test('mark invoice paid totals the invoice', async t => {
   assert.equal(marked.data.payments_applied, 500);
 });
 
-test('completed and paid jobs archive automatically', async t => {
+test('paid, declined, and cancelled jobs archive; completed stays in working', async t => {
   const { request, register } = await fixture(t);
   const a = await register('archive@example.com');
   const client = (await request('/entities/Client', {
     method: 'POST', cookie: a.cookie, data: { name: 'Archive client', ...CLIENT_ADDR },
   })).data;
   const job = (await request('/entities/Job', {
-    method: 'POST', cookie: a.cookie, data: { title: 'Archive job', client_id: client.id, status: 'In Progress' },
+    method: 'POST', cookie: a.cookie, data: { title: 'Archive job', client_id: client.id, status: 'In progress', phase: 'working' },
   })).data;
   const completed = await request(`/entities/Job/${job.id}`, {
-    method: 'PATCH', cookie: a.cookie, data: { status: 'Completed' },
+    method: 'PATCH', cookie: a.cookie, data: { status: 'Completed', phase: 'working' },
   });
   assert.equal(completed.status, 200);
-  assert.ok(completed.data.archived_at);
+  assert.equal(completed.data.archived_at, undefined);
+
+  const declinedJob = (await request('/entities/Job', {
+    method: 'POST', cookie: a.cookie, data: { title: 'Declined job', client_id: client.id, status: 'Declined', phase: 'lead' },
+  })).data;
+  assert.ok(declinedJob.archived_at);
+
+  const cancelledJob = (await request('/entities/Job', {
+    method: 'POST', cookie: a.cookie, data: { title: 'Cancelled job', client_id: client.id, status: 'Cancelled', phase: 'working' },
+  })).data;
+  assert.ok(cancelledJob.archived_at);
+
   const paid = await request(`/entities/Job/${job.id}`, {
-    method: 'PATCH', cookie: a.cookie, data: { status: 'Paid' },
+    method: 'PATCH', cookie: a.cookie, data: { status: 'Paid', phase: 'payment' },
   });
   assert.equal(paid.status, 200);
   assert.ok(paid.data.archived_at);
@@ -2009,17 +2020,23 @@ test('creating a job auto-attaches Prep and Final walkthrough tasks', async t =>
   const client = await create('Client', { name: 'Default tasks client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Default tasks job', client_id: client.id });
   const items = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
-  assert.equal(items.length, 2);
+  assert.equal(items.length, 3);
   const prep = items.find((i) => i.template_key === 'prep');
+  const materials = items.find((i) => i.template_key === 'materials');
   const walkthrough = items.find((i) => i.template_key === 'final_walkthrough');
   assert.ok(prep);
+  assert.ok(materials);
   assert.ok(walkthrough);
   assert.deepEqual(prep.steps.map((s) => s.text), ['Plan', 'Prep', 'Permits']);
+  assert.deepEqual(materials.steps.map((s) => s.text), ['List', 'Order', 'On hand']);
   assert.deepEqual(walkthrough.steps.map((s) => s.text), ['Finish', 'Find', 'Funds']);
-  assert.ok(prep.sort_order < walkthrough.sort_order, 'Prep leads; Final walkthrough closes the list');
+  assert.ok(prep.sort_order < materials.sort_order && materials.sort_order < walkthrough.sort_order, 'Prep, Materials, then Final walkthrough');
+  assert.equal(prep.status, 'plan', 'Prep task starts in plan');
+  assert.equal(materials.status, 'materials', 'Materials task starts in materials');
+  assert.equal(walkthrough.status, 'finish', 'Final walkthrough starts in finish');
 });
 
-test('task cards accept plan, permits, waiting on approval, and blocked statuses', async t => {
+test('task cards accept plan, materials, permits, waiting on approval, blocked, finish, and completed statuses', async t => {
   const { request, register } = await fixture(t);
   const a = await register('task-statuses@example.com');
   const create = async (entity, data) => {
@@ -2032,7 +2049,7 @@ test('task cards accept plan, permits, waiting on approval, and blocked statuses
   const job = await create('Job', { title: 'Status job', client_id: client.id });
   const prep = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.find((i) => i.template_key === 'prep');
   assert.ok(prep);
-  for (const status of ['plan', 'permits', 'waiting_on_approval', 'blocked']) {
+  for (const status of ['plan', 'materials', 'permits', 'waiting_on_approval', 'blocked', 'finish', 'completed']) {
     const updated = await patch(prep.id, { status });
     assert.equal(updated.status, 200, updated.data?.message);
     assert.equal(updated.data.status, status);
@@ -2061,7 +2078,7 @@ test('signing creates a WorkItem per signed line; blank lines skipped; amount sn
   const items = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
   const sourced = items.find((i) => i.source_type === 'Estimate');
   assert.ok(sourced, 'signed line became a task');
-  assert.equal(items.filter((i) => i.template_key).length, 2, 'Prep and Final walkthrough attach on every job');
+  assert.equal(items.filter((i) => i.template_key).length, 3, 'Prep, Materials, and Final walkthrough attach on every job');
   assert.equal(sourced.description, 'Replace faucet');
   assert.equal(sourced.amount_cents, 15800);
   assert.equal(sourced.done, false);
@@ -2123,24 +2140,25 @@ test('WorkItem edits: server-owned fields locked, signed description kept, done_
   assert.equal((await patch(sourced.id, { description: 'Hang two doors' })).status, 400);
   assert.equal((await patch(sourced.id, { description: 'Hang door', notes: 'Bring shims' })).status, 200);
 
-  assert.equal(sourced.status, 'prep', 'new tasks start in prep');
+  assert.equal(sourced.status, 'plan', 'new tasks start in plan');
   assert.equal((await patch(sourced.id, { done: true })).status, 400, 'done follows status; it cannot be set directly');
   assert.equal((await patch(sourced.id, { status: 'finished' })).status, 400);
-  const done = await patch(sourced.id, { status: 'done', steps: [{ text: 'Remove old door' }] });
-  assert.equal(done.status, 200, done.data?.message);
-  assert.ok(done.data.done_at);
-  assert.equal(done.data.done, true);
-  assert.ok(done.data.steps[0].id, 'step id assigned server-side');
-  assert.equal(done.data.amount_cents, 10000);
+  const completed = await patch(sourced.id, { status: 'completed', steps: [{ text: 'Remove old door' }] });
+  assert.equal(completed.status, 200, completed.data?.message);
+  assert.ok(completed.data.done_at);
+  assert.equal(completed.data.done, true);
+  assert.ok(completed.data.steps[0].id, 'step id assigned server-side');
+  assert.equal(completed.data.amount_cents, 10000);
   const undone = await patch(sourced.id, { status: 'waiting_materials' });
+  assert.equal(undone.data.status, 'materials', 'legacy waiting_materials normalizes to materials on read');
   assert.equal(undone.data.done, false);
   assert.equal(undone.data.done_at, undefined);
-  assert.equal(undone.data.steps[0].id, done.data.steps[0].id, 'existing step ids are kept');
+  assert.equal(undone.data.steps[0].id, completed.data.steps[0].id, 'existing step ids are kept');
 
   // Free-standing tasks can be renamed; other accounts cannot touch either kind.
   const own = await create('WorkItem', { job_id: job.id, description: 'Sweep' });
   assert.equal((await patch(own.id, { description: 'Sweep and mop' })).data.description, 'Sweep and mop');
-  assert.equal((await patch(own.id, { status: 'done' }, b.cookie)).status, 404);
+  assert.equal((await patch(own.id, { status: 'completed' }, b.cookie)).status, 404);
   assert.deepEqual((await request('/entities/WorkItem', { cookie: b.cookie })).data, []);
 
   // A sourced task must point at a document on its own job (guard below the API, in saveRecord).
@@ -2200,6 +2218,7 @@ test('carryOverChecklists backfills tasks for documents signed before signing cr
   assert.equal(backfilled.line_id, 'line-1');
   assert.equal(backfilled.amount_cents, 30000);
   assert.ok(items.some((i) => i.template_key === 'prep'));
+  assert.ok(items.some((i) => i.template_key === 'materials'));
   assert.ok(items.some((i) => i.template_key === 'final_walkthrough'));
   assert.equal(await carryOverChecklists(db), 0);
 });
@@ -2224,7 +2243,7 @@ test('task details: measurements and materials get ids; needed materials feed th
   const client = await create('Client', { name: 'Task materials client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Task materials job', client_id: client.id });
   const task = await create('WorkItem', { job_id: job.id, description: 'Build shelves', status: 'in_progress' });
-  assert.equal(task.status, 'in_progress');
+  assert.equal(task.status, 'plan', 'legacy in_progress normalizes to plan on read');
 
   const detailed = await patch(task.id, {
     measurements: [{ label: 'Wall width', value: '72 1/4"' }],
@@ -2249,7 +2268,7 @@ test('task details: measurements and materials get ids; needed materials feed th
   assert.equal((await draftLines(job.id)).length, 0);
   await patch(task.id, { materials: detailed.materials.map(m => ({ ...m, have: false })), status: 'cancelled' });
   assert.equal((await draftLines(job.id)).length, 0);
-  await patch(task.id, { status: 'prep' });
+  await patch(task.id, { status: 'plan' });
   assert.equal((await draftLines(job.id)).length, 2);
   assert.equal((await request(`/entities/WorkItem/${task.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
   assert.equal((await draftLines(job.id)).length, 0);
@@ -2261,7 +2280,7 @@ test('task details: measurements and materials get ids; needed materials feed th
   await db.run('UPDATE records SET data = ? WHERE id = ?', [JSON.stringify(data), legacy.id]);
   await carryOverChecklists(db);
   const migrated = (await request(`/entities/WorkItem/${legacy.id}`, { cookie: a.cookie })).data;
-  assert.equal(migrated.status, 'done');
+  assert.equal(migrated.status, 'completed');
   assert.equal(migrated.done, true);
 });
 
@@ -2301,38 +2320,38 @@ test('job moves to Completed automatically once every task is completed (cancell
   const patch = (id, data) => request(`/entities/WorkItem/${id}`, { method: 'PATCH', cookie: a.cookie, data });
   const jobStatus = async id => (await request(`/entities/Job/${id}`, { cookie: a.cookie })).data.status;
   const client = await create('Client', { name: 'Auto client', ...CLIENT_ADDR });
-  const job = await create('Job', { title: 'Auto job', client_id: client.id, status: 'On Hold' });
-  assert.equal(job.status, 'On Hold');
+  const job = await create('Job', { title: 'Auto job', client_id: client.id, status: 'Blocked' });
+  assert.equal(job.status, 'Blocked');
 
   const first = await create('WorkItem', { job_id: job.id, description: 'Frame' });
   const second = await create('WorkItem', { job_id: job.id, description: 'Drywall' });
   const third = await create('WorkItem', { job_id: job.id, description: 'Skylight' });
   const builtIn = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.filter((i) => i.template_key);
-  await patch(first.id, { status: 'done' });
+  await patch(first.id, { status: 'completed' });
   await patch(third.id, { status: 'cancelled' });
-  assert.equal(await jobStatus(job.id), 'On Hold', 'one task still open');
-  await patch(second.id, { status: 'done' });
-  assert.equal(await jobStatus(job.id), 'On Hold', 'built-in Prep and Final walkthrough still open');
-  for (const task of builtIn) await patch(task.id, { status: 'done' });
+  assert.equal(await jobStatus(job.id), 'Blocked', 'one task still open');
+  await patch(second.id, { status: 'completed' });
+  assert.equal(await jobStatus(job.id), 'Blocked', 'built-in Prep, Materials, and Final walkthrough still open');
+  for (const task of builtIn) await patch(task.id, { status: 'completed' });
   assert.equal(await jobStatus(job.id), 'Completed');
   const timeline = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data;
   assert.ok(timeline.some(e => e.type === 'status_change' && /all tasks completed/.test(e.text)));
 
   // Never moves a Paid job; deleting the last open custom task can complete a job once built-ins are done.
   const paidJob = await create('Job', { title: 'Paid job', client_id: client.id, status: 'Paid' });
-  await create('WorkItem', { job_id: paidJob.id, description: 'Touch-up', status: 'done' });
+  await create('WorkItem', { job_id: paidJob.id, description: 'Touch-up', status: 'completed' });
   assert.equal(await jobStatus(paidJob.id), 'Paid');
-  const job2 = await create('Job', { title: 'Job two', client_id: client.id, status: 'In Progress' });
-  await create('WorkItem', { job_id: job2.id, description: 'Done already', status: 'done' });
-  assert.equal(await jobStatus(job2.id), 'In Progress', 'built-in tasks still open');
+  const job2 = await create('Job', { title: 'Job two', client_id: client.id, status: 'In progress' });
+  await create('WorkItem', { job_id: job2.id, description: 'Done already', status: 'completed' });
+  assert.equal(await jobStatus(job2.id), 'In progress', 'built-in tasks still open');
   const job2BuiltIn = (await request(`/entities/WorkItem?job_id=${job2.id}`, { cookie: a.cookie })).data.filter((i) => i.template_key);
-  for (const task of job2BuiltIn) await patch(task.id, { status: 'done' });
+  for (const task of job2BuiltIn) await patch(task.id, { status: 'completed' });
   assert.equal(await jobStatus(job2.id), 'Completed');
-  const job3 = await create('Job', { title: 'Job three', client_id: client.id, status: 'In Progress' });
-  await create('WorkItem', { job_id: job3.id, description: 'Finished', status: 'done' });
-  await request(`/entities/Job/${job3.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'In Progress' } });
+  const job3 = await create('Job', { title: 'Job three', client_id: client.id, status: 'In progress' });
+  await create('WorkItem', { job_id: job3.id, description: 'Finished', status: 'completed' });
+  await request(`/entities/Job/${job3.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'In progress' } });
   const job3BuiltIn = (await request(`/entities/WorkItem?job_id=${job3.id}`, { cookie: a.cookie })).data.filter((i) => i.template_key);
-  for (const task of job3BuiltIn) await patch(task.id, { status: 'done' });
+  for (const task of job3BuiltIn) await patch(task.id, { status: 'completed' });
   const extra = await create('WorkItem', { job_id: job3.id, description: 'Extra' });
   assert.equal((await request(`/entities/WorkItem/${extra.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
   assert.equal(await jobStatus(job3.id), 'Completed');
@@ -2363,15 +2382,16 @@ test("tasks carry the signed line's labor hours and an editable status note", as
   const patch = data => request(`/entities/WorkItem/${cabinets.id}`, { method: 'PATCH', cookie: a.cookie, data });
   const held = await patch({ status: 'on_hold', status_notes: [{ text: 'Waiting on customer to pick hardware' }], labor_hours: 7 });
   assert.equal(held.status, 200, held.data?.message);
+  assert.equal(held.data.status, 'blocked', 'legacy on_hold normalizes to blocked');
   const [first] = held.data.status_notes;
   assert.equal(first.text, 'Waiting on customer to pick hardware');
-  assert.equal(first.status, 'on_hold', 'a note keeps the status the task had when it was written');
+  assert.equal(first.status, 'blocked', 'a note keeps the canonical status the task had when it was written');
   assert.ok(first.id && first.created_at);
   assert.equal(held.data.labor_hours, 7);
-  // A later note, after the task moves on, gets its own status; the first keeps on_hold.
+  // A later note, after the task moves on, gets its own status; the first keeps blocked.
   await patch({ status: 'in_progress' });
   const both = (await patch({ status_notes: [...held.data.status_notes, { text: 'Hardware picked, back on' }] })).data.status_notes;
-  assert.deepEqual(both.map(n => n.status), ['on_hold', 'in_progress']);
+  assert.deepEqual(both.map(n => n.status), ['blocked', 'plan']);
   assert.equal(both[0].created_at, first.created_at);
   assert.equal((await patch({ status_notes: [{ text: 'x'.repeat(501) }] })).status, 400);
   assert.equal((await patch({ status_notes: [{ text: '   ' }] })).status, 400, 'blank notes are refused');
@@ -2396,7 +2416,7 @@ test("tasks carry the signed line's labor hours and an editable status note", as
   await carryOverChecklists(db);
   const migrated = (await request(`/entities/WorkItem/${haul.id}`, { cookie: a.cookie })).data;
   assert.equal(migrated.status_note, undefined);
-  assert.deepEqual(migrated.status_notes.map(n => [n.text, n.status]), [['Truck in the shop', 'prep']]);
+  assert.deepEqual(migrated.status_notes.map(n => [n.text, n.status]), [['Truck in the shop', 'plan']]);
 });
 
 
@@ -2523,7 +2543,7 @@ test('status override: accept / approve without a signature, reopen only while n
   assert.equal((await setStatus('Estimate', estimate.id, 'accepted')).status, 200);
   tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.filter(i => i.source_id === estimate.id);
   assert.deepEqual(tasks.map(i => i.description).sort(), ['Deck', 'Stain']);
-  assert.equal(tasks.find(i => i.description === 'Deck').status, 'in_progress');
+  assert.equal(tasks.find(i => i.description === 'Deck').status, 'plan');
 
   // Declined ↔ draft; void is final here.
   assert.equal((await setStatus('Estimate', estimate.id, 'declined')).data.status, 'declined');
