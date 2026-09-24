@@ -68,6 +68,32 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
 
     const expenses = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'Expense']);
     assert.equal(expenses.length, 4);
+
+    // Deposits must not double-count: do not set both deposit_amount and timeline amounts.
+    const { sumDepositsApplied } = await import('./documentRules.js');
+    const timeline = await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'TimelineEntry']);
+    const entries = timeline.map((r) => JSON.parse(r.data));
+    for (const job of jobs) {
+      const data = JSON.parse(job.data);
+      const jobEntries = entries.filter((e) => e.job_id === job.id);
+      const timelineDeposits = jobEntries
+        .filter((e) => e.type === 'deposit_received' && e.amount != null)
+        .reduce((s, e) => s + Number(e.amount), 0);
+      const legacy = Number(data.deposit_amount) || 0;
+      assert.ok(
+        !(legacy > 0 && timelineDeposits > 0),
+        `job ${data.title} sets both deposit_amount (${legacy}) and timeline deposits (${timelineDeposits})`,
+      );
+      assert.equal(sumDepositsApplied(data, jobEntries), legacy + timelineDeposits);
+    }
+
+    const invoices = await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'Invoice']);
+    for (const row of invoices) {
+      const inv = JSON.parse(row.data);
+      if (inv.status === 'paid') {
+        assert.equal(Number(inv.balance_due) || 0, 0, `paid invoice ${inv.number} still has balance`);
+      }
+    }
   } finally {
     await db.close();
   }

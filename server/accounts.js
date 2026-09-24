@@ -20,6 +20,10 @@ try {
   await migrate(db);
 
   if (command === 'seed-demo') {
+    const dbTarget = db.dialect === 'mysql'
+      ? `mysql://${process.env.DB_HOST || '?'}/${process.env.DB_NAME || '?'}`
+      : `sqlite:${process.env.SQLITE_PATH || '.data/job-tracker.sqlite'}`;
+    console.log(`Using database ${dbTarget} (NODE_ENV=${process.env.NODE_ENV || 'unset'})`);
     const result = await wipeAndSeedAccount(db, email, { yes });
     console.log(
       `Seeded demo data for ${result.email}: `
