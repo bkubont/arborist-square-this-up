@@ -72,7 +72,18 @@ const signMeta = {
 };
 
 /** Job task statuses, in board-column order. */
-export const TASK_STATUSES = ['prep', 'in_progress', 'waiting_materials', 'on_hold', 'cancelled', 'done'];
+export const TASK_STATUSES = [
+  'plan',
+  'prep',
+  'permits',
+  'in_progress',
+  'waiting_materials',
+  'waiting_on_approval',
+  'blocked',
+  'on_hold',
+  'cancelled',
+  'done',
+];
 
 /** Job-linked document entities (parent_id = job_id). */
 export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice'];
@@ -149,6 +160,8 @@ export const schemas = {
    */
   WorkItem: z.object({
     job_id: id,
+    /** Built-in Prep / Final walkthrough rows; set only by attachDefaultJobTasks. */
+    template_key: z.enum(['prep', 'final_walkthrough']).optional(),
     source_type: z.enum(['Estimate', 'ChangeOrder']).optional(),
     source_id: id.optional(),
     line_id: z.string().max(64).optional(),

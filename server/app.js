@@ -26,6 +26,7 @@ import {
 } from './documentRules.js';
 import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
 import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable, completeJobWhenTasksDone } from './workItems.js';
+import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { overrideScopeStatus } from './statusOverride.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
@@ -443,6 +444,7 @@ export async function createApp(db, env = process.env) {
         if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.user.id, 'Estimate', body.job_id)), 'creating');
       }
       let record = await saveRecord(tx, req.user.id, entity, body);
+      if (entity === 'Job') await attachDefaultJobTasks(tx, req.user.id, record.id);
       if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, record.job_id);
       if (entity === 'MaterialOrder' && record.job_id) {
         const hasLines = Array.isArray(record.lines)

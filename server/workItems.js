@@ -10,11 +10,23 @@
  */
 import { fail, saveRecord, decode, getRecord } from './domain.js';
 import { listJobDocuments } from './documentRules.js';
+import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { estimateLineAmount, changeOrderLineAmount } from './mapping.js';
 import { toCents } from '../shared/money.js';
+import { JOB_TASK_SORT } from '../shared/taskTemplates.js';
+
+/** Scope tasks from signed lines sit between Prep and Final walkthrough. */
+function nextScopeSortOrder(existingTasks = []) {
+  const scopeOrders = existingTasks
+    .filter((t) => t.template_key !== 'prep' && t.template_key !== 'final_walkthrough')
+    .map((t) => t.sort_order)
+    .filter((n) => Number.isFinite(n));
+  if (scopeOrders.length) return Math.max(...scopeOrders) + 1000;
+  return JOB_TASK_SORT.prep + 1000;
+}
 
 // `done` follows `status` (saveRecord), so it is server-owned too: set status 'done' instead.
-const SERVER_OWNED_FIELDS = ['source_type', 'source_id', 'line_id', 'amount_cents', 'billed_invoice_id', 'done', 'done_at'];
+const SERVER_OWNED_FIELDS = ['template_key', 'source_type', 'source_id', 'line_id', 'amount_cents', 'billed_invoice_id', 'done', 'done_at'];
 const EDITABLE_FIELDS = new Set(['description', 'category', 'tools', 'notes', 'steps', 'status', 'sort_order', 'measurements', 'materials', 'labor_hours', 'status_notes']);
 
 /** Expected hours for a signed line: its labor_hours, or labor amount ÷ rate when only those are set. */
@@ -34,9 +46,10 @@ export function lineLaborHours(sourceType, line = {}) {
  */
 export async function createWorkItemsForLines(tx, ownerId, { jobId, sourceType, sourceId, lines }) {
   const lineAmount = sourceType === 'Estimate' ? estimateLineAmount : changeOrderLineAmount;
+  const jobTasks = await listJobDocuments(tx, ownerId, 'WorkItem', jobId);
   // A document reopened and accepted again keeps the tasks already started for its lines.
-  const existing = new Set((await listJobDocuments(tx, ownerId, 'WorkItem', jobId))
-    .filter(item => item.source_id === sourceId).map(item => item.line_id));
+  const existing = new Set(jobTasks.filter(item => item.source_id === sourceId).map(item => item.line_id));
+  let sortOrder = nextScopeSortOrder(jobTasks);
   let created = 0;
   for (const [index, line] of (lines || []).entries()) {
     if (!String(line.description || '').trim()) continue;
@@ -55,7 +68,9 @@ export async function createWorkItemsForLines(tx, ownerId, { jobId, sourceType, 
       tools: line.tools,
       notes: line.notes,
       steps: line.steps || [],
+      sort_order: sortOrder,
     });
+    sortOrder += 1000;
     created += 1;
   }
   return created;
@@ -97,6 +112,7 @@ export function prepareWorkItemUpdate(previous, input) {
  * @param {object} item @param {object | null} source the item's source document, if any
  */
 export function assertWorkItemDeletable(item, source) {
+  if (item.template_key) throw fail(409, 'Built-in job tasks cannot be deleted.');
   if (item.source_type && source?.status !== 'void') {
     throw fail(409, 'This task comes from a signed document and cannot be deleted.');
   }
@@ -162,6 +178,7 @@ export async function carryOverChecklists(db) {
       }
 
       for (const job of (await ownerRows(tx, ownerId, 'Job')).map(decode)) {
+        created += await attachDefaultJobTasks(tx, ownerId, job.id);
         if (!Array.isArray(job.checklist) || !job.checklist.length) continue;
         for (const entry of job.checklist.filter(e => String(e?.text || '').trim())) {
           await saveRecord(tx, ownerId, 'WorkItem', { job_id: job.id, description: entry.text.trim(), status: entry.done ? 'done' : 'prep' });

@@ -7,7 +7,7 @@ import StatusSelect from "@/components/StatusSelect";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 import TaskNotes from "@/components/TaskNotes";
 import { moneyCents } from "@/lib/format";
-import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, taskSourceVoided, formatHours, hoursRemaining } from "@/lib/tasks";
+import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining } from "@/lib/tasks";
 import { statusColors, statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +33,10 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
   // Optimistic status/position while a board move saves, so the card doesn't snap back.
   const [pending, setPending] = useState(/** @type {Record<string, { status: string, sort_order: number }>} */ ({}));
 
-  const shown = useMemo(() => sortTasks(items.map((item) => (pending[item.id] ? { ...item, ...pending[item.id] } : item))), [items, pending]);
+  const shown = useMemo(() => {
+    const merged = items.map((item) => (pending[item.id] ? { ...item, ...pending[item.id] } : item));
+    return view === "list" ? sortTasksForList(merged) : sortTasks(merged);
+  }, [items, pending, view]);
   const doneCount = shown.filter((i) => taskStatus(i) === "done").length;
   const openItem = items.find((i) => i.id === openId) || null;
 
@@ -175,12 +178,36 @@ function TaskTags({ item, documents }) {
   );
 }
 
+function TaskDoneCheckbox({ itemId, checked, disabled, busy, onToggle, label }) {
+  return (
+    <button
+      type="button"
+      data-testid={`task-done-${itemId}`}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      disabled={disabled || busy}
+      aria-label={checked ? `Mark ${label} not done` : `Mark ${label} done`}
+      className={cn(
+        "w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5",
+        checked ? "bg-emerald-500 border-emerald-500" : "border-slate-300 hover:border-slate-400",
+        disabled && "opacity-50 cursor-not-allowed hover:border-slate-300"
+      )}
+    >
+      {checked && <Check className="w-3 h-3 text-white" />}
+    </button>
+  );
+}
+
 function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   const [expanded, setExpanded] = useState(true);
   const status = taskStatus(item);
   const steps = item.steps || [];
   const closed = status === "done" || status === "cancelled";
+  const done = status === "done";
 
+  const toggleDone = () => {
+    if (status === "cancelled") return;
+    onStatus(item, done ? "prep" : "done");
+  };
   const toggleStep = (stepId) => onPatch(item, { steps: steps.map((s) => (s.id === stepId ? { ...s, done: !s.done } : s)) });
   // New steps go up without an id; the server assigns one.
   const addStep = (text) => onPatch(item, { steps: [...steps, { text: text.trim(), done: false }] });
@@ -189,6 +216,14 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   return (
     <div data-testid={`task-${item.id}`} className={cn("rounded-lg border p-2.5", statusCardClass(status), closed ? "bg-slate-50/60" : "bg-white")}>
       <div className="flex flex-wrap items-start gap-2">
+        <TaskDoneCheckbox
+          itemId={item.id}
+          checked={done}
+          disabled={status === "cancelled"}
+          busy={busy}
+          onToggle={toggleDone}
+          label={item.description || "task"}
+        />
         <button type="button" className="flex-1 min-w-[10rem] text-left" onClick={onOpen}>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={cn("text-sm font-medium hover:underline", closed ? "text-slate-400" : "text-slate-800", status === "cancelled" && "line-through")}>{item.description}</span>
