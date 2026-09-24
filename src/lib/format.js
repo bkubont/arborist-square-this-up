@@ -1,6 +1,9 @@
 export const money = (n) =>
   n ? `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00";
 
+/** Integer cents (Payment, WorkItem amounts) → "$1,234.50". */
+export const moneyCents = (cents) => money((Number(cents) || 0) / 100);
+
 export const shortDate = (d) => {
   if (!d) return "—";
   const date = new Date(d);

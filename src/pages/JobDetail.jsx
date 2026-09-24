@@ -2,7 +2,7 @@ import ClientAddress from "@/components/ClientAddress";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
-import { ArrowLeft, Pencil, StickyNote, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Phone, StickyNote, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,7 +11,8 @@ import StatusSelect from "@/components/StatusSelect";
 import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
-import Checklist from "@/components/Checklist";
+import JobTasks from "@/components/JobTasks";
+import { JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
@@ -20,10 +21,21 @@ import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-const DOC_ENTITIES = ["Estimate", "MaterialOrder", "WorkOrder", "ChangeOrder", "Invoice"];
+const DOC_ENTITIES = ["Estimate", "MaterialOrder", "ChangeOrder", "Invoice"];
+const TASK_VIEW_KEY = "jobTasksView";
+
+/** @returns {"list" | "board"} */
+function readTaskView() {
+  try {
+    return localStorage.getItem(TASK_VIEW_KEY) === "list" ? "list" : "board";
+  } catch {
+    return "board";
+  }
+}
 
 const JOB_TABS = [
   "overview",
+  "tasks",
   "costs",
   "photos",
   "notes",
@@ -46,10 +58,23 @@ export default function JobDetail() {
   const [client, setClient] = useState(null);
   const [entries, setEntries] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [workItems, setWorkItems] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
   const [timelineFilter, setTimelineFilter] = useState("all");
+  const [taskView, setTaskView] = useState(readTaskView);
+
+  /** @param {"list" | "board"} next */
+  const chooseTaskView = (next) => {
+    setTaskView(next);
+    try {
+      localStorage.setItem(TASK_VIEW_KEY, next);
+    } catch {
+      /* per-browser convenience only */
+    }
+  };
 
   const tabParam = searchParams.get("tab");
   const resolvedTab = LEGACY_TAB_ALIASES[tabParam] || tabParam;
@@ -63,13 +88,17 @@ export default function JobDetail() {
   };
 
   const load = useCallback(async () => {
-    const [j, e, ...docLists] = await Promise.all([
+    const [j, e, items, money, ...docLists] = await Promise.all([
       api.entities.Job.get(id),
       api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 500),
+      api.entities.WorkItem.filter({ job_id: id }, "-created_date", 500),
+      api.summaries.job(id).catch(() => null),
       ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 100)),
     ]);
     setJob(j);
     setEntries(e);
+    setWorkItems(items);
+    setSummary(money);
     setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
     if (j?.client_id) {
       try {
@@ -159,24 +188,6 @@ export default function JobDetail() {
     load();
   };
 
-  const saveChecklist = async (checklist, changeSummary) => {
-    await api.entities.Job.update(id, { checklist });
-    setJob((j) => ({ ...j, checklist }));
-    if (changeSummary) {
-      try {
-        await api.entities.TimelineEntry.create({
-          job_id: id,
-          type: "checklist",
-          text: changeSummary,
-          category: "note",
-        });
-        load();
-      } catch {
-        /* non-blocking */
-      }
-    }
-  };
-
   const deleteJob = async () => {
     if (!confirm("Delete this job and all its timeline entries?")) return;
     await api.entities.Job.delete(id);
@@ -206,7 +217,6 @@ export default function JobDetail() {
         </div>
       </div>
 
-      {/* Identity header — status, overflow, compact photo/timeline */}
       <div className={cn("bg-card rounded-xl border p-5 mb-4", statusCardClass(job.status))}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -216,14 +226,33 @@ export default function JobDetail() {
             </div>
             {client && (
               <div className="mt-1 space-y-1">
-                <Link to={`/clients/${client.id}`} className="text-sm text-muted-foreground hover:text-primary">
-                  {client.name}
-                </Link>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <Link to={`/clients/${client.id}`} className="text-muted-foreground hover:text-primary">
+                    {client.name}
+                  </Link>
+                  {client.phone && (
+                    <a href={`tel:${client.phone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <Phone className="w-3.5 h-3.5" aria-hidden="true" />
+                      {client.phone}
+                    </a>
+                  )}
+                </div>
                 <ClientAddress client={client} />
               </div>
             )}
           </div>
-          <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <StatusSelect value={job.status} onValueChange={changeStatus} triggerClassName="w-52" />
+              <JobQuickAdd job={job} onSaved={load} />
+            </div>
+            {summary && summary.running_total_basis !== "none" && (
+              <div className="text-right">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Job total</div>
+                <JobRunningTotal summary={summary} className="text-lg" />
+              </div>
+            )}
+          </div>
         </div>
         {job.description && <p className="text-sm text-muted-foreground mt-3">{job.description}</p>}
       </div>
@@ -231,6 +260,7 @@ export default function JobDetail() {
       <Tabs value={activeTab} onValueChange={setTab} className="w-full">
         <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/80 p-1 mb-4">
           <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
+          <TabsTrigger value="tasks" className="text-xs sm:text-sm">Tasks</TabsTrigger>
           <TabsTrigger value="costs" className="text-xs sm:text-sm">Costs</TabsTrigger>
           <TabsTrigger value="photos" className="text-xs sm:text-sm">Photos</TabsTrigger>
           <TabsTrigger value="notes" className="text-xs sm:text-sm">Notes</TabsTrigger>
@@ -263,25 +293,41 @@ export default function JobDetail() {
             onChanged={load}
             entities={["Invoice"]}
             title="Invoice"
-            emptyHint="Invoice unlocks after the Work Order is complete. One active invoice per job."
+            emptyHint="The invoice unlocks once the estimate is signed. One active invoice per job."
           />
 
-          <div className="grid lg:grid-cols-2 gap-4">
+          {job.notes ? (
             <div className="bg-card rounded-xl border border-border p-4">
-              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                Checklist
+              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                Job notes
               </div>
-              <Checklist items={job.checklist || []} onChange={saveChecklist} />
+              <p className="text-sm text-foreground whitespace-pre-wrap">{job.notes}</p>
             </div>
+          ) : null}
+        </TabsContent>
 
-            {job.notes ? (
-              <div className="bg-card rounded-xl border border-border p-4">
-                <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  Job notes
-                </div>
-                <p className="text-sm text-foreground whitespace-pre-wrap">{job.notes}</p>
+        <TabsContent value="tasks" className="mt-0">
+          <div className="bg-card rounded-xl border border-border p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tasks</div>
+              <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/60" role="group" aria-label="Task view">
+                {/** @type {Array<"list" | "board">} */ (["list", "board"]).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={taskView === v}
+                    onClick={() => chooseTaskView(v)}
+                    className={cn(
+                      "px-3 py-1 text-xs font-medium rounded-md capitalize",
+                      taskView === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {v}
+                  </button>
+                ))}
               </div>
-            ) : null}
+            </div>
+            <JobTasks jobId={id} items={workItems} documents={documents} onChanged={load} view={taskView} />
           </div>
         </TabsContent>
 
@@ -292,9 +338,9 @@ export default function JobDetail() {
             client={client}
             documents={documents}
             onChanged={load}
-            entities={["MaterialOrder", "WorkOrder", "ChangeOrder"]}
-            title="Work & costs"
-            emptyHint="Material Orders, Work Orders, and Change Orders appear here after the estimate is accepted (WO/CO) or as needed (MO)."
+            entities={["MaterialOrder", "ChangeOrder"]}
+            title="Materials & change orders"
+            emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted."
           />
         </TabsContent>
 

@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
+import { JobCardDataProvider, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import { Calendar, AlertTriangle, Inbox } from "lucide-react";
 import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMark";
 import PageHeader from "@/components/PageHeader";
@@ -48,6 +49,14 @@ const ACTIVITY_PREVIEW = 10;
  * Reuses existing money / action / job data; preserves links to Board, Action items, Invoices.
  */
 export default function Dashboard() {
+  return (
+    <JobCardDataProvider>
+      <DashboardPage />
+    </JobCardDataProvider>
+  );
+}
+
+function DashboardPage() {
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
@@ -56,8 +65,8 @@ export default function Dashboard() {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
+  const load = useCallback(() => {
+    return Promise.all([
       api.entities.Job.listAll("-updated_date"),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
@@ -75,6 +84,10 @@ export default function Dashboard() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const today = new Date().toISOString().slice(0, 10);
   const tomorrow = useMemo(() => {
@@ -219,12 +232,7 @@ export default function Dashboard() {
             value={
               loading
                 ? "…"
-                : String(
-                    statusCounts.Estimate +
-                      statusCounts.Scheduled +
-                      statusCounts["In Progress"] +
-                      statusCounts["Waiting on Materials"]
-                  )
+                : String(ACTIVE_STATUSES.reduce((sum, status) => sum + (statusCounts[status] || 0), 0))
             }
             hint={
               loading
@@ -272,6 +280,7 @@ export default function Dashboard() {
                 paymentsLogged={paymentsMap[j.id] || 0}
                 depositsLogged={depositsMap[j.id] || 0}
                 invoice={invoiceMap[j.id]}
+                onQuickAdded={load}
               />
             ))}
             {active.length > ACTIVE_PREVIEW && (
@@ -400,7 +409,7 @@ function Section({ title, children, action = null }) {
   );
 }
 
-function JobRow({ job, paymentsLogged = 0, depositsLogged = 0, invoice = null }) {
+function JobRow({ job, paymentsLogged = 0, depositsLogged = 0, invoice = null, onQuickAdded = undefined }) {
   const balance = jobBalance(job, paymentsLogged, depositsLogged, invoice);
   return (
     <Link
@@ -413,12 +422,14 @@ function JobRow({ job, paymentsLogged = 0, depositsLogged = 0, invoice = null })
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-foreground truncate">{job.title}</div>
-          <div className="text-sm text-muted-foreground truncate">{job.client_name || "—"}</div>
+          <JobCustomer job={job} />
         </div>
         <div className="flex flex-col items-end gap-1">
           <StatusBadge status={job.status} />
+          <JobRunningTotal job={job} />
           {balance > 0 && <span className="text-xs font-semibold text-attention">{money(balance)} due</span>}
         </div>
+        <JobQuickAdd job={job} onSaved={onQuickAdded} />
       </div>
       {(job.start_date || job.end_date) && (
         <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">

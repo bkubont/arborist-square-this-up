@@ -27,6 +27,7 @@ export function composeJobActivity({ entries = [], documents = [] } = {}) {
   for (const doc of documents || []) {
     const label = documentTypeLabel(doc.entity);
     const num = doc.number || "";
+    // work_order_created: timeline rows from before the checklist replaced the Work Order.
     const createTypes = new Set(["document_created", "work_order_created"]);
 
     const hasCreate = items.some(
@@ -36,7 +37,7 @@ export function composeJobActivity({ entries = [], documents = [] } = {}) {
       items.push({
         id: `synth-create-${doc.entity}-${doc.id}`,
         at: doc.created_date,
-        type: doc.entity === "WorkOrder" ? "work_order_created" : "document_created",
+        type: "document_created",
         text: `${label}${num ? ` ${num}` : ""} created`.trim(),
         category: "document",
       });
@@ -107,7 +108,7 @@ export async function logDocumentCreated(api, { jobId, entity, number, extra = "
   try {
     await api.entities.TimelineEntry.create({
       job_id: jobId,
-      type: entity === "WorkOrder" ? "work_order_created" : "document_created",
+      type: "document_created",
       text: `${label}${number ? ` ${number}` : ""} created${extra ? ` — ${extra}` : ""}`.trim(),
       category: "document",
     });

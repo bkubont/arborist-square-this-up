@@ -5,6 +5,8 @@
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { fileIdsOf, saveRecord, decode } from './domain.js';
+import { createWorkItemsForLines } from './workItems.js';
+import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { emailSchema } from './security.js';
 
 /** Business entities wiped before reseeding (CompanyProfile is preserved). */
@@ -15,9 +17,10 @@ export const WIPE_ENTITIES = [
   'Expense',
   'Estimate',
   'MaterialOrder',
-  'WorkOrder',
   'ChangeOrder',
   'Invoice',
+  'Payment',
+  'WorkItem',
 ];
 
 const CLIENT_NAMES = [
@@ -63,7 +66,7 @@ const JOB_BLUEPRINTS = [
     status: 'Scheduled',
     description: 'Accepted; crew scheduled next week.',
     estimate: { status: 'accepted', labor: 640, material: 210 },
-    workOrder: { status: 'issued' },
+    tasks: 'in_progress',
     materialOrder: { status: 'purchased' },
     deposit: 200,
   },
@@ -72,7 +75,7 @@ const JOB_BLUEPRINTS = [
     status: 'Scheduled',
     description: 'Materials staged; start date set.',
     estimate: { status: 'accepted', labor: 900, material: 450 },
-    workOrder: { status: 'issued' },
+    tasks: 'in_progress',
     materialOrder: { status: 'quote' },
     deposit: 300,
   },
@@ -81,7 +84,7 @@ const JOB_BLUEPRINTS = [
     status: 'In Progress',
     description: 'Demo complete; laying LVP.',
     estimate: { status: 'accepted', labor: 1100, material: 780 },
-    workOrder: { status: 'issued' },
+    tasks: 'in_progress',
     materialOrder: { status: 'received' },
     deposit: 400,
   },
@@ -90,7 +93,7 @@ const JOB_BLUEPRINTS = [
     status: 'In Progress',
     description: 'Blown-in in progress; access from garage.',
     estimate: { status: 'accepted', labor: 750, material: 520 },
-    workOrder: { status: 'issued' },
+    tasks: 'in_progress',
     changeOrder: { status: 'sent', amount: 180 },
     deposit: 250,
   },
@@ -99,7 +102,7 @@ const JOB_BLUEPRINTS = [
     status: 'Waiting on Materials',
     description: 'Valve on backorder from supplier.',
     estimate: { status: 'accepted', labor: 380, material: 160 },
-    workOrder: { status: 'issued' },
+    tasks: 'in_progress',
     materialOrder: { status: 'partial', lineStatus: 'backorder' },
     deposit: 150,
   },
@@ -108,7 +111,7 @@ const JOB_BLUEPRINTS = [
     status: 'Waiting on Materials',
     description: 'Custom hinges ordered.',
     estimate: { status: 'accepted', labor: 260, material: 140 },
-    workOrder: { status: 'draft' },
+    tasks: 'prep',
     materialOrder: { status: 'quote' },
   },
   {
@@ -116,7 +119,7 @@ const JOB_BLUEPRINTS = [
     status: 'Completed',
     description: 'Punch list done; invoice ready to send.',
     estimate: { status: 'accepted', labor: 1400, material: 380 },
-    workOrder: { status: 'complete' },
+    tasks: 'done',
     materialOrder: { status: 'received' },
     invoice: { status: 'draft' },
     deposit: 500,
@@ -126,7 +129,7 @@ const JOB_BLUEPRINTS = [
     status: 'Completed',
     description: 'Work finished; invoice out for payment.',
     estimate: { status: 'accepted', labor: 320, material: 410 },
-    workOrder: { status: 'complete' },
+    tasks: 'done',
     invoice: { status: 'sent' },
     deposit: 100,
   },
@@ -135,7 +138,7 @@ const JOB_BLUEPRINTS = [
     status: 'Paid',
     description: 'Fully paid and closed.',
     estimate: { status: 'accepted', labor: 680, material: 240 },
-    workOrder: { status: 'complete' },
+    tasks: 'done',
     invoice: { status: 'paid' },
     deposit: 200,
     payment: 720,
@@ -145,7 +148,7 @@ const JOB_BLUEPRINTS = [
     status: 'Paid',
     description: 'Paid in full after partial deposit.',
     estimate: { status: 'accepted', labor: 540, material: 360 },
-    workOrder: { status: 'complete' },
+    tasks: 'done',
     invoice: { status: 'paid' },
     deposit: 150,
     payment: 750,
@@ -161,7 +164,7 @@ const JOB_BLUEPRINTS = [
     status: 'In Progress',
     description: 'Tile set curing; CO approved for extra outlet.',
     estimate: { status: 'accepted', labor: 820, material: 390 },
-    workOrder: { status: 'issued' },
+    tasks: 'in_progress',
     materialOrder: { status: 'purchased' },
     changeOrder: { status: 'approved', amount: 220 },
     deposit: 300,
@@ -271,15 +274,11 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     start_date,
     end_date,
     notes: 'Demo seed job',
-    checklist: [
-      { text: 'Confirm access', done: blueprint.status !== 'Estimate' },
-      { text: 'Protect floors', done: ['In Progress', 'Waiting on Materials', 'Completed', 'Paid'].includes(blueprint.status) },
-      { text: 'Final walkthrough', done: ['Completed', 'Paid'].includes(blueprint.status) },
-    ],
     // Prefer timeline deposit_received for demo money (matches UI logDeposit).
     // Do not also set deposit_amount — FinancialPanel / sumDepositsApplied add both.
     deposit_amount: 0,
   });
+  await attachDefaultJobTasks(db, ownerId, job.id);
 
   const estimatePayload = {
     job_id: job.id,
@@ -306,26 +305,25 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
   }
   const estimate = await saveRecord(db, ownerId, 'Estimate', estimatePayload);
 
-  let workOrder;
-  if (blueprint.workOrder) {
-    workOrder = await saveRecord(db, ownerId, 'WorkOrder', {
-      job_id: job.id,
-      number: `WO-${1001 + jobIndex}`,
-      related_estimate_id: estimate.id,
-      status: blueprint.workOrder.status,
-      start_date,
-      end_date,
-      crew: 'Crew A',
-      instructions: blueprint.description,
-      tax_rate: taxRate,
-      lines: [
-        { kind: 'labor', description: 'Labor', hours: money(labor / 65), rate: 65, work_category: 'General' },
-        { kind: 'material', description: 'Materials', qty: 1, unit_price: money(material), work_category: 'Materials' },
-      ],
-      subtotal: totals.subtotal,
-      tax_amount: totals.tax_amount,
-      total: totals.total,
-    });
+  // Tasks: built-in Prep + Final walkthrough (attachDefaultJobTasks), one per signed estimate line,
+  // at the job's stage.
+  const setTaskStatuses = async (sourceId, status) => {
+    const rows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'WorkItem', job.id]);
+    for (const item of rows.map(decode)) {
+      if (item.source_id === sourceId) await saveRecord(db, ownerId, 'WorkItem', { status }, item.id);
+    }
+  };
+  if (blueprint.estimate.status === 'accepted') {
+    await createWorkItemsForLines(db, ownerId, { jobId: job.id, sourceType: 'Estimate', sourceId: estimate.id, lines: estimate.accepted_snapshot.lines });
+    await setTaskStatuses(estimate.id, blueprint.tasks || 'prep');
+  }
+  if (['Completed', 'Paid'].includes(blueprint.status)) {
+    const rows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'WorkItem', job.id]);
+    for (const item of rows.map(decode)) {
+      if (item.template_key === 'final_walkthrough') {
+        await saveRecord(db, ownerId, 'WorkItem', { status: 'done' }, item.id);
+      }
+    }
   }
 
   if (blueprint.materialOrder) {
@@ -334,7 +332,6 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
       number: `MO-${1001 + jobIndex}`,
       date: start_date,
       related_estimate_id: estimate.id,
-      related_work_order_id: workOrder?.id,
       status: blueprint.materialOrder.status,
       lines: [
         {
@@ -343,11 +340,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
           unit_price: money(material),
           supplier: jobIndex % 2 === 0 ? 'Home Depot' : 'Menards',
           category: 'Materials',
-          wo_line_number: 2,
           line_status: blueprint.materialOrder.lineStatus,
-          source_entity: 'Estimate',
-          source_id: estimate.id,
-          source_line_index: 1,
         },
       ],
       subtotal: money(material),
@@ -369,7 +362,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
       net_change: amount,
       tax_rate: taxRate,
       status: blueprint.changeOrder.status,
-      lines: [{ description: 'Additional work', amount }],
+      lines: [{ description: 'Additional work', labor_amount: amount, category: 'General' }],
       ...(blueprint.changeOrder.status === 'approved'
         ? {
             accepted_snapshot: {
@@ -379,7 +372,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
               credit: 0,
               net_change: amount,
               tax_rate: taxRate,
-              lines: [{ description: 'Additional work', amount }],
+              lines: [{ description: 'Additional work', labor_amount: amount, category: 'General' }],
             },
             signed_at: new Date().toISOString(),
             signer_name: client.name,
@@ -388,9 +381,14 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     });
   }
 
+  if (changeOrder?.status === 'approved') {
+    await createWorkItemsForLines(db, ownerId, { jobId: job.id, sourceType: 'ChangeOrder', sourceId: changeOrder.id, lines: changeOrder.accepted_snapshot.lines });
+    await setTaskStatuses(changeOrder.id, blueprint.tasks || 'prep');
+  }
+
   let invoice;
   let paymentAmount = money(blueprint.payment || 0);
-  if (blueprint.invoice && workOrder) {
+  if (blueprint.invoice && blueprint.estimate.status === 'accepted') {
     const coNet = changeOrder && changeOrder.status === 'approved' ? Number(changeOrder.net_change) || 0 : 0;
     const invoiceSub = money(totals.subtotal + coNet);
     const invoiceTax = money(invoiceSub * (taxRate / 100));
@@ -440,9 +438,6 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
   }
   if (blueprint.estimate.status === 'accepted') {
     events.push({ type: 'estimate_signed', category: 'document', text: `Estimate ${estimate.number} accepted` });
-  }
-  if (workOrder) {
-    events.push({ type: 'work_order_created', category: 'document', text: `Work Order ${workOrder.number} created` });
   }
   if (changeOrder?.status === 'sent') {
     events.push({ type: 'change_order_sent', category: 'financial', text: `Change Order ${changeOrder.number} sent` });

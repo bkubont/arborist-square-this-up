@@ -1,5 +1,5 @@
 /**
- * Dual-model mapping: Estimate lines ↔ Work Order lines (Decision #2).
+ * Estimate / change order / invoice / material order mapping (Decision #2).
  * Assistive only — all values remain editable after carryover.
  */
 
@@ -12,96 +12,6 @@ function num(v) {
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
-}
-
-/** Map one estimate line into zero or more WO lines (labor / material / equipment). */
-export function estimateLineToWorkOrderLines(line = {}) {
-  const out = [];
-  const description = line.description || '';
-  const work_category = line.category || '';
-  const notes = [line.notes, line.tools ? `Tools: ${line.tools}` : ''].filter(Boolean).join(' · ') || undefined;
-  const base = { description, work_category, notes, catalog_id: line.catalog_id };
-
-  const hours = num(line.labor_hours);
-  const rate = num(line.labor_rate);
-  const laborAmount = num(line.labor_amount);
-  if (hours != null || rate != null || laborAmount != null) {
-    let h = hours;
-    let r = rate;
-    if (h == null && laborAmount != null && r != null && r > 0) h = Math.round((laborAmount / r) * 100) / 100;
-    if (r == null && laborAmount != null && h != null && h > 0) r = Math.round((laborAmount / h) * 100) / 100;
-    if (h == null && laborAmount != null) {
-      // Amount-only labor row: 1 hour at the labor amount as rate fallback
-      h = 1;
-      r = laborAmount;
-    }
-    out.push({
-      kind: 'labor',
-      description,
-      hours: h,
-      rate: r,
-      work_category,
-      notes,
-      catalog_id: line.catalog_id,
-    });
-  }
-
-  const material = num(line.material_amount);
-  if (material != null && material > 0) {
-    out.push({
-      kind: 'material',
-      description: description ? `${description} (materials)` : 'Materials',
-      qty: 1,
-      unit_price: material,
-      work_category,
-      notes,
-    });
-  }
-
-  const equipment = num(line.equipment_amount);
-  if (equipment != null && equipment > 0) {
-    out.push({
-      kind: 'material',
-      description: description ? `${description} (equipment)` : 'Equipment',
-      qty: 1,
-      unit_price: equipment,
-      work_category,
-      notes: [notes, 'Mapped from estimate equipment'].filter(Boolean).join(' · '),
-    });
-  }
-
-  // Description-only estimate rows still carry over as labor stubs
-  if (!out.length && description) {
-    out.push({ kind: 'labor', description, hours: undefined, rate: undefined, work_category, notes, ...base });
-  }
-  return out;
-}
-
-/** Prefill WO lines from an accepted estimate (snapshot preferred). */
-export function mapEstimateToWorkOrderLines(estimate) {
-  const source = estimate?.accepted_snapshot || estimate;
-  const lines = source?.lines || [];
-  return lines.flatMap(estimateLineToWorkOrderLines);
-}
-
-export function workOrderLineAmount(line = {}) {
-  if (line.kind === 'labor') {
-    const hours = num(line.hours) || 0;
-    const rate = num(line.rate) || 0;
-    return Math.round(hours * rate * 100) / 100;
-  }
-  const qty = num(line.qty) || 0;
-  const price = num(line.unit_price) || 0;
-  return Math.round(qty * price * 100) / 100;
-}
-
-/** @param {Array} lines @param {string|number} [taxRate] */
-export function workOrderTotals(lines = [], taxRate = 0) {
-  const subtotal = lines.reduce((sum, line) => sum + workOrderLineAmount(line), 0);
-  const rate = Number(taxRate) || 0;
-  const tax_amount = Math.round(subtotal * (rate / 100) * 100) / 100;
-  const total = Math.round((subtotal + tax_amount) * 100) / 100;
-  return { subtotal: Math.round(subtotal * 100) / 100, tax_amount, total };
 }
 
 /** Primary work-category options (Decision #1) — free text still allowed in UI. */
@@ -152,26 +62,6 @@ export function approvedChangeOrderNet(changeOrders = []) {
   );
 }
 
-/**
- * Billing ceiling for soft-warn: authorized total plus tax on positive CO nets.
- * Estimate baseline is already tax-inclusive; CO nets are pre-tax and get taxed
- * when folded into invoice misc — without this, a correct full-bill can false-warn.
- */
-export function authorizedBillingCeiling(acceptedEstimateTotal, changeOrders = [], taxRate = 0) {
-  const baseline = Number(acceptedEstimateTotal) || 0;
-  const approvedNet = approvedChangeOrderNet(changeOrders);
-  const coTax = approvedNet > 0
-    ? round2(approvedNet * ((Number(taxRate) || 0) / 100))
-    : 0;
-  return round2(baseline + approvedNet + coTax);
-}
-
-/** Soft over-authorized check using the tax-aware billing ceiling. */
-export function isOverAuthorized(invoiceTotal, acceptedEstimateTotal, changeOrders = [], taxRate = 0) {
-  const ceiling = authorizedBillingCeiling(acceptedEstimateTotal, changeOrders, taxRate);
-  return Number(invoiceTotal) > ceiling + 0.009;
-}
-
 /** Derive invoice lifecycle status from balance / payments (progress billing). */
 export function deriveInvoiceStatus({ balance_due, payments_applied, deposits_applied, status } = /** @type {{balance_due?: number|string, payments_applied?: number|string, deposits_applied?: number|string, status?: string}} */ ({})) {
   if (status === 'void') return 'void';
@@ -218,6 +108,17 @@ export function normalizeInvoicePayments(invoice, { job, timeline = [], requeste
     payments_applied: 0,
   });
   const total = Number(invoice.total ?? totals.total) || 0;
+
+  if (invoice.status === 'paid' && (requestedStatus === undefined || requestedStatus === 'paid')) {
+    return {
+      payments_applied: round2(Number(invoice.payments_applied) || 0),
+      deposits_applied: round2(Number(invoice.deposits_applied) || 0),
+      balance_due: 0,
+      status: 'paid',
+      total,
+    };
+  }
+
   const deposits_applied = preferEditorPayments && invoice.deposits_applied != null
     ? round2(Number(invoice.deposits_applied) || 0)
     : sumDepositsFromJob(job, timeline);
@@ -247,18 +148,6 @@ export function sumActiveInvoiceTotals(invoices = []) {
       .filter(inv => inv && inv.status !== 'void')
       .reduce((sum, inv) => sum + (Number(inv.total) || 0), 0),
   );
-}
-
-export function catalogItemToWorkOrderLine(item) {
-  return {
-    kind: 'labor',
-    description: item.task || '',
-    hours: item.hours_mid != null ? item.hours_mid : undefined,
-    rate: item.labor_rate ?? 55,
-    work_category: item.category || '',
-    notes: [item.notes, item.tools ? `Tools: ${item.tools}` : ''].filter(Boolean).join(' · '),
-    catalog_id: item.id,
-  };
 }
 
 /** Map estimate lines into invoice materials / labor / misc tables. */
@@ -357,7 +246,7 @@ export function invoiceTotals({ material_lines = [], labor_lines = [], misc_line
  * @param {number|string} [args.payments_applied]
  * @param {string} [args.number]
  * @param {object[]} [args.existingInvoices] non-void prior invoices for progress billing
- * @returns {{ invoice: object, authorized_total: number, billing_ceiling: number, prior_invoiced: number, over_authorized: boolean }}
+ * @returns {{ invoice: object, authorized_total: number, prior_invoiced: number }}
  */
 export function buildInvoiceAutofill({
   job,
@@ -382,7 +271,6 @@ export function buildInvoiceAutofill({
   });
   const baseline = Number(source.total ?? estimate?.total) || 0;
   const authorized_total = computeAuthorizedTotal(baseline, approvedChangeOrders);
-  const billing_ceiling = authorizedBillingCeiling(baseline, approvedChangeOrders, tax_rate);
   const prior_invoiced = sumActiveInvoiceTotals(existingInvoices);
   const invoice = {
     job_id: job?.id,
@@ -407,16 +295,16 @@ export function buildInvoiceAutofill({
   return {
     invoice,
     authorized_total,
-    billing_ceiling,
     prior_invoiced,
-    // Cumulative check: prior active invoices + this draft vs tax-aware ceiling
-    over_authorized: prior_invoiced + totals.total > billing_ceiling + 0.009,
   };
 }
 
 /** Stable key for MO lines synced from Estimate / WO / CO. */
 export function materialOrderSourceKey(line = {}) {
-  if (!line.source_entity || line.source_id == null || line.source_line_index == null) return null;
+  if (!line.source_entity || line.source_id == null) return null;
+  // Task materials carry a row id, so reordering a task's list keeps the same key.
+  if (line.source_line_id) return `${line.source_entity}:${line.source_id}:${line.source_line_id}`;
+  if (line.source_line_index == null) return null;
   return `${line.source_entity}:${line.source_id}:${line.source_line_index}`;
 }
 
@@ -442,106 +330,6 @@ export function materialOrderClaimIdentity(line = {}) {
   const desc = normalizeMaterialDescription(line.description);
   if (!desc) return null;
   return `desc:${desc}`;
-}
-
-/** Estimate material $ → MO lines (qty 1 × unit_price). Does not invent prices. */
-export function materialLinesFromEstimate(estimate) {
-  if (!estimate?.id) return [];
-  const source = estimate.accepted_snapshot || estimate;
-  const lines = source.lines || [];
-  return lines.flatMap((line, index) => {
-    const material = num(line.material_amount);
-    if (material == null || material <= 0) return [];
-    return [{
-      description: line.description || 'Materials',
-      qty: 1,
-      unit_price: material,
-      category: line.category || undefined,
-      notes: line.notes || undefined,
-      source_entity: 'Estimate',
-      source_id: estimate.id,
-      source_line_index: index,
-      on_hand: false,
-    }];
-  });
-}
-
-/** WO material lines → MO lines; Line# = 1-based WO line index. */
-export function materialLinesFromWorkOrder(workOrder) {
-  if (!workOrder?.id) return [];
-  return (workOrder.lines || []).flatMap((line, index) => {
-    if (line.kind !== 'material') return [];
-    const qty = num(line.qty);
-    const unit_price = num(line.unit_price);
-    if (!line.description && qty == null && unit_price == null) return [];
-    return [{
-      description: line.description || 'Materials',
-      qty,
-      unit_price,
-      category: line.work_category || undefined,
-      notes: line.notes || undefined,
-      wo_line_number: index + 1,
-      source_entity: 'WorkOrder',
-      source_id: workOrder.id,
-      source_line_index: index,
-      on_hand: false,
-    }];
-  });
-}
-
-/** Change Order amount lines → MO materials (credits skipped). */
-export function materialLinesFromChangeOrder(changeOrder) {
-  if (!changeOrder?.id) return [];
-  return (changeOrder.lines || []).flatMap((line, index) => {
-    const amount = num(line.amount);
-    if (amount != null && amount < 0) return [];
-    if (!line.description && (amount == null || amount === 0)) return [];
-    return [{
-      description: line.description || 'Change order materials',
-      qty: 1,
-      unit_price: amount != null && amount > 0 ? amount : undefined,
-      source_entity: 'ChangeOrder',
-      source_id: changeOrder.id,
-      source_line_index: index,
-      on_hand: false,
-    }];
-  });
-}
-
-/**
- * Collect job materials for MO autofill.
- * Prefer active WO materials when present; otherwise estimate materials.
- * Change orders: latest revision per number stem only (avoids original + revise draft dupes).
- * @param {{ estimate?: object|null, workOrder?: object|null, changeOrders?: object[] }} [args]
- */
-export function collectJobMaterialLines({ estimate = null, workOrder = null, changeOrders = [] } = {}) {
-  const out = [];
-  const woActive = workOrder && workOrder.status !== 'void';
-  const woMaterials = woActive ? materialLinesFromWorkOrder(workOrder) : [];
-  if (woMaterials.length) {
-    out.push(...woMaterials);
-  } else if (estimate && estimate.status !== 'void') {
-    out.push(...materialLinesFromEstimate(estimate));
-  }
-  for (const co of selectChangeOrdersForMaterials(changeOrders)) {
-    out.push(...materialLinesFromChangeOrder(co));
-  }
-  return out;
-}
-
-/** Latest non-void / non-rejected CO per number stem (CO-001 vs CO-001-R2 → R2 only). */
-export function selectChangeOrdersForMaterials(changeOrders = []) {
-  const live = (changeOrders || []).filter((co) => co && co.status !== 'void' && co.status !== 'rejected');
-  const byStem = new Map();
-  for (const co of live) {
-    const number = String(co.number || co.id || '');
-    const match = /^(.*?)(?:-R(\d+))?$/.exec(number);
-    const stem = match?.[1] || number || co.id;
-    const rev = match?.[2] ? Number(match[2]) : 1;
-    const prev = byStem.get(stem);
-    if (!prev || rev > prev.rev) byStem.set(stem, { co, rev });
-  }
-  return [...byStem.values()].map((row) => row.co);
 }
 
 /**

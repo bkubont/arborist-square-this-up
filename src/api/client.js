@@ -48,7 +48,7 @@ export const api = {
     CompanyProfile: entity('CompanyProfile'),
     Estimate: entity('Estimate'),
     MaterialOrder: entity('MaterialOrder'),
-    WorkOrder: entity('WorkOrder'),
+    WorkItem: entity('WorkItem'),
     ChangeOrder: entity('ChangeOrder'),
     Invoice: entity('Invoice'),
     Expense: entity('Expense'),
@@ -68,15 +68,19 @@ export const api = {
   changeOrders: {
     sendSign(id, data) { return post(`/change-orders/${encodeURIComponent(id)}/send-sign`, data); },
   },
-  workOrders: {
-    fromEstimate(estimateId) { return post('/work-orders/from-estimate', { estimate_id: estimateId }); },
-  },
   invoices: {
     fromJob(jobId) { return post('/invoices/from-job', { job_id: jobId }); },
   },
   documents: {
     void(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/void`, {}); },
     revise(entity, id) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/revise`, {}); },
+    /** Owner's status override for an Estimate / Change Order — no signature needed. */
+    setStatus(entity, id, status) { return post(`/documents/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/status`, { status }); },
+  },
+  /** Derived money per job (server/summary.js), incl. running_total_cents. */
+  summaries: {
+    all() { return request('/summaries'); },
+    job(id) { return request(`/jobs/${encodeURIComponent(id)}/summary`); },
   },
   jobs: {
     authorizedTotal(id) { return request(`/jobs/${encodeURIComponent(id)}/authorized-total`); },

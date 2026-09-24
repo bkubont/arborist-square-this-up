@@ -76,6 +76,10 @@ export function emptyEstimateLine() {
 export function serializeEstimateLine(line) {
   const num = (v) => (v === "" || v == null ? undefined : Number(v));
   return {
+    // Round-tripped, not edited here (steps are worked on the job's tasks once signed) — must not
+    // be dropped on save, or a line's id/steps would silently vanish the next time it is saved.
+    id: line.id || undefined,
+    steps: line.steps || undefined,
     description: line.description || "",
     material_amount: num(line.material_amount),
     labor_amount: num(line.labor_amount),
@@ -87,6 +91,43 @@ export function serializeEstimateLine(line) {
     tools: line.tools || undefined,
     catalog_id: line.catalog_id || undefined,
   };
+}
+
+/** A line priced by material / labor / equipment (every estimate line; change order lines since they matched). */
+export function isPricedScopeLine(line = {}) {
+  return ["material_amount", "labor_amount", "equipment_amount"].some((k) => line[k] !== "" && line[k] != null);
+}
+
+/** Line total; an older change order line with only a single `amount` keeps that amount. */
+export function scopeLineTotal(line = {}) {
+  if (isPricedScopeLine(line) || line.amount === "" || line.amount == null) return lineTotal(line);
+  return Number(line.amount) || 0;
+}
+
+/** Stored estimate / change order line → editor form row (strings). */
+export function scopeLineToForm(line = {}) {
+  return {
+    id: line.id,
+    steps: line.steps,
+    description: line.description || "",
+    material_amount: line.material_amount ?? "",
+    labor_amount: line.labor_amount ?? "",
+    equipment_amount: line.equipment_amount ?? "",
+    labor_hours: line.labor_hours ?? "",
+    labor_rate: line.labor_rate ?? "",
+    category: line.category || "",
+    notes: line.notes || "",
+    tools: line.tools || "",
+    catalog_id: line.catalog_id || "",
+    amount: line.amount ?? "",
+  };
+}
+
+/** Change order form row → API line. Keeps an older line's single amount until it is repriced. */
+export function serializeChangeOrderLine(line) {
+  const out = serializeEstimateLine(line);
+  if (isPricedScopeLine(out) || line.amount === "" || line.amount == null) return out;
+  return { ...out, amount: Number(line.amount) };
 }
 
 export function catalogItemToFormLine(item, fallbackRate = DEFAULT_LABOR_RATE) {

@@ -39,6 +39,18 @@ export function normalizeInvoicePayments(invoice, { job, timeline = [], requeste
     payments_applied: 0,
   });
   const total = Number(invoice.total ?? totals.total) || 0;
+
+  // Timeline sync only — explicit mark-paid must still total the invoice.
+  if (invoice.status === 'paid' && requestedStatus === undefined) {
+    return {
+      payments_applied: round2(Number(invoice.payments_applied) || 0),
+      deposits_applied: round2(Number(invoice.deposits_applied) || 0),
+      balance_due: 0,
+      status: 'paid',
+      total,
+    };
+  }
+
   const deposits_applied = preferEditorPayments && invoice.deposits_applied != null
     ? round2(Number(invoice.deposits_applied) || 0)
     : sumDepositsApplied(job, timeline);

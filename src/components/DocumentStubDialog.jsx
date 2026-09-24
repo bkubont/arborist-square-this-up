@@ -19,14 +19,10 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
     status: "draft",
     date: "",
     valid_till: "",
-    start_date: "",
-    end_date: "",
     notes: "",
     payment_terms: "",
-    instructions: "",
     reason: "",
     description: "",
-    crew: "",
     tax_rate: "",
   };
   const [form, setForm] = useState(emptyForm);
@@ -39,14 +35,10 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
         status: document.status || "draft",
         date: document.date || "",
         valid_till: document.valid_till || "",
-        start_date: document.start_date || "",
-        end_date: document.end_date || "",
         notes: document.notes || "",
         payment_terms: document.payment_terms || "",
-        instructions: document.instructions || "",
         reason: document.reason || "",
         description: document.description || "",
-        crew: document.crew || "",
         tax_rate: document.tax_rate ?? "",
       });
       if (document.tax_rate == null || document.tax_rate === "") {
@@ -75,12 +67,6 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
       if (entity === "Estimate") {
         payload.date = form.date;
         payload.valid_till = form.valid_till;
-      }
-      if (entity === "WorkOrder") {
-        payload.start_date = form.start_date;
-        payload.end_date = form.end_date;
-        payload.instructions = form.instructions;
-        payload.crew = form.crew;
       }
       if (entity === "ChangeOrder") {
         payload.reason = form.reason;
@@ -170,29 +156,6 @@ export default function DocumentStubDialog({ open, onOpenChange, entity, documen
               <Label>Tax %</Label>
               <Input type="number" value={form.tax_rate} onChange={(e) => set("tax_rate", e.target.value)} placeholder="Account default" />
             </div>
-          )}
-
-          {entity === "WorkOrder" && (
-            <>
-              <div>
-                <Label>Crew</Label>
-                <Input value={form.crew} onChange={(e) => set("crew", e.target.value)} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Start</Label>
-                  <Input type="date" value={form.start_date} onChange={(e) => set("start_date", e.target.value)} />
-                </div>
-                <div>
-                  <Label>End</Label>
-                  <Input type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} />
-                </div>
-              </div>
-              <div>
-                <Label>Instructions</Label>
-                <Textarea value={form.instructions} onChange={(e) => set("instructions", e.target.value)} rows={2} />
-              </div>
-            </>
           )}
 
           {entity === "ChangeOrder" && (

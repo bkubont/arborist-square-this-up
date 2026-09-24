@@ -29,6 +29,7 @@ function emptyLine() {
     source_entity: undefined,
     source_id: undefined,
     source_line_index: undefined,
+    source_line_id: undefined,
   };
 }
 
@@ -46,6 +47,7 @@ function toFormLine(line) {
     source_entity: line.source_entity,
     source_id: line.source_id,
     source_line_index: line.source_line_index,
+    source_line_id: line.source_line_id,
   };
 }
 
@@ -70,6 +72,8 @@ function serializeLine(line) {
     source_entity: line.source_entity || undefined,
     source_id: line.source_id || undefined,
     source_line_index: line.source_line_index != null ? Number(line.source_line_index) : undefined,
+    // Task materials are keyed by row id, not position (see materialOrderSourceKey).
+    source_line_id: line.source_line_id || undefined,
   };
 }
 

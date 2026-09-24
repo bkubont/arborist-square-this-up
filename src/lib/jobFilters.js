@@ -7,6 +7,7 @@ export const JOB_STATUSES = [
   "Scheduled",
   "In Progress",
   "Waiting on Materials",
+  "On Hold",
   "Completed",
   "Paid",
 ];
@@ -17,6 +18,7 @@ export const ACTIVE_STATUSES = [
   "Scheduled",
   "In Progress",
   "Waiting on Materials",
+  "On Hold",
 ];
 
 const ARCHIVE_JOB_STATUSES = new Set(["Completed", "Paid"]);
@@ -202,6 +204,7 @@ export function moneySummary(jobs, estimates = [], changeOrders = [], invoices =
 export function actionReasonsForJob(job, estimates = [], changeOrders = []) {
   const reasons = [];
   if (job?.status === "Waiting on Materials") reasons.push("Waiting on materials");
+  if (job?.status === "On Hold") reasons.push("On hold");
 
   const jobEstimates = estimates.filter((e) => e.job_id === job.id && isAwaitingApproval(e));
   if (jobEstimates.length) reasons.push("Estimate awaiting approval");

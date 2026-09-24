@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import { JobCardDataProvider, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import { money } from "@/lib/format";
 import {
   hasOutstandingBalance,
@@ -19,6 +20,14 @@ import { cn } from "@/lib/utils";
 const MoneyIcon = NAV_ICONS.invoices;
 
 export default function Outstanding() {
+  return (
+    <JobCardDataProvider>
+      <OutstandingPage />
+    </JobCardDataProvider>
+  );
+}
+
+function OutstandingPage() {
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
   const [changeOrders, setChangeOrders] = useState([]);
@@ -26,8 +35,8 @@ export default function Outstanding() {
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
+  const load = useCallback(() => {
+    return Promise.all([
       api.entities.Job.list("-updated_date", 300),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
@@ -43,6 +52,10 @@ export default function Outstanding() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
   const invoiceByJob = useMemo(() => invoicesByJobId(invoices), [invoices]);
@@ -127,14 +140,16 @@ export default function Outstanding() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-foreground truncate">{j.title}</div>
-                    <div className="text-sm text-muted-foreground truncate">{j.client_name || "—"}</div>
+                    <JobCustomer job={j} />
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-sm font-semibold text-attention-payment">{money(balance)}</div>
+                    <div className="text-sm font-semibold text-attention-payment">{money(balance)} due</div>
+                    <JobRunningTotal job={j} className="text-xs font-medium text-muted-foreground" />
                     <div className="mt-1 flex justify-end">
                       <StatusBadge status={j.status} />
                     </div>
                   </div>
+                  <JobQuickAdd job={j} onSaved={load} />
                 </Link>
               );
             })}

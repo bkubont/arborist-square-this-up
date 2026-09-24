@@ -6,7 +6,7 @@ import React, { useState } from "react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 
-const NO_REVISE = new Set(["Estimate", "WorkOrder", "Invoice"]);
+const NO_REVISE = new Set(["Estimate", "Invoice"]);
 
 export default function DocumentLifecycleActions({
   entity,
