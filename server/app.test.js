@@ -1113,6 +1113,142 @@ test('void and revise document rules; partial invoice status; ownership', async 
   })).status, 400);
 });
 
+test('mark invoice paid totals the invoice', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('mark-paid@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Paid client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Paid job', client_id: client.id, status: 'Completed' });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-PAID',
+    status: 'accepted',
+    tax_rate: 0,
+    lines: [{ description: 'Labor', labor_amount: 500, labor_hours: 10, labor_rate: 50 }],
+    total: 500,
+    accepted_snapshot: {
+      number: 'EST-PAID', tax_rate: 0, total: 500,
+      lines: [{ description: 'Labor', labor_amount: 500, labor_hours: 10, labor_rate: 50 }],
+    },
+  });
+  const wo = await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  });
+  assert.equal(wo.status, 201);
+  await request(`/entities/WorkOrder/${wo.data.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { status: 'complete' },
+  });
+  const inv = (await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
+  })).data;
+  await request(`/entities/Invoice/${inv.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'sent',
+      total: 500,
+      labor_lines: inv.labor_lines,
+      material_lines: inv.material_lines || [],
+      misc_lines: inv.misc_lines || [],
+    },
+  });
+
+  const marked = await request(`/entities/Invoice/${inv.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'paid',
+      total: 500,
+      labor_lines: inv.labor_lines,
+      material_lines: inv.material_lines || [],
+      misc_lines: inv.misc_lines || [],
+    },
+  });
+  assert.equal(marked.status, 200);
+  assert.equal(marked.data.status, 'paid');
+  assert.equal(marked.data.balance_due, 0);
+  assert.equal(marked.data.payments_applied, 500);
+});
+
+test('completed and paid jobs archive automatically', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('archive@example.com');
+  const client = (await request('/entities/Client', {
+    method: 'POST', cookie: a.cookie, data: { name: 'Archive client', ...CLIENT_ADDR },
+  })).data;
+  const job = (await request('/entities/Job', {
+    method: 'POST', cookie: a.cookie, data: { title: 'Archive job', client_id: client.id, status: 'In Progress' },
+  })).data;
+  const completed = await request(`/entities/Job/${job.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { status: 'Completed' },
+  });
+  assert.equal(completed.status, 200);
+  assert.ok(completed.data.archived_at);
+  const paid = await request(`/entities/Job/${job.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { status: 'Paid' },
+  });
+  assert.equal(paid.status, 200);
+  assert.ok(paid.data.archived_at);
+});
+
+test('logging payment_received syncs active invoice balance and status', async t => {
+  const { request, register } = await fixture(t);
+  const a = await register('pay-sync@example.com');
+  const create = async (entity, data) => {
+    const result = await request(`/entities/${entity}`, { method: 'POST', data, cookie: a.cookie });
+    assert.equal(result.status, 201, result.data?.message);
+    return result.data;
+  };
+  const client = await create('Client', { name: 'Sync client', ...CLIENT_ADDR });
+  const job = await create('Job', { title: 'Sync job', client_id: client.id });
+  const estimate = await create('Estimate', {
+    job_id: job.id,
+    number: 'EST-SYNC',
+    status: 'accepted',
+    tax_rate: 0,
+    lines: [{ description: 'Labor', labor_amount: 300, labor_hours: 6, labor_rate: 50 }],
+    total: 300,
+    accepted_snapshot: {
+      number: 'EST-SYNC', tax_rate: 0, total: 300,
+      lines: [{ description: 'Labor', labor_amount: 300, labor_hours: 6, labor_rate: 50 }],
+    },
+  });
+  const wo = await request('/work-orders/from-estimate', {
+    method: 'POST', cookie: a.cookie, data: { estimate_id: estimate.id },
+  });
+  await request(`/entities/WorkOrder/${wo.data.id}`, {
+    method: 'PATCH', cookie: a.cookie, data: { status: 'complete' },
+  });
+  const inv = (await request('/invoices/from-job', {
+    method: 'POST', cookie: a.cookie, data: { job_id: job.id },
+  })).data;
+  await request(`/entities/Invoice/${inv.id}`, {
+    method: 'PATCH', cookie: a.cookie,
+    data: {
+      status: 'sent',
+      total: 300,
+      labor_lines: inv.labor_lines,
+      material_lines: inv.material_lines || [],
+      misc_lines: inv.misc_lines || [],
+    },
+  });
+
+  await create('TimelineEntry', {
+    job_id: job.id,
+    type: 'payment_received',
+    text: 'Partial',
+    category: 'financial',
+    amount: 100,
+  });
+
+  const synced = (await request(`/entities/Invoice/${inv.id}`, { cookie: a.cookie })).data;
+  assert.equal(synced.payments_applied, 100);
+  assert.equal(synced.balance_due, 200);
+  assert.equal(synced.status, 'partial');
+});
+
 test('document rules: void estimates excluded, deposits sum, freeze snapshot, job_id move, rollups', async t => {
   const { db, request, register } = await fixture(t);
   const a = await register('rules-fix@example.com');

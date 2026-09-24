@@ -159,7 +159,7 @@ export default function Receipts() {
                 {byJob.map(({ job, jobId, items }) => (
                   <div key={jobId}>
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <Link to={`/jobs/${jobId}?tab=receipts`} className="font-semibold text-foreground hover:text-primary">
+                      <Link to={`/jobs/${jobId}?tab=photos`} className="font-semibold text-foreground hover:text-primary">
                         {job?.title || "Job"}
                       </Link>
                       <span className="text-xs text-muted-foreground">{items.length}</span>
@@ -168,7 +168,7 @@ export default function Receipts() {
                       {items.map((item) => (
                         <Link
                           key={`${item.kind}-${item.id}`}
-                          to={`/jobs/${jobId}?tab=receipts`}
+                          to={`/jobs/${jobId}?tab=photos`}
                           className="rounded-lg border border-border overflow-hidden hover:border-primary/40 transition-colors"
                         >
                           <Image src={item.photo_url} alt="" className="w-full aspect-square object-cover" />

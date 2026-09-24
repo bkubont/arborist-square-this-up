@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DOCUMENT_STATUSES } from "@/lib/documents";
 import { money } from "@/lib/format";
-import { invoiceTotals, deriveInvoiceStatus } from "@/lib/documentMapping";
+import { invoiceTotals, normalizeInvoicePayments } from "@/lib/documentMapping";
 import { loadAccountTaxRate } from "@/lib/salesTax";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import StatusSelect from "@/components/StatusSelect";
@@ -180,13 +180,27 @@ export default function InvoiceEditorDialog({
         deposits_applied: form.deposits_applied,
         payments_applied: form.payments_applied,
       });
-      let nextStatus = markSent ? "sent" : form.status;
-      nextStatus = deriveInvoiceStatus({
-        balance_due: next.balance_due,
-        payments_applied: form.payments_applied,
-        deposits_applied: form.deposits_applied,
-        status: nextStatus,
-      });
+      const requestedStatus = markSent ? "sent" : form.status;
+      const preferEditorPayments = requestedStatus !== "paid" && (
+        form.payments_applied !== "" || form.deposits_applied !== ""
+      );
+      const normalized = normalizeInvoicePayments(
+        {
+          ...document,
+          ...next,
+          status: requestedStatus,
+          payments_applied: form.payments_applied === "" ? undefined : Number(form.payments_applied),
+          deposits_applied: form.deposits_applied === "" ? undefined : Number(form.deposits_applied),
+          material_lines,
+          labor_lines,
+          misc_lines,
+        },
+        {
+          requestedStatus: requestedStatus === "paid" ? "paid" : requestedStatus,
+          preferEditorPayments,
+        }
+      );
+      const nextStatus = normalized.status;
       const previousStatus = document.status;
       await api.entities.Invoice.update(document.id, {
         number: form.number || undefined,
@@ -198,14 +212,15 @@ export default function InvoiceEditorDialog({
         project_name: form.project_name,
         estimate_ref: form.estimate_ref,
         change_order_refs: form.change_order_refs,
-        deposits_applied: form.deposits_applied === "" ? undefined : Number(form.deposits_applied),
-        payments_applied: form.payments_applied === "" ? undefined : Number(form.payments_applied),
+        deposits_applied: normalized.deposits_applied,
+        payments_applied: normalized.payments_applied,
         related_estimate_id: document.related_estimate_id,
         billed_change_order_ids: document.billed_change_order_ids || [],
         material_lines,
         labor_lines,
         misc_lines,
         ...next,
+        balance_due: normalized.balance_due,
       });
 
       if (nextStatus === "sent" && previousStatus !== "sent" && previousStatus !== "partial" && previousStatus !== "paid") {
@@ -221,6 +236,14 @@ export default function InvoiceEditorDialog({
           job_id: jobId,
           type: "note",
           text: `Invoice ${form.number || ""} marked partial (progress billing)`.trim(),
+          category: "financial",
+        });
+      }
+      if (nextStatus === "paid" && previousStatus !== "paid") {
+        await api.entities.TimelineEntry.create({
+          job_id: jobId,
+          type: "note",
+          text: `Invoice ${form.number || ""} marked paid`.trim(),
           category: "financial",
         });
       }

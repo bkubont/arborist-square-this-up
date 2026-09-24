@@ -95,7 +95,10 @@ export const schemas = {
   }),
   Job: z.object({ title: z.string().trim().min(1).max(250), client_id: id, client_name: text.optional(), description: text.optional(),
     status: z.enum(['Estimate','Scheduled','In Progress','Waiting on Materials','Completed','Paid']).default('Estimate'),
-    start_date: date.optional(), end_date: date.optional(), estimate_amount: money.optional(), invoice_amount: money.optional(),
+    start_date: date.optional(), end_date: date.optional(),
+    /** Set when a job is Completed/Paid — hides it from working lists; view under Archive. */
+    archived_at: date.optional(),
+    estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
   TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided']),

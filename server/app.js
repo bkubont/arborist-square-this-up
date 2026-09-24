@@ -10,7 +10,7 @@ import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, fi
 import { searchCatalog } from './catalog.js';
 import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
-import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, deriveInvoiceStatus, sumActiveInvoiceTotals } from './mapping.js';
+import { mapEstimateToWorkOrderLines, workOrderTotals, buildInvoiceAutofill, sumActiveInvoiceTotals } from './mapping.js';
 import { syncDraftMaterialOrder } from './materialOrderSync.js';
 import { voidDocument, reviseDocument, assertDocumentEntity } from './documents.js';
 import {
@@ -26,6 +26,12 @@ import {
   refreshJobDocumentRollups,
   SINGLE_DOC_ENTITIES,
 } from './documentRules.js';
+import {
+  isFinancialTimelineEntry,
+  prepareInvoicePatch,
+  refreshInvoicePaymentSync,
+} from './invoiceSync.js';
+import { applyJobArchiveFields } from './jobArchive.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE, resolveSalesTaxRate } from './salesTax.js';
 
@@ -429,7 +435,10 @@ export async function createApp(db, env = process.env) {
   app.post('/api/entities/:entity', async (req, res) => {
     const entity = req.params.entity;
     let body = req.body;
-    if (entity === 'Job') body = stripJobDerivedMoney(body);
+    if (entity === 'Job') {
+      body = stripJobDerivedMoney(body);
+      body = applyJobArchiveFields(body);
+    }
     const created = await ownedTransaction(req.user.id, async tx => {
       if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
         await assertSingularDocument(tx, req.user.id, entity, body.job_id);
@@ -454,31 +463,28 @@ export async function createApp(db, env = process.env) {
       }
       return record;
     });
+    if (entity === 'TimelineEntry' && isFinancialTimelineEntry(created) && created.job_id) {
+      await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, created.job_id));
+    }
     res.status(201).json(created);
   });
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
     let body = req.body;
-    if (entity === 'Job' && body && typeof body === 'object') {
-      body = stripJobDerivedMoney(body);
-    }
-    const previous = JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'Estimate' || entity === 'Invoice'
+    const previous = entity === 'Job' || JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'Estimate' || entity === 'Invoice'
       ? await getRecord(db, req.user.id, entity, req.params.id)
       : null;
+    if (entity === 'Job' && body && typeof body === 'object') {
+      body = stripJobDerivedMoney(body);
+      body = applyJobArchiveFields(body, previous);
+    }
     if (entity === 'Estimate' && previous) {
       assertEstimateMutable(previous, body);
     }
     if (entity === 'Invoice' && body && typeof body === 'object' && previous) {
-      const merged = { ...previous, ...body };
-      body = {
-        ...body,
-        status: deriveInvoiceStatus({
-          balance_due: merged.balance_due,
-          payments_applied: merged.payments_applied,
-          deposits_applied: merged.deposits_applied,
-          status: body.status ?? previous.status,
-        }),
-      };
+      const job = await getRecord(db, req.user.id, 'Job', previous.job_id);
+      const timeline = await listJobDocuments(db, req.user.id, 'TimelineEntry', previous.job_id);
+      body = prepareInvoicePatch(previous, body, { job, timeline });
     }
 
     const movingJob = previous && body && typeof body === 'object'
@@ -501,6 +507,12 @@ export async function createApp(db, env = process.env) {
       if (movingJob && previous.job_id) {
         await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
+    }
+    if (entity === 'TimelineEntry' && updated?.job_id && (
+      isFinancialTimelineEntry(updated)
+      || (previous && isFinancialTimelineEntry(previous))
+    )) {
+      await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, updated.job_id));
     }
     // Keep estimate_amount rollup when estimate is saved (pre-accept edits)
     if (entity === 'Estimate' && updated.job_id) {
@@ -530,8 +542,12 @@ export async function createApp(db, env = process.env) {
     res.json(updated);
   });
   app.delete('/api/entities/:entity/:id', async (req, res) => {
+    let financialTimelineJobId = null;
     await ownedTransaction(req.user.id, async tx => {
       const record = await getRecord(tx, req.user.id, req.params.entity, req.params.id);
+      if (req.params.entity === 'TimelineEntry' && isFinancialTimelineEntry(record)) {
+        financialTimelineJobId = record.job_id;
+      }
       const removedEntries = req.params.entity === 'Job'
         ? [
           ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', record.id])).map(row => JSON.parse(row.data)),
@@ -558,6 +574,9 @@ export async function createApp(db, env = process.env) {
           await tx.run('DELETE FROM files WHERE id = ? AND owner_id = ?', [fileId, req.user.id]);
       }
     });
+    if (financialTimelineJobId) {
+      await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, financialTimelineJobId));
+    }
     res.json({ ok: true });
   });
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1, fields: 0 } });

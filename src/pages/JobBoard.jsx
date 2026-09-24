@@ -5,7 +5,7 @@ import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money, shortDate } from "@/lib/format";
-import { JOB_STATUSES, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { JOB_STATUSES, isWorkingJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -17,11 +17,11 @@ export default function JobBoard() {
 
   const load = useCallback(() => {
     return Promise.all([
-      api.entities.Job.list("-updated_date", 400),
+      api.entities.Job.listAll("-updated_date"),
       api.entities.TimelineEntry.list("-created_date", 1000),
     ])
       .then(([j, tl]) => {
-        setJobs(j);
+        setJobs(j.filter(isWorkingJob));
         setTimeline(tl);
       })
       .finally(() => setLoading(false));

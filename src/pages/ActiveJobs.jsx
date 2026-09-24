@@ -7,7 +7,7 @@ import JobFormDialog from "@/components/JobFormDialog";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { money, shortDate } from "@/lib/format";
-import { isActiveJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { isActiveJob, isWorkingJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -24,12 +24,12 @@ export default function ActiveJobs() {
 
   useEffect(() => {
     Promise.all([
-      api.entities.Job.list("-created_date", 300),
+      api.entities.Job.listAll("-updated_date"),
       api.entities.Client.list("-created_date", 200),
       api.entities.TimelineEntry.list("-created_date", 1000),
     ])
       .then(([j, c, tl]) => {
-        setJobs(j.filter(isActiveJob));
+        setJobs(j.filter((job) => isWorkingJob(job) && isActiveJob(job)));
         setClients(c);
         setTimeline(tl);
       })
@@ -65,6 +65,9 @@ export default function ActiveJobs() {
           <>
             <Link to="/jobs" className="text-sm font-medium text-primary hover:underline px-2">
               All Jobs
+            </Link>
+            <Link to="/jobs/archive" className="text-sm font-medium text-primary hover:underline px-2">
+              Archive
             </Link>
             <Link to="/jobs/board" className="text-sm font-medium text-primary hover:underline px-2">
               Board

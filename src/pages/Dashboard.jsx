@@ -10,6 +10,7 @@ import { buildAttentionItems } from "@/lib/attentionItems";
 import {
   ACTIVE_STATUSES,
   countByStatus,
+  isWorkingJob,
   jobBalance,
   moneySummary,
   paymentsByJobId,
@@ -55,7 +56,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     Promise.all([
-      api.entities.Job.list("-created_date", 300),
+      api.entities.Job.listAll("-updated_date"),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
       api.entities.Invoice.list("-updated_date", 300),
@@ -63,7 +64,7 @@ export default function Dashboard() {
       api.entities.Expense.list("-created_date", 400),
     ])
       .then(([j, e, c, inv, tl, ex]) => {
-        setJobs(j);
+        setJobs(j.filter(isWorkingJob));
         setEstimates(e);
         setChangeOrders(c);
         setInvoices(inv);

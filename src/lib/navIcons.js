@@ -7,6 +7,7 @@ import {
   Building2,
   ListTodo,
   Columns3,
+  Archive,
   CalendarDays,
   FileText,
   Receipt,
@@ -43,4 +44,5 @@ export const NAV_ICONS = {
   allJobs: Layers,
   actionItems: ListTodo,
   board: Columns3,
+  archive: Archive,
 };

@@ -33,6 +33,8 @@ const entity = name => ({
     }
   },
   list(sort = '-created_date', limit = 200) { return this.filter({}, sort, limit); },
+  /** Fetch every record (pages of 500 until exhausted). */
+  listAll(sort = '-updated_date') { return this.filter({}, sort, PAGE_SIZE_MAX); },
   get(id) { return request(`/entities/${name}/${encodeURIComponent(id)}`); },
   create(data) { return post(`/entities/${name}`, data); },
   update(id, data) { return request(`/entities/${name}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }); },
