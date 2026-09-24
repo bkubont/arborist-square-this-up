@@ -82,6 +82,35 @@ export function emptyEstimateLine() {
   };
 }
 
+/** True when a stored row is a legacy materials-only line (no longer shown separately). */
+export function isLegacyMaterialOnlyLine(line = {}) {
+  const desc = String(line.description || "").trim();
+  const labor = Number(line.labor_amount) || 0;
+  const material = Number(line.material_amount) || 0;
+  const hours = Number(line.labor_hours) || 0;
+  if (/^materials?$/i.test(desc)) return true;
+  return material > 0 && labor === 0 && hours === 0;
+}
+
+/**
+ * Load estimate lines for the editor: whole-line rows, merging legacy materials-only lines
+ * into the previous scope line.
+ */
+export function normalizeEstimateLinesForEditor(lines = []) {
+  const out = [];
+  for (const raw of lines) {
+    if (isLegacyMaterialOnlyLine(raw) && out.length) {
+      const prev = out[out.length - 1];
+      const add = estimateLineAmount(raw);
+      const current = Number(prev.line_amount) || 0;
+      prev.line_amount = add > 0 ? String(roundMoney(current + add)) : prev.line_amount;
+      continue;
+    }
+    out.push(fromApiEstimateLine(raw));
+  }
+  return out.length ? out : [emptyEstimateLine()];
+}
+
 /** Map stored estimate line → editor form row (merged whole-line amount). */
 export function fromApiEstimateLine(line = {}) {
   const amount = estimateLineAmount(line);

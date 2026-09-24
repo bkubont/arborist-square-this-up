@@ -21,7 +21,7 @@ import {
   ESTIMATE_VALID_DAYS,
   estimateLineAmount,
   estimateTotals,
-  fromApiEstimateLine,
+  normalizeEstimateLinesForEditor,
   laborAmountFromHours,
   serializeEstimateLine,
   todayIso,
@@ -67,7 +67,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       tax_rate: document.tax_rate ?? "",
     });
     const existing = Array.isArray(document.lines) && document.lines.length
-      ? document.lines.map(fromApiEstimateLine)
+      ? normalizeEstimateLinesForEditor(document.lines)
       : [emptyEstimateLine()];
     setLines(existing);
 
