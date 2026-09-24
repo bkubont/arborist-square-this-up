@@ -1,13 +1,13 @@
 import {
   ACTIVE_JOB_STATUSES,
-  ALL_JOB_STATUSES,
   ARCHIVE_JOB_STATUSES,
   JOB_PHASE_ORDER,
   JOB_PHASES,
+  STORED_JOB_STATUSES,
 } from "./jobStatus.js";
 
-/** All job statuses across Lead, Working, and Payment phases. */
-export const JOB_STATUSES = ALL_JOB_STATUSES;
+/** Stored job statuses across Lead, Working, and Payment (excludes Invoiced gate). */
+export const JOB_STATUSES = STORED_JOB_STATUSES;
 
 /** Statuses still in play on working lists (non-terminal). */
 export const ACTIVE_STATUSES = ACTIVE_JOB_STATUSES;

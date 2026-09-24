@@ -5,7 +5,7 @@ import { api } from "@/api/client";
 import JobKanbanCard from "@/components/JobKanbanCard";
 import PageHeader from "@/components/PageHeader";
 import { isWorkingJob, paymentsByJobId, JOB_PHASES, JOB_PHASE_ORDER } from "@/lib/jobFilters";
-import { statusesForPhase } from "@/lib/jobStatus";
+import { applyInvoicedGate, statusesForPhase } from "@/lib/jobStatus";
 import { statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -88,20 +88,22 @@ export default function JobBoard() {
     const previous = jobs.find((j) => String(j.id) === String(jobId));
     if (!previous || (previous.phase === target.phase && previous.status === target.status)) return;
 
+    const nextFields = applyInvoicedGate({ phase: target.phase, status: target.status });
     setJobs((list) =>
       list.map((j) =>
-        String(j.id) === String(jobId) ? { ...j, phase: target.phase, status: target.status } : j
+        String(j.id) === String(jobId) ? { ...j, ...nextFields } : j
       )
     );
     setSavingId(jobId);
     try {
-      await api.entities.Job.update(jobId, { phase: target.phase, status: target.status });
+      await api.entities.Job.update(jobId, nextFields);
       try {
-        const phaseLabel = JOB_PHASES[target.phase]?.label || target.phase;
+        const phaseLabel = JOB_PHASES[nextFields.phase]?.label || nextFields.phase;
+        const gateNote = target.status !== nextFields.status ? " (invoiced)" : "";
         await api.entities.TimelineEntry.create({
           job_id: jobId,
           type: "status_change",
-          text: `Status changed to ${phaseLabel} · ${target.status}`,
+          text: `Status changed to ${phaseLabel} · ${nextFields.status}${gateNote}`,
           category: "note",
         });
       } catch {

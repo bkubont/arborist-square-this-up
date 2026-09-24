@@ -2,6 +2,9 @@
 
 export const JOB_PHASE_ORDER = ['lead', 'working', 'payment'];
 
+export const INVOICE_GATE_STATUS = 'Invoiced';
+export const PAYMENT_ENTRY_STATUS = 'Waiting on payment';
+
 export const JOB_PHASES = {
   lead: {
     label: 'Lead',
@@ -23,13 +26,13 @@ export const JOB_PHASES = {
       'Blocked',
       'Cancelled',
       'Completed',
+      INVOICE_GATE_STATUS,
     ],
   },
   payment: {
     label: 'Payment',
     statuses: [
-      'Invoiced',
-      'Waiting on payment',
+      PAYMENT_ENTRY_STATUS,
       'Partial',
       'Late',
       'Paid',
@@ -37,7 +40,11 @@ export const JOB_PHASES = {
   },
 };
 
-export const ALL_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
+export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) =>
+  JOB_PHASES[phase].statuses.filter((s) => s !== INVOICE_GATE_STATUS),
+);
+
+export const ALL_JOB_STATUSES = [...STORED_JOB_STATUSES, INVOICE_GATE_STATUS];
 
 export const LEGACY_JOB_STATUS_MAP = {
   Estimate: { phase: 'lead', status: 'Plan / draft estimate' },
@@ -55,10 +62,11 @@ export const ARCHIVE_JOB_STATUSES = new Set([
   'Cancelled',
 ]);
 
-export const ACTIVE_JOB_STATUSES = ALL_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));
+export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));
 
 export function phaseForStatus(status) {
   if (!status) return null;
+  if (status === INVOICE_GATE_STATUS) return 'working';
   for (const phase of JOB_PHASE_ORDER) {
     if (JOB_PHASES[phase].statuses.includes(status)) return phase;
   }
@@ -67,6 +75,11 @@ export function phaseForStatus(status) {
 
 export function defaultStatusForPhase(phase) {
   return JOB_PHASES[phase]?.statuses[0] || 'Contact';
+}
+
+export function applyInvoicedGate(fields) {
+  if (!fields || fields.status !== INVOICE_GATE_STATUS) return fields;
+  return { ...fields, phase: 'payment', status: PAYMENT_ENTRY_STATUS };
 }
 
 export function formatJobStatus(job) {

@@ -58,7 +58,6 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
       'Prep',
       'In progress',
       'Waiting on materials',
-      'Invoiced',
       'Waiting on payment',
       'Paid',
     ]) {

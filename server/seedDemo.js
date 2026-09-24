@@ -122,7 +122,7 @@ const JOB_BLUEPRINTS = [
   {
     title: 'Office paint + trim',
     phase: 'payment',
-    status: 'Invoiced',
+    status: 'Waiting on payment',
     description: 'Punch list done; invoice ready to send.',
     estimate: { status: 'accepted', labor: 1400, material: 380 },
     workOrder: { status: 'complete' },

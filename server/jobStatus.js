@@ -2,6 +2,10 @@
 
 export const JOB_PHASE_ORDER = ['lead', 'working', 'payment'];
 
+/** Dragging/marking Invoiced ends Working and lands the job on Payment (Waiting on payment). */
+export const INVOICE_GATE_STATUS = 'Invoiced';
+export const PAYMENT_ENTRY_STATUS = 'Waiting on payment';
+
 export const JOB_PHASES = {
   lead: {
     label: 'Lead',
@@ -23,13 +27,13 @@ export const JOB_PHASES = {
       'Blocked',
       'Cancelled',
       'Completed',
+      INVOICE_GATE_STATUS,
     ],
   },
   payment: {
     label: 'Payment',
     statuses: [
-      'Invoiced',
-      'Waiting on payment',
+      PAYMENT_ENTRY_STATUS,
       'Partial',
       'Late',
       'Paid',
@@ -37,7 +41,12 @@ export const JOB_PHASES = {
   },
 };
 
-export const ALL_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
+/** Statuses that may appear on stored jobs (Invoiced is a gate input only). */
+export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) =>
+  JOB_PHASES[phase].statuses.filter((s) => s !== INVOICE_GATE_STATUS),
+);
+
+export const ALL_JOB_STATUSES = [...STORED_JOB_STATUSES, INVOICE_GATE_STATUS];
 
 /** Pre–three-phase job.status values → phase + status. */
 export const LEGACY_JOB_STATUS_MAP = {
@@ -57,10 +66,11 @@ export const ARCHIVE_JOB_STATUSES = new Set([
   'Cancelled',
 ]);
 
-export const ACTIVE_JOB_STATUSES = ALL_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));
+export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));
 
 export function phaseForStatus(status) {
   if (!status) return null;
+  if (status === INVOICE_GATE_STATUS) return 'working';
   for (const phase of JOB_PHASE_ORDER) {
     if (JOB_PHASES[phase].statuses.includes(status)) return phase;
   }
@@ -80,6 +90,12 @@ export function migrateLegacyStatus(status) {
   return LEGACY_JOB_STATUS_MAP[status] || null;
 }
 
+/** Invoiced ends Working — persist on Payment as Waiting on payment. */
+export function applyInvoicedGate(fields) {
+  if (!fields || fields.status !== INVOICE_GATE_STATUS) return fields;
+  return { ...fields, phase: 'payment', status: PAYMENT_ENTRY_STATUS };
+}
+
 /** Ensure job.phase and job.status are valid and aligned; migrate legacy status on read. */
 export function normalizeJobRecord(job) {
   if (!job || typeof job !== 'object') return job;
@@ -93,12 +109,19 @@ export function normalizeJobRecord(job) {
     status = legacy.status;
   }
 
+  if (status === INVOICE_GATE_STATUS) {
+    phase = 'payment';
+    status = PAYMENT_ENTRY_STATUS;
+  }
+
   if (!phase || !JOB_PHASES[phase]) {
     phase = phaseForStatus(status) || 'lead';
   }
 
-  if (!status || !JOB_PHASES[phase].statuses.includes(status)) {
+  const allowed = JOB_PHASES[phase].statuses.filter((s) => s !== INVOICE_GATE_STATUS);
+  if (!status || !allowed.includes(status)) {
     status = defaultStatusForPhase(phase);
+    if (status === INVOICE_GATE_STATUS) status = PAYMENT_ENTRY_STATUS;
   }
 
   if (phase !== job.phase || status !== job.status) {
@@ -115,7 +138,7 @@ export function applyJobStatusFields(body, previous) {
   if (!body || typeof body !== 'object') return body;
 
   const prior = previous ? normalizeJobRecord(previous) : null;
-  const next = { ...body };
+  let next = { ...body };
 
   if (next.phase && !next.status) {
     next.status =
@@ -127,6 +150,8 @@ export function applyJobStatusFields(body, previous) {
   if (next.status && !next.phase) {
     next.phase = phaseForStatus(next.status) || migrateLegacyStatus(next.status)?.phase;
   }
+
+  next = applyInvoicedGate(next);
 
   const merged = normalizeJobRecord({ ...prior, ...next });
   return { ...next, phase: merged.phase, status: merged.status };

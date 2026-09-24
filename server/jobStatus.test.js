@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   applyJobStatusFields,
+  INVOICE_GATE_STATUS,
   migrateLegacyStatus,
   normalizeJobRecord,
+  PAYMENT_ENTRY_STATUS,
   phaseForStatus,
 } from './jobStatus.js';
 
@@ -35,9 +37,20 @@ describe('job status model', () => {
 
   it('maps every status to a phase', () => {
     for (const status of [
-      'Contact', 'Prep', 'Invoiced', 'Paid', 'Completed',
+      'Contact', 'Prep', INVOICE_GATE_STATUS, 'Paid', 'Completed',
     ]) {
       assert.ok(phaseForStatus(status));
     }
+  });
+
+  it('invoiced gate moves job to payment waiting on payment', () => {
+    const next = applyJobStatusFields(
+      { status: INVOICE_GATE_STATUS },
+      { phase: 'working', status: 'Completed' },
+    );
+    assert.equal(next.phase, 'payment');
+    assert.equal(next.status, PAYMENT_ENTRY_STATUS);
+    const normalized = normalizeJobRecord({ phase: 'payment', status: INVOICE_GATE_STATUS });
+    assert.equal(normalized.status, PAYMENT_ENTRY_STATUS);
   });
 });

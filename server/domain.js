@@ -98,7 +98,8 @@ export const schemas = {
     status: z.enum([
       'Contact', 'Assessment', 'Plan / draft estimate', 'Waiting on approval', 'Approved', 'Declined',
       'Prep', 'In progress', 'Waiting on materials', 'Blocked', 'Cancelled', 'Completed',
-      'Invoiced', 'Waiting on payment', 'Partial', 'Late', 'Paid',
+      'Invoiced',
+      'Waiting on payment', 'Partial', 'Late', 'Paid',
     ]).default('Contact'),
     start_date: date.optional(), end_date: date.optional(),
     /** Set when a job reaches a terminal status — hides it from working lists; view under Archive. */
