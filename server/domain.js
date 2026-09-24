@@ -119,7 +119,10 @@ export const schemas = {
   }),
   Job: z.object({ title: z.string().trim().min(1).max(250), client_id: id, client_name: text.optional(), description: text.optional(),
     status: z.enum(['Estimate','Scheduled','In Progress','Waiting on Materials','On Hold','Completed','Paid']).default('Estimate'),
-    start_date: date.optional(), end_date: date.optional(), estimate_amount: money.optional(), invoice_amount: money.optional(),
+    start_date: date.optional(), end_date: date.optional(),
+    /** Set when a job is Completed/Paid — hides it from working lists; view under Archive. */
+    archived_at: date.optional(),
+    estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(), notes: text.optional(),
     // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
     // moves them into WorkItems and clears this.

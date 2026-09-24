@@ -98,8 +98,8 @@ function SchedulePage() {
   const [focusKey, setFocusKey] = useState(() => dayKey(new Date()));
 
   useEffect(() => {
-    api.entities.Job.list("-updated_date", 400)
-      .then(setJobs)
+    api.entities.Job.listAll("-updated_date")
+      .then((rows) => setJobs(rows.filter((j) => !j.archived_at)))
       .finally(() => setLoading(false));
   }, []);
 

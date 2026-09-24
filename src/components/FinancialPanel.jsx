@@ -61,6 +61,7 @@ export default function FinancialPanel({ job, documents = [], timeline = [], onL
     const hadMaterialOrders = documents.some((d) => d.entity === "MaterialOrder");
     const materials = hadMaterialOrders ? materialsFromDocs : (job.materials_cost || 0);
 
+    const activeInvoice = invoices.find((inv) => inv.status !== "void") || null;
     const paymentsLogged = timeline
       .filter((e) => e.type === "payment_received" && e.amount != null)
       .reduce((sum, e) => sum + Number(e.amount), 0);
@@ -69,8 +70,12 @@ export default function FinancialPanel({ job, documents = [], timeline = [], onL
       .reduce((sum, e) => sum + Number(e.amount), 0);
     // Legacy job.deposit_amount + timeline deposits (never discard legacy when logging more).
     const deposit = (Number(job.deposit_amount) || 0) + depositsLogged;
-    const paid = deposit + paymentsLogged;
-    const balance = Math.max(0, invoiced - paid);
+    const paid = activeInvoice
+      ? (Number(activeInvoice.deposits_applied) || 0) + (Number(activeInvoice.payments_applied) || 0)
+      : deposit + paymentsLogged;
+    const balance = activeInvoice?.balance_due != null
+      ? Math.max(0, Number(activeInvoice.balance_due))
+      : Math.max(0, invoiced - paid);
 
     return {
       estimateTotal,

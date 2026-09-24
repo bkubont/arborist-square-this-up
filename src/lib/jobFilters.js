@@ -21,8 +21,20 @@ export const ACTIVE_STATUSES = [
   "On Hold",
 ];
 
+const ARCHIVE_JOB_STATUSES = new Set(["Completed", "Paid"]);
+
+export function isArchivedJob(job) {
+  if (job?.archived_at) return true;
+  return ARCHIVE_JOB_STATUSES.has(job?.status);
+}
+
+/** Non-archived jobs — shown on board, active list, schedule, etc. */
+export function isWorkingJob(job) {
+  return !isArchivedJob(job);
+}
+
 export function isActiveJob(job) {
-  return ACTIVE_STATUSES.includes(job?.status);
+  return isWorkingJob(job) && ACTIVE_STATUSES.includes(job?.status);
 }
 
 /** Sum of TimelineEntry `payment_received` amounts. */
@@ -70,15 +82,34 @@ export function jobReceived(job, paymentsLogged = 0, depositsLogged = 0) {
   return deposit + (Number(paymentsLogged) || 0);
 }
 
+/** Active (non-void) invoice for a job, if any. */
+export function activeInvoiceForJob(invoices = [], jobId) {
+  return invoices.find((inv) => inv?.job_id === jobId && inv.status !== "void") || null;
+}
+
+/** Map job_id → active invoice. */
+export function invoicesByJobId(invoices = []) {
+  const map = Object.create(null);
+  for (const inv of invoices) {
+    if (!inv?.job_id || inv.status === "void") continue;
+    if (!map[inv.job_id]) map[inv.job_id] = inv;
+  }
+  return map;
+}
+
 /**
- * Outstanding balance for a job: invoice − deposit − payment_received timeline amounts.
+ * Outstanding balance for a job.
+ * Prefers the active invoice balance_due when present; otherwise invoice_amount − received.
  */
-export function jobBalance(job, paymentsLogged = 0, depositsLogged = 0) {
+export function jobBalance(job, paymentsLogged = 0, depositsLogged = 0, invoice = null) {
+  if (invoice && invoice.status !== "void") {
+    return invoiceBalanceDue(invoice);
+  }
   return Math.max(0, (Number(job?.invoice_amount) || 0) - jobReceived(job, paymentsLogged, depositsLogged));
 }
 
-export function hasOutstandingBalance(job, paymentsLogged = 0, depositsLogged = 0) {
-  return jobBalance(job, paymentsLogged, depositsLogged) > 0;
+export function hasOutstandingBalance(job, paymentsLogged = 0, depositsLogged = 0, invoice = null) {
+  return jobBalance(job, paymentsLogged, depositsLogged, invoice) > 0;
 }
 
 export function countByStatus(jobs) {
@@ -122,15 +153,31 @@ export function invoiceBalanceDue(invoice) {
 export function moneySummary(jobs, estimates = [], changeOrders = [], invoices = [], timeline = []) {
   const paymentsMap = paymentsByJobId(timeline);
   const depositsMap = depositsByJobId(timeline);
+  const invoiceMap = invoicesByJobId(invoices);
+  const jobIds = new Set(jobs.map((job) => job.id));
   let invoiced = 0;
   let received = 0;
   let outstanding = 0;
   for (const job of jobs) {
     const logged = paymentsMap[job.id] || 0;
     const deposits = depositsMap[job.id] || 0;
-    invoiced += Number(job.invoice_amount) || 0;
-    received += jobReceived(job, logged, deposits);
-    outstanding += jobBalance(job, logged, deposits);
+    const invoice = invoiceMap[job.id] || null;
+    if (invoice) {
+      invoiced += Number(invoice.total) || Number(job.invoice_amount) || 0;
+      received += (Number(invoice.deposits_applied) || 0) + (Number(invoice.payments_applied) || 0);
+      outstanding += invoiceBalanceDue(invoice);
+    } else {
+      invoiced += Number(job.invoice_amount) || 0;
+      received += jobReceived(job, logged, deposits);
+      outstanding += jobBalance(job, logged, deposits);
+    }
+  }
+  // Archived / completed jobs may be omitted from working lists but still owe on an invoice.
+  for (const invoice of invoices) {
+    if (!invoice?.job_id || invoice.status === "void" || jobIds.has(invoice.job_id)) continue;
+    invoiced += Number(invoice.total) || 0;
+    received += (Number(invoice.deposits_applied) || 0) + (Number(invoice.payments_applied) || 0);
+    outstanding += invoiceBalanceDue(invoice);
   }
 
   const waitingApprovalDocs = [...estimates, ...changeOrders].filter(isAwaitingApproval);

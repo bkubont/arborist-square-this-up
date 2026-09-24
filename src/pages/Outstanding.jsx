@@ -8,6 +8,7 @@ import { money } from "@/lib/format";
 import {
   hasOutstandingBalance,
   invoiceBalanceDue,
+  invoicesByJobId,
   jobBalance,
   moneySummary,
   paymentsByJobId,
@@ -57,13 +58,14 @@ function OutstandingPage() {
   }, [load]);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const invoiceByJob = useMemo(() => invoicesByJobId(invoices), [invoices]);
   const buckets = useMemo(
     () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
     [jobs, estimates, changeOrders, invoices, timeline]
   );
   const unpaid = useMemo(
-    () => jobs.filter((j) => hasOutstandingBalance(j, paymentsMap[j.id] || 0)),
-    [jobs, paymentsMap]
+    () => jobs.filter((j) => hasOutstandingBalance(j, paymentsMap[j.id] || 0, 0, invoiceByJob[j.id])),
+    [jobs, paymentsMap, invoiceByJob]
   );
   const waitingApprovalDocs = useMemo(() => {
     const est = estimates.filter((e) => e.status === "sent").map((e) => ({ ...e, kind: "Estimate", entity: "Estimate" }));
@@ -126,7 +128,7 @@ function OutstandingPage() {
         ) : (
           <div className="space-y-2">
             {unpaid.map((j) => {
-              const balance = jobBalance(j, paymentsMap[j.id] || 0);
+              const balance = jobBalance(j, paymentsMap[j.id] || 0, 0, invoiceByJob[j.id]);
               return (
                 <Link
                   key={j.id}

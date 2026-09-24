@@ -14,6 +14,7 @@ import Clients from '@/pages/Clients';
 import ClientDetail from '@/pages/ClientDetail';
 import JobDetail from '@/pages/JobDetail';
 import AllJobs from '@/pages/AllJobs';
+import ArchiveJobs from '@/pages/ArchiveJobs';
 import ActiveJobs from '@/pages/ActiveJobs';
 import Outstanding from '@/pages/Outstanding';
 import ActionItems from '@/pages/ActionItems';
@@ -56,6 +57,7 @@ const AuthenticatedApp = () => {
           <Route path="/jobs/outstanding" element={<Outstanding />} />
           <Route path="/jobs/action-items" element={<ActionItems />} />
           <Route path="/jobs/board" element={<JobBoard />} />
+          <Route path="/jobs/archive" element={<ArchiveJobs />} />
           <Route path="/jobs" element={<AllJobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/estimates" element={<Estimates />} />

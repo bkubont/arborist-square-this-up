@@ -2,13 +2,12 @@ import ClientAddress from "@/components/ClientAddress";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
-import { ArrowLeft, Pencil, StickyNote, CheckCircle2, Trash2, DollarSign, Phone } from "lucide-react";
+import { ArrowLeft, Pencil, Phone, StickyNote, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import StatusSelect from "@/components/StatusSelect";
-import TimelineButton from "@/components/TimelineButton";
 import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
@@ -37,13 +36,19 @@ function readTaskView() {
 const JOB_TABS = [
   "overview",
   "tasks",
-  "money",
-  "receipts",
+  "costs",
   "photos",
   "notes",
-  "invoice",
-  "activity",
+  "timeline",
 ];
+
+const LEGACY_TAB_ALIASES = {
+  estimate: "overview",
+  invoice: "overview",
+  money: "overview",
+  receipts: "photos",
+  activity: "timeline",
+};
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -58,7 +63,7 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
-  const [activityFilter, setActivityFilter] = useState("all");
+  const [timelineFilter, setTimelineFilter] = useState("all");
   const [taskView, setTaskView] = useState(readTaskView);
 
   /** @param {"list" | "board"} next */
@@ -72,8 +77,8 @@ export default function JobDetail() {
   };
 
   const tabParam = searchParams.get("tab");
-  // "costs" was this tab's old name; keep old links working.
-  const activeTab = tabParam === "costs" ? "money" : JOB_TABS.includes(tabParam) ? tabParam : "overview";
+  const resolvedTab = LEGACY_TAB_ALIASES[tabParam] || tabParam;
+  const activeTab = JOB_TABS.includes(resolvedTab) ? resolvedTab : "overview";
 
   const setTab = (next) => {
     const params = new URLSearchParams(searchParams);
@@ -114,27 +119,27 @@ export default function JobDetail() {
     [entries, documents]
   );
 
-  const shownActivity = useMemo(() => {
-    if (activityFilter === "all") return activity;
+  const shownTimeline = useMemo(() => {
+    if (timelineFilter === "all") return activity;
     return activity.filter((e) => {
-      if (activityFilter === "document") {
+      if (timelineFilter === "document") {
         return (
           e.category === "document" ||
           ["document_created", "document_voided", "work_order_created", "estimate_signed", "change_order_signed", "document"].includes(e.type)
         );
       }
-      if (activityFilter === "financial") {
+      if (timelineFilter === "financial") {
         return (
           e.category === "financial" ||
           ["deposit_received", "payment_received", "invoice_sent", "estimate_sent", "change_order_sent", "document_voided"].includes(e.type)
         );
       }
-      if (activityFilter === "note") {
+      if (timelineFilter === "note") {
         return e.category === "note" || e.type === "note" || e.type === "status_change" || e.type === "checklist";
       }
-      return e.category === activityFilter;
+      return e.category === timelineFilter;
     });
-  }, [activity, activityFilter]);
+  }, [activity, timelineFilter]);
 
   const noteEntries = useMemo(
     () =>
@@ -183,24 +188,6 @@ export default function JobDetail() {
     load();
   };
 
-  const logDeposit = async () => {
-    const raw = window.prompt("Deposit amount received?");
-    if (raw == null || raw === "") return;
-    const amount = Number(raw);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Enter a positive deposit amount.");
-      return;
-    }
-    await api.entities.TimelineEntry.create({
-      job_id: id,
-      type: "deposit_received",
-      text: "Deposit received",
-      category: "financial",
-      amount,
-    });
-    load();
-  };
-
   const deleteJob = async () => {
     if (!confirm("Delete this job and all its timeline entries?")) return;
     await api.entities.Job.delete(id);
@@ -230,13 +217,11 @@ export default function JobDetail() {
         </div>
       </div>
 
-      {/* Identity header — status, overflow, compact photo/timeline */}
       <div className={cn("bg-card rounded-xl border p-5 mb-4", statusCardClass(job.status))}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <h1 className="text-2xl font-bold text-foreground">{job.title}</h1>
-              <TimelineButton entries={entries} documents={documents} jobTitle={job.title} />
               <JobPhotoButton jobId={id} entries={entries} onUploaded={load} onChanged={load} />
             </div>
             {client && (
@@ -276,82 +261,49 @@ export default function JobDetail() {
         <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/80 p-1 mb-4">
           <TabsTrigger value="overview" className="text-xs sm:text-sm">Overview</TabsTrigger>
           <TabsTrigger value="tasks" className="text-xs sm:text-sm">Tasks</TabsTrigger>
-          <TabsTrigger value="money" className="text-xs sm:text-sm">Money</TabsTrigger>
-          <TabsTrigger value="receipts" className="text-xs sm:text-sm">Receipts</TabsTrigger>
+          <TabsTrigger value="costs" className="text-xs sm:text-sm">Costs</TabsTrigger>
           <TabsTrigger value="photos" className="text-xs sm:text-sm">Photos</TabsTrigger>
           <TabsTrigger value="notes" className="text-xs sm:text-sm">Notes</TabsTrigger>
-          <TabsTrigger value="invoice" className="text-xs sm:text-sm">Invoice</TabsTrigger>
-          <TabsTrigger value="activity" className="text-xs sm:text-sm">Activity</TabsTrigger>
+          <TabsTrigger value="timeline" className="text-xs sm:text-sm">Timeline</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-0">
-          <div className="grid lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 space-y-4">
-              <div className="bg-card rounded-xl border border-border p-4">
-                <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                  Quick Actions
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <QuickBtn
-                    label="Deposit"
-                    icon={DollarSign}
-                    onClick={logDeposit}
-                    tint="bg-emerald-50 text-emerald-700 border-emerald-200"
-                  />
-                  <QuickBtn
-                    label="Mark Paid"
-                    icon={CheckCircle2}
-                    onClick={() => changeStatus("Paid")}
-                    tint="bg-secondary text-secondary-foreground border-border"
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-2">
-                  The estimate is below. Money, Invoice, Photos and Receipts have their own tabs.
-                </p>
-              </div>
-
-              <JobDocuments
-                jobId={id}
-                jobTitle={job.title}
-                client={client}
-                documents={documents}
-                onChanged={load}
-                entities={["Estimate"]}
-                title="Estimate"
-              />
-
-              <div className="bg-card rounded-xl border border-border p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tasks</div>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-primary hover:underline"
-                    onClick={() => { chooseTaskView("board"); setTab("tasks"); }}
-                  >
-                    Board view
-                  </button>
-                </div>
-                <JobTasks jobId={id} items={workItems} documents={documents} onChanged={load} view="list" />
-              </div>
-
-              {job.notes ? (
-                <div className="bg-card rounded-xl border border-border p-4">
-                  <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                    Job notes
-                  </div>
-                  <p className="text-sm text-foreground whitespace-pre-wrap">{job.notes}</p>
-                </div>
-              ) : null}
+          <div>
+            <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Money
             </div>
-            <div className="space-y-4">
-              <div>
-                <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  Financials
-                </div>
-                <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
-              </div>
-            </div>
+            <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
           </div>
+
+          <JobDocuments
+            jobId={id}
+            jobTitle={job.title}
+            client={client}
+            documents={documents}
+            onChanged={load}
+            entities={["Estimate"]}
+            title="Estimate"
+          />
+
+          <JobDocuments
+            jobId={id}
+            jobTitle={job.title}
+            client={client}
+            documents={documents}
+            onChanged={load}
+            entities={["Invoice"]}
+            title="Invoice"
+            emptyHint="The invoice unlocks once the estimate is signed. One active invoice per job."
+          />
+
+          {job.notes ? (
+            <div className="bg-card rounded-xl border border-border p-4">
+              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                Job notes
+              </div>
+              <p className="text-sm text-foreground whitespace-pre-wrap">{job.notes}</p>
+            </div>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-0">
@@ -379,7 +331,7 @@ export default function JobDetail() {
           </div>
         </TabsContent>
 
-        <TabsContent value="money" className="space-y-4 mt-0">
+        <TabsContent value="costs" className="space-y-4 mt-0">
           <JobDocuments
             jobId={id}
             jobTitle={job.title}
@@ -387,23 +339,13 @@ export default function JobDetail() {
             documents={documents}
             onChanged={load}
             entities={["MaterialOrder", "ChangeOrder"]}
-            title="Estimate, change orders & materials"
-            alsoShow={(d) => d.entity === "Estimate" && d.status === "accepted"}
-            emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted. Track the work itself under Tasks."
+            title="Materials & change orders"
+            emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted."
           />
-          <div>
-            <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              Totals
-            </div>
-            <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
-          </div>
         </TabsContent>
 
-        <TabsContent value="receipts" className="mt-0">
+        <TabsContent value="photos" className="space-y-4 mt-0">
           <JobPhotosPanel jobId={id} entries={entries} onChanged={load} mode="receipts" />
-        </TabsContent>
-
-        <TabsContent value="photos" className="mt-0">
           <JobPhotosPanel jobId={id} entries={entries} onChanged={load} mode="photos" />
         </TabsContent>
 
@@ -448,32 +390,13 @@ export default function JobDetail() {
           </div>
         </TabsContent>
 
-        <TabsContent value="invoice" className="space-y-4 mt-0">
-          <JobDocuments
-            jobId={id}
-            jobTitle={job.title}
-            client={client}
-            documents={documents}
-            onChanged={load}
-            entities={["Invoice"]}
-            title="Invoice"
-            emptyHint="The invoice unlocks once the estimate is signed. One active invoice per job."
-          />
-          <div>
-            <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              Payments
-            </div>
-            <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="activity" className="mt-0">
+        <TabsContent value="timeline" className="mt-0">
           <div className="bg-card rounded-xl border border-border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Activity
+                Timeline
               </div>
-              <Select value={activityFilter} onValueChange={setActivityFilter}>
+              <Select value={timelineFilter} onValueChange={setTimelineFilter}>
                 <SelectTrigger className="h-8 w-40 text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -490,7 +413,7 @@ export default function JobDetail() {
                 </SelectContent>
               </Select>
             </div>
-            <TimelineFeed entries={shownActivity} />
+            <TimelineFeed entries={shownTimeline} />
           </div>
         </TabsContent>
       </Tabs>
@@ -506,18 +429,5 @@ export default function JobDetail() {
         clients={client ? [client] : []}
       />
     </div>
-  );
-}
-
-function QuickBtn({ label, icon: Icon, onClick, tint }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex flex-col items-center gap-1 rounded-lg border py-3 px-2 text-xs font-semibold transition-colors hover:opacity-80 ${tint}`}
-    >
-      <Icon className="w-5 h-5" />
-      {label}
-    </button>
   );
 }

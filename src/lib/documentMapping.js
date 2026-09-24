@@ -65,16 +65,80 @@ export function approvedChangeOrderNet(changeOrders = []) {
 /** Derive invoice lifecycle status from balance / payments (progress billing). */
 export function deriveInvoiceStatus({ balance_due, payments_applied, deposits_applied, status } = /** @type {{balance_due?: number|string, payments_applied?: number|string, deposits_applied?: number|string, status?: string}} */ ({})) {
   if (status === 'void') return 'void';
+  // Draft stays draft until explicitly sent — deposits on a draft do not mark it paid.
+  if (!status || status === 'draft') return status || 'draft';
   const balance = Number(balance_due);
   const applied = (Number(payments_applied) || 0) + (Number(deposits_applied) || 0);
-  if (Number.isFinite(balance) && balance <= 0.009 && (status === 'sent' || status === 'partial' || status === 'paid' || applied > 0)) {
-    return 'paid';
-  }
-  if (status === 'paid') return 'paid';
+  if (Number.isFinite(balance) && balance <= 0.009) return 'paid';
   if ((status === 'sent' || status === 'partial') && applied > 0 && Number.isFinite(balance) && balance > 0.009) {
     return 'partial';
   }
-  return status || 'draft';
+  if (status === 'paid' && Number.isFinite(balance) && balance > 0.009) return 'partial';
+  return status;
+}
+
+function sumDepositsFromJob(job, timeline = []) {
+  const legacy = Number(job?.deposit_amount) || 0;
+  const logged = timeline
+    .filter((e) => e?.type === 'deposit_received' && e.amount != null)
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+  return legacy + logged;
+}
+
+function sumTimelinePayments(timeline = []) {
+  return round2(
+    timeline
+      .filter((e) => e?.type === 'payment_received' && e.amount != null)
+      .reduce((sum, e) => sum + Number(e.amount), 0),
+  );
+}
+
+/**
+ * Normalize invoice payment fields (mirrors server/invoiceSync.js for save preview).
+ * @param {object} invoice
+ * @param {{ job?: object, timeline?: object[], requestedStatus?: string, preferEditorPayments?: boolean }} [opts]
+ */
+export function normalizeInvoicePayments(invoice, { job, timeline = [], requestedStatus, preferEditorPayments = false } = {}) {
+  const totals = invoiceTotals({
+    material_lines: invoice.material_lines || [],
+    labor_lines: invoice.labor_lines || [],
+    misc_lines: invoice.misc_lines || [],
+    tax_rate: invoice.tax_rate,
+    deposits_applied: 0,
+    payments_applied: 0,
+  });
+  const total = Number(invoice.total ?? totals.total) || 0;
+
+  if (invoice.status === 'paid' && (requestedStatus === undefined || requestedStatus === 'paid')) {
+    return {
+      payments_applied: round2(Number(invoice.payments_applied) || 0),
+      deposits_applied: round2(Number(invoice.deposits_applied) || 0),
+      balance_due: 0,
+      status: 'paid',
+      total,
+    };
+  }
+
+  const deposits_applied = preferEditorPayments && invoice.deposits_applied != null
+    ? round2(Number(invoice.deposits_applied) || 0)
+    : sumDepositsFromJob(job, timeline);
+  const timelinePayments = sumTimelinePayments(timeline);
+
+  let payments_applied = preferEditorPayments && invoice.payments_applied != null
+    ? round2(Number(invoice.payments_applied) || 0)
+    : timelinePayments;
+
+  let status = requestedStatus ?? invoice.status ?? 'draft';
+
+  if (requestedStatus === 'paid') {
+    payments_applied = round2(Math.max(0, total - deposits_applied));
+    if (status === 'draft' || !status) status = 'sent';
+    return { payments_applied, deposits_applied, balance_due: 0, status: 'paid', total };
+  }
+
+  const balance_due = round2(Math.max(0, total - deposits_applied - payments_applied));
+  status = deriveInvoiceStatus({ balance_due, payments_applied, deposits_applied, status });
+  return { payments_applied, deposits_applied, balance_due, status, total };
 }
 
 /** Sum totals of non-void invoices (for progress / cumulative billing checks). */

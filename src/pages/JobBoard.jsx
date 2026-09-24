@@ -7,7 +7,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { useJobCardData, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
 import JobTasks from "@/components/JobTasks";
 import { money, shortDate } from "@/lib/format";
-import { JOB_STATUSES, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { depositsByJobId, invoicesByJobId, JOB_STATUSES, isWorkingJob, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -23,18 +23,21 @@ export default function JobBoard() {
   const [scopeDocs, setScopeDocs] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
   const { clientsById, summaries, reload } = useJobCardData();
 
   const load = useCallback(() => {
     return Promise.all([
-      api.entities.Job.list("-updated_date", 400),
+      api.entities.Job.listAll("-updated_date"),
       api.entities.TimelineEntry.list("-created_date", 1000),
+      api.entities.Invoice.list("-updated_date", 500),
     ])
-      .then(([j, tl]) => {
-        setJobs(j);
+      .then(([j, tl, inv]) => {
+        setJobs(j.filter(isWorkingJob));
         setTimeline(tl);
+        setInvoices(inv);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -60,6 +63,8 @@ export default function JobBoard() {
   const jobsById = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j])), [jobs]);
 
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
+  const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
+  const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
 
   const columns = useMemo(() => {
     const map = Object.fromEntries(JOB_STATUSES.map((s) => [s, []]));
@@ -154,6 +159,8 @@ export default function JobBoard() {
                 jobs={columns[status] || []}
                 savingId={savingId}
                 paymentsMap={paymentsMap}
+                depositsMap={depositsMap}
+                invoiceMap={invoiceMap}
                 clientsById={clientsById}
                 summaries={summaries}
                 onQuickAdded={() => { load(); reload(); }}
@@ -166,7 +173,7 @@ export default function JobBoard() {
   );
 }
 
-function BoardColumn({ status, jobs, savingId, paymentsMap, clientsById, summaries, onQuickAdded }) {
+function BoardColumn({ status, jobs, savingId, paymentsMap, depositsMap, invoiceMap, clientsById, summaries, onQuickAdded }) {
   const colors = statusColors(status);
   return (
     <Droppable droppableId={status}>
@@ -191,7 +198,7 @@ function BoardColumn({ status, jobs, savingId, paymentsMap, clientsById, summari
           </div>
           <div className="p-2 space-y-2 overflow-y-auto flex-1">
             {jobs.map((job, index) => {
-              const balance = jobBalance(job, paymentsMap[job.id] || 0);
+              const balance = jobBalance(job, paymentsMap[job.id] || 0, depositsMap[job.id] || 0, invoiceMap[job.id]);
               return (
                 <Draggable key={job.id} draggableId={String(job.id)} index={index}>
                   {(dragProvided, dragSnapshot) => (

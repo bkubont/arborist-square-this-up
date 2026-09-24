@@ -4,7 +4,7 @@ import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { JobCardDataProvider, JobCustomer, JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
-import { collectActionItems } from "@/lib/jobFilters";
+import { collectActionItems, isWorkingJob } from "@/lib/jobFilters";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -27,12 +27,12 @@ function ActionItemsPage() {
 
   useEffect(() => {
     Promise.all([
-      api.entities.Job.list("-updated_date", 300),
+      api.entities.Job.listAll("-updated_date"),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
     ])
       .then(([j, e, c]) => {
-        setJobs(j);
+        setJobs(j.filter(isWorkingJob));
         setEstimates(e);
         setChangeOrders(c);
       })
