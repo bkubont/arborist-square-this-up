@@ -19,9 +19,10 @@ import {
   DEFAULT_LABOR_RATE,
   emptyEstimateLine,
   ESTIMATE_VALID_DAYS,
+  estimateLineAmount,
   estimateTotals,
+  fromApiEstimateLine,
   laborAmountFromHours,
-  lineTotal,
   serializeEstimateLine,
   todayIso,
 } from "@/lib/estimateMath";
@@ -29,8 +30,8 @@ import { isEstimateReadOnly } from "@/lib/documentAvailability";
 import { loadAccountTaxRate } from "@/lib/salesTax";
 
 /**
- * Estimate editor: simplified lines + catalog typeahead + client e-sign + job photo capture.
- * Hours × default/catalog rate → Est. Labor under the hood; hours kept for WO mapping.
+ * Estimate editor: whole-line amounts (materials included) + catalog typeahead + e-sign.
+ * Hours × rate can suggest the line amount; hours kept for Work Order mapping.
  * After client accept: print/view only (no content edits).
  */
 export default function EstimateEditorDialog({ open, onOpenChange, document, jobId, jobTitle, onSaved, onRevised }) {
@@ -66,18 +67,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       tax_rate: document.tax_rate ?? "",
     });
     const existing = Array.isArray(document.lines) && document.lines.length
-      ? document.lines.map((line) => ({
-          description: line.description || "",
-          material_amount: line.material_amount ?? "",
-          labor_amount: line.labor_amount ?? "",
-          equipment_amount: line.equipment_amount ?? "",
-          labor_hours: line.labor_hours ?? "",
-          labor_rate: line.labor_rate ?? "",
-          category: line.category || "",
-          notes: line.notes || "",
-          tools: line.tools || "",
-          catalog_id: line.catalog_id || "",
-        }))
+      ? document.lines.map(fromApiEstimateLine)
       : [emptyEstimateLine()];
     setLines(existing);
 
@@ -108,12 +98,12 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     setLines((rows) => rows.map((row, i) => {
       if (i !== index) return row;
       const rate = row.labor_rate || defaultLaborRate;
-      const labor = laborAmountFromHours(hoursValue, rate, defaultLaborRate);
+      const suggested = laborAmountFromHours(hoursValue, rate, defaultLaborRate);
       return {
         ...row,
         labor_hours: hoursValue,
         labor_rate: row.labor_rate || String(defaultLaborRate),
-        labor_amount: labor === "" ? row.labor_amount : labor,
+        line_amount: suggested === "" ? row.line_amount : suggested,
       };
     }));
   };
@@ -159,7 +149,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     try {
       const nextStatus = markSent ? "sent" : form.status;
       const serialized = lines.map(serializeEstimateLine).filter((line) =>
-        line.description || line.material_amount || line.labor_amount || line.equipment_amount
+        line.description || line.labor_amount
       );
       const nextTotals = estimateTotals(serialized, form.tax_rate);
       const payload = {
@@ -201,7 +191,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
     setSignResult(null);
     try {
       const serialized = lines.map(serializeEstimateLine).filter((line) =>
-        line.description || line.material_amount || line.labor_amount || line.equipment_amount
+        line.description || line.labor_amount
       );
       const nextTotals = estimateTotals(serialized, form.tax_rate);
       await api.entities.Estimate.update(document.id, {
@@ -239,9 +229,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
         <td>${escapeHtml(line.category || "")}</td>
         <td>${escapeHtml(line.description || "")}</td>
         <td class="num">${line.labor_hours != null ? escapeHtml(String(line.labor_hours)) : "—"}</td>
-        <td class="num">${fmt(line.material_amount)}</td>
-        <td class="num">${fmt(line.labor_amount)}</td>
-        <td class="num">${fmt(lineTotal(line))}</td>
+        <td class="num">${fmt(estimateLineAmount(line))}</td>
       </tr>`).join("");
     w.document.write(`<!doctype html><html><head><title>Estimate ${escapeHtml(form.number || "")}</title>
       <style>
@@ -260,8 +248,8 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       <h1>Construction Estimate</h1>
       <div class="meta">${escapeHtml(jobTitle || "Job")} · ${escapeHtml(form.number || "Draft")}
         ${form.date ? ` · ${escapeHtml(form.date)}` : ""}${form.valid_till ? ` · Valid until ${escapeHtml(form.valid_till)}` : ""}</div>
-      <table><thead><tr><th>Category</th><th>Description</th><th class="num">Hrs</th><th class="num">Material</th><th class="num">Labor</th><th class="num">Total</th></tr></thead>
-      <tbody>${rows || "<tr><td colspan=6>No lines</td></tr>"}</tbody></table>
+      <table><thead><tr><th>Category</th><th>Description</th><th class="num">Hrs</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows || "<tr><td colspan=4>No lines</td></tr>"}</tbody></table>
       <div class="totals">
         <div><span>Subtotal</span><span>${fmt(t.subtotal)}</span></div>
         <div><span>Tax (${escapeHtml(String(form.tax_rate || 0))}%)</span><span>${fmt(t.tax_amount)}</span></div>
@@ -378,7 +366,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           {!readOnly && (
             <p className="text-xs text-slate-500 mb-2">
-              Type in Description to pick from the catalog. Hrs × rate fills Est. Labor (rate stored for Work Order mapping).
+              Type in Description to pick from the catalog. Each line is one whole-line amount (materials included). Hrs × rate can suggest the amount.
             </p>
           )}
 
@@ -433,21 +421,24 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
                     </Button>
                   )}
                 </div>
-                <div className="grid sm:grid-cols-3 gap-2">
+                <div className="grid sm:grid-cols-2 gap-2">
                   <div>
                     <Label className="text-xs">Notes</Label>
                     <Input className={readOnly ? "bg-slate-50" : "bg-white"} value={line.notes} onChange={(e) => setLine(index, { notes: e.target.value })} readOnly={readOnly} />
                   </div>
                   <div>
-                    <Label className="text-xs">Est. Material $</Label>
-                    <Input type="number" className={readOnly ? "bg-slate-50" : "bg-white"} value={line.material_amount} onChange={(e) => setLine(index, { material_amount: e.target.value })} placeholder="0" readOnly={readOnly} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Est. Labor $</Label>
-                    <Input type="number" className={readOnly ? "bg-slate-50" : "bg-white"} value={line.labor_amount} onChange={(e) => setLine(index, { labor_amount: e.target.value })} placeholder="0" readOnly={readOnly} />
+                    <Label className="text-xs">Line amount $</Label>
+                    <Input
+                      type="number"
+                      className={readOnly ? "bg-slate-50" : "bg-white"}
+                      value={line.line_amount}
+                      onChange={(e) => setLine(index, { line_amount: e.target.value })}
+                      placeholder="0"
+                      readOnly={readOnly}
+                    />
                   </div>
                 </div>
-                <div className="text-xs text-slate-500 text-right">Row total {money(lineTotal(serializeEstimateLine(line)))}</div>
+                <div className="text-xs text-slate-500 text-right">Row total {money(estimateLineAmount(line))}</div>
               </div>
             ))}
           </div>

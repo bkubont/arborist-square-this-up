@@ -22,7 +22,7 @@ function stopCardAction(e) {
 
 /**
  * Brittany kanban job card: customer header, optional title, city/phone actions,
- * quick camera + payment, notes, hours + labor/parts split.
+ * quick camera + payment, notes, hours + whole-line estimate total.
  */
 export default function JobKanbanCard({
   job,
@@ -208,12 +208,6 @@ export default function JobKanbanCard({
                     <span> hrs</span>
                   </div>
                 )}
-                {rollup.hasLineSplit ? (
-                  <div className="flex flex-wrap gap-x-2 tabular-nums">
-                    <span>Labor {money(rollup.labor)}</span>
-                    <span>Parts {money(rollup.parts)}</span>
-                  </div>
-                ) : null}
                 <div className="font-semibold text-foreground tabular-nums">
                   Est. {money(rollup.total)}
                 </div>

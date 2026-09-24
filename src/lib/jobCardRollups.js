@@ -1,5 +1,7 @@
+import { estimateLineAmount } from "@/lib/estimateMath";
+
 /**
- * Estimate labor / parts / hours for job cards (kanban, lists).
+ * Estimate hours + whole-line total for job cards (kanban, lists).
  * @param {object} job
  * @param {object[]} estimates
  */
@@ -11,27 +13,21 @@ export function jobEstimateRollup(job, estimates = []) {
     forJob[0];
 
   const lines = est?.accepted_snapshot?.lines || est?.lines || [];
-  let labor = 0;
-  let parts = 0;
   let hours = 0;
+  let fromLines = 0;
   for (const line of lines) {
-    labor += Number(line.labor_amount) || 0;
-    parts += Number(line.material_amount) || 0;
+    fromLines += estimateLineAmount(line);
     hours += Number(line.labor_hours) || 0;
   }
 
-  const fromLines = labor + parts;
   const total =
     est?.accepted_snapshot?.total ??
     est?.total ??
     (fromLines > 0 ? fromLines : Number(job?.estimate_amount) || 0);
 
   return {
-    labor,
-    parts,
     hours,
     total,
     hasEstimate: Boolean(est) || Number(job?.estimate_amount) > 0,
-    hasLineSplit: fromLines > 0,
   };
 }

@@ -203,18 +203,12 @@ function estimateTotals(labor, material, taxRate = 6) {
 function estimateLines(labor, material) {
   return [
     {
-      description: 'Labor',
-      labor_amount: money(labor),
+      description: 'Scope of work',
+      labor_amount: money(labor + material),
       material_amount: 0,
       labor_hours: money(labor / 65),
       labor_rate: 65,
       category: 'General',
-    },
-    {
-      description: 'Materials',
-      labor_amount: 0,
-      material_amount: money(material),
-      category: 'Materials',
     },
   ];
 }
