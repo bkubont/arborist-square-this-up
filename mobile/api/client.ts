@@ -213,6 +213,13 @@ export type WorkItemMaterial = {
   notes?: string;
 };
 
+export type WorkItemStatusNote = {
+  id?: string;
+  text: string;
+  status?: string;
+  created_at?: string;
+};
+
 export type WorkItem = {
   id: string;
   job_id: string;
@@ -231,6 +238,10 @@ export type WorkItem = {
   labor_hours?: number;
   sort_order?: number;
   materials?: WorkItemMaterial[];
+  /** Card notes stamped with status at write time (web TaskNotes). */
+  status_notes?: WorkItemStatusNote[];
+  /** Legacy single note; prefer status_notes. */
+  status_note?: string;
   billed_invoice_id?: string;
   created_date?: string;
   updated_date?: string;

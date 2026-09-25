@@ -1,8 +1,9 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { api, type Job, type WorkItem } from '@/api/client';
+import { TaskStatusNotes } from '@/components/TaskStatusNotes';
 import { BRAND_HEX } from '@/lib/brand';
 import { moneyCents } from '@/lib/format';
 import { taskStatus, taskStatusLabel } from '@/lib/tasks';
@@ -14,6 +15,7 @@ export default function WorkItemDetailScreen() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -41,6 +43,36 @@ export default function WorkItemDetailScreen() {
       void load();
     }, [load]),
   );
+
+  const addNote = async (text: string) => {
+    if (!item) return;
+    setBusy(true);
+    try {
+      const next = await api.entities.WorkItem.update(item.id, {
+        status_notes: [...(item.status_notes || []), { text }],
+      });
+      setItem(next);
+    } catch (err) {
+      Alert.alert('Could not save note', err instanceof Error ? err.message : 'Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeNote = async (noteId: string) => {
+    if (!item) return;
+    setBusy(true);
+    try {
+      const next = await api.entities.WorkItem.update(item.id, {
+        status_notes: (item.status_notes || []).filter(n => n.id !== noteId),
+      });
+      setItem(next);
+    } catch (err) {
+      Alert.alert('Could not remove note', err instanceof Error ? err.message : 'Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (loading && !item) {
     return (
@@ -80,6 +112,17 @@ export default function WorkItemDetailScreen() {
         <Text style={styles.meta}>From {item.source_type}</Text>
       ) : null}
       {item.notes ? <Text style={styles.body}>{item.notes}</Text> : null}
+
+      <View style={styles.card}>
+        <Text style={styles.label}>Status notes</Text>
+        <Text style={styles.hint}>Stamped with the status when written — same as web card notes.</Text>
+        <TaskStatusNotes
+          item={item}
+          disabled={busy}
+          onAdd={text => void addNote(text)}
+          onRemove={noteId => void removeNote(noteId)}
+        />
+      </View>
 
       {(item.materials || []).length > 0 ? (
         <View style={styles.card}>
@@ -136,6 +179,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, color: '#666' },
+  hint: { fontSize: 12, color: '#888', marginBottom: 4 },
   line: { fontSize: 14, color: '#333' },
   editBtn: {
     alignSelf: 'flex-start',

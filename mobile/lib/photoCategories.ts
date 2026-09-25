@@ -16,6 +16,23 @@ export function isPhotoEntry(entry: { photo_url?: string; category?: string } | 
   return Boolean(entry?.photo_url && entry.category && KEYS.has(entry.category as PhotoCategoryKey));
 }
 
+/** Receipt timeline entries (job gallery + MO-linked). */
+export function isReceiptEntry(
+  entry: {
+    photo_url?: string;
+    category?: string;
+    type?: string;
+    related_material_order_id?: string;
+  } | null | undefined,
+) {
+  return Boolean(
+    isPhotoEntry(entry) &&
+      (entry?.category === 'receipt' ||
+        entry?.type === 'receipt' ||
+        entry?.related_material_order_id),
+  );
+}
+
 export function photoCategoryMeta(key: string) {
   return PHOTO_CATEGORIES.find(c => c.key === key) || { key, label: key, type: 'photo' as const };
 }

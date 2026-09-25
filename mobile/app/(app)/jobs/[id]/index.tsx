@@ -8,14 +8,16 @@ import { JobFinancialSection } from '@/components/JobFinancialSection';
 import { JobMaterialsSection } from '@/components/JobMaterialsSection';
 import { JobPhotosSection } from '@/components/JobPhotosSection';
 import { JobTasksSection } from '@/components/JobTasksSection';
+import { JobTimelineSection } from '@/components/JobTimelineSection';
 import { BRAND_HEX } from '@/lib/brand';
 import { jobDetailQueryKey, loadJobDetail } from '@/lib/jobDetail';
 import { deriveMaterialsStatus, materialsStatusColor } from '@/lib/jobMaterials';
 
 export default function JobDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const photosInitialMode = tab === 'receipts' ? 'receipts' : 'photos';
 
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: jobDetailQueryKey(id || ''),
@@ -103,7 +105,13 @@ export default function JobDetailScreen() {
 
       <JobDocumentsSection jobId={job.id} documents={documents} onChanged={onChanged} />
       <JobTasksSection jobId={job.id} items={workItems} onChanged={onChanged} />
-      <JobPhotosSection jobId={job.id} entries={entries} onChanged={onChanged} />
+      <JobPhotosSection
+        jobId={job.id}
+        entries={entries}
+        onChanged={onChanged}
+        initialMode={photosInitialMode}
+      />
+      <JobTimelineSection jobId={job.id} entries={entries} onChanged={onChanged} />
     </ScrollView>
   );
 }
