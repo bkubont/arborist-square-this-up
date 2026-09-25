@@ -16,31 +16,63 @@ describe('job materials', () => {
     assert.equal(items[1].source, 'task');
   });
 
-  it('derives waiting status from items not on hand', () => {
+  it('derives needed from legacy rows without explicit status', () => {
     const status = deriveMaterialsStatus({
       job: { materials: [{ description: 'Pipe', have: false }] },
       workItems: [],
       materialOrders: [],
     });
-    assert.equal(status.key, 'waiting');
-    assert.match(status.label, /Waiting on 1 item/);
+    assert.equal(status.key, 'needed');
+    assert.equal(status.label, 'Needed');
   });
 
-  it('derives ordered when a material order is purchased', () => {
+  it('derives waiting from explicit waiting status', () => {
     const status = deriveMaterialsStatus({
-      job: { materials: [{ description: 'Pipe', have: false }] },
+      job: { materials: [{ description: 'Pipe', status: 'waiting' }] },
+      workItems: [],
+      materialOrders: [],
+    });
+    assert.equal(status.key, 'waiting');
+    assert.equal(status.label, 'Waiting');
+  });
+
+  it('derives ordered from line status', () => {
+    const status = deriveMaterialsStatus({
+      job: { materials: [{ description: 'Pipe', status: 'ordered' }] },
+      materialOrders: [],
+    });
+    assert.equal(status.key, 'ordered');
+    assert.equal(status.label, 'Ordered');
+  });
+
+  it('derives ordered from a purchased material order when no lines are needed or waiting', () => {
+    const status = deriveMaterialsStatus({
+      job: { materials: [{ description: 'Pipe', status: 'ordered', have: false }] },
       materialOrders: [{ status: 'purchased', lines: [] }],
     });
     assert.equal(status.key, 'ordered');
     assert.equal(status.label, 'Ordered');
   });
 
-  it('reports all on hand when every row is ticked', () => {
+  it('reports all on hand when every row is on hand', () => {
     const status = deriveMaterialsStatus({
-      job: { materials: [{ description: 'Tape', have: true }] },
+      job: { materials: [{ description: 'Tape', status: 'on_hand' }] },
       workItems: [{ id: 't1', materials: [{ description: 'Glue', have: true }] }],
     });
     assert.equal(status.key, 'on_hand');
     assert.equal(status.label, 'All on hand');
+  });
+
+  it('prioritizes waiting over needed in the header label', () => {
+    const status = deriveMaterialsStatus({
+      job: {
+        materials: [
+          { description: 'A', status: 'needed' },
+          { description: 'B', status: 'waiting' },
+        ],
+      },
+    });
+    assert.equal(status.key, 'waiting');
+    assert.equal(status.label, 'Waiting');
   });
 });

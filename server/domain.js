@@ -127,6 +127,7 @@ export const schemas = {
       qty: money.optional(),
       unit: z.string().max(40).optional(),
       unit_price: money.optional(),
+      status: z.enum(['needed', 'ordered', 'waiting', 'on_hand']).optional(),
       have: z.boolean().default(false),
       notes: text.optional(),
     })).max(500).optional(),
@@ -215,6 +216,7 @@ export const schemas = {
       unit: z.string().max(40).optional(),
       /** Price per unit; carried onto the Material Order line. */
       unit_price: money.optional(),
+      status: z.enum(['needed', 'ordered', 'waiting', 'on_hand']).optional(),
       have: z.boolean().default(false),
       notes: text.optional(),
     })).max(500).optional(),

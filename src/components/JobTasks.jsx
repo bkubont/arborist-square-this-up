@@ -18,6 +18,8 @@ import {
   workTypeForStorage,
   workTypeLabel,
 } from "@/lib/workTypes";
+import MaterialStatusSelect from "@/components/MaterialStatusSelect";
+import { materialNeedsOrder, materialRowForStorage } from "@/lib/materialStatus";
 import { cn } from "@/lib/utils";
 
 /**
@@ -226,7 +228,7 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
 
 function TaskTags({ item, documents, hideWorkType = false }) {
   const steps = item.steps || [];
-  const needed = (item.materials || []).filter((m) => !m.have).length;
+  const needed = (item.materials || []).filter((m) => materialNeedsOrder(m)).length;
   return (
     <>
       {/* Most tasks come from the estimate, so only work added later by a change order is tagged. */}
@@ -281,7 +283,7 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
     onPatch(item, {
       materials: next
         .filter((m) => m.description?.trim())
-        .map((m) => ({
+        .map((m) => materialRowForStorage({
           ...m,
           description: m.description.trim(),
           qty: num(m.qty),
@@ -291,7 +293,8 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
     });
   };
   const setMaterial = (index, patch) => saveMaterials(materials.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  const addMaterial = (description) => saveMaterials([...materials, { description: description.trim(), qty: "", unit: "", unit_price: "", have: false }]);
+  const setMaterialStatus = (index, status) => setMaterial(index, { status, have: status === "on_hand" });
+  const addMaterial = (description) => saveMaterials([...materials, { description: description.trim(), qty: "", unit: "", unit_price: "", status: "needed", have: false }]);
   const removeMaterial = (index) => saveMaterials(materials.filter((_, i) => i !== index));
 
   return (
@@ -373,10 +376,12 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
                     placeholder="Qty"
                     className="w-12 px-1.5 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
                   />
-                  <label className="flex items-center gap-1 text-[10px] text-slate-600 whitespace-nowrap">
-                    <input type="checkbox" checked={!!m.have} onChange={(e) => setMaterial(index, { have: e.target.checked })} />
-                    Have
-                  </label>
+                  <MaterialStatusSelect
+                    value={m.status}
+                    have={m.have}
+                    onValueChange={(status) => setMaterialStatus(index, status)}
+                    triggerClassName="h-7 min-w-[5.5rem] text-[10px]"
+                  />
                   <button type="button" aria-label="Remove material" className="text-slate-300 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100" onClick={() => removeMaterial(index)}>
                     <X className="w-3.5 h-3.5" />
                   </button>

@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { api } from "@/api/client";
+import MaterialStatusSelect from "@/components/MaterialStatusSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { money } from "@/lib/format";
+import { materialRowForStorage } from "@/lib/materialStatus";
 
-const blankRow = () => ({ description: "", qty: "", unit: "", unit_price: "", have: false, notes: "" });
+const blankRow = () => ({ description: "", qty: "", unit: "", unit_price: "", status: "needed", have: false, notes: "" });
 
 /**
- * Job-level materials list (not on estimates). Items not on hand feed the draft Material Order.
+ * Job-level materials list (not on estimates). Lines not on hand feed the draft Material Order.
  */
 export default function JobMaterialsPanel({ jobId, materials = [], onChanged }) {
   const [rows, setRows] = useState([]);
@@ -29,13 +31,15 @@ export default function JobMaterialsPanel({ jobId, materials = [], onChanged }) 
   const setRow = (index, patch) => setRows((list) => list.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   const removeRow = (index) => setRows((list) => (list.length <= 1 ? [blankRow()] : list.filter((_, i) => i !== index)));
 
+  const setStatus = (index, status) => setRow(index, { status, have: status === "on_hand" });
+
   const save = async () => {
     setSaving(true);
     try {
       const num = (v) => (v === "" || v == null ? undefined : Number(v));
       const payload = rows
         .filter((m) => m.description.trim())
-        .map((m) => ({
+        .map((m) => materialRowForStorage({
           ...m,
           description: m.description.trim(),
           qty: num(m.qty),
@@ -58,7 +62,7 @@ export default function JobMaterialsPanel({ jobId, materials = [], onChanged }) 
         <div>
           <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Materials</div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Job-level list on Overview — separate from task materials on the Tasks tab. Unticked items feed the draft Material Order.
+            Job-level list on Overview — separate from task materials on the Tasks tab. Status drives the header materials line; items not on hand feed the draft Material Order.
           </p>
         </div>
         {total > 0 && <span className="text-xs text-muted-foreground tabular-nums">{money(total)} listed</span>}
@@ -66,7 +70,7 @@ export default function JobMaterialsPanel({ jobId, materials = [], onChanged }) 
 
       <div className="space-y-2">
         {rows.map((m, i) => (
-          <div key={i} className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,1fr)_4rem_4rem_5rem_auto_auto] gap-2 items-center rounded-lg border border-border/70 p-2 bg-muted/30">
+          <div key={i} className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,1fr)_4rem_4rem_5rem_7rem_auto] gap-2 items-center rounded-lg border border-border/70 p-2 bg-muted/30">
             <Input
               value={m.description}
               onChange={(e) => setRow(i, { description: e.target.value })}
@@ -97,14 +101,12 @@ export default function JobMaterialsPanel({ jobId, materials = [], onChanged }) 
               placeholder="$ each"
               className="h-8 text-sm"
             />
-            <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap px-1">
-              <input
-                type="checkbox"
-                checked={!!m.have}
-                onChange={(e) => setRow(i, { have: e.target.checked })}
-              />
-              Have
-            </label>
+            <MaterialStatusSelect
+              value={m.status}
+              have={m.have}
+              onValueChange={(status) => setStatus(i, status)}
+              triggerClassName="h-8"
+            />
             <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-600" onClick={() => removeRow(i)} aria-label="Remove">
               <X className="w-3.5 h-3.5" />
             </Button>

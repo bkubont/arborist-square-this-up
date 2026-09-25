@@ -5,6 +5,7 @@
 
 import { isPricedScopeLine, scopeLineAmount } from './domain.js';
 import { resolveSalesTaxRate } from './salesTax.js';
+import { isMaterialOnHand } from '../shared/materialStatus.js';
 
 function num(v) {
   const n = Number(v);
@@ -324,7 +325,7 @@ export function materialOrderClaimIdentity(line = {}) {
 export function materialLinesFromJob(job) {
   if (!job?.id) return [];
   return (job.materials || []).flatMap((material, index) => {
-    if (material.have || !String(material.description || '').trim()) return [];
+    if (isMaterialOnHand(material) || !String(material.description || '').trim()) return [];
     return [{
       description: material.description,
       qty: num(material.qty),
@@ -343,7 +344,7 @@ export function materialLinesFromWorkItems(workItems = []) {
   return (workItems || []).flatMap((item) => {
     if (!item?.id || item.status === 'cancelled') return [];
     return (item.materials || []).flatMap((material, index) => {
-      if (material.have || !String(material.description || '').trim()) return [];
+      if (isMaterialOnHand(material) || !String(material.description || '').trim()) return [];
       return [{
         description: material.description,
         qty: num(material.qty),
