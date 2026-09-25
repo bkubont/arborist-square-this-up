@@ -186,9 +186,8 @@ export default function JobDocuments({
 
       {showStageHints && !accepted && allowedSet.has("Estimate") && (
         <p className="text-xs text-slate-500 mb-3">
-          New job: create an <strong>Estimate</strong> (and a <strong>Material Order</strong> under Money if needed).
-          One Estimate and one Invoice per job. Once the customer signs, each line becomes a job task
-          (see Tasks), and Change Orders and the Invoice unlock.
+          The quote is the whole line, materials included. Once the customer signs, each line becomes a job task
+          (see Tasks).
         </p>
       )}
 

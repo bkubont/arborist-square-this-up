@@ -51,7 +51,11 @@ export const api = {
     WorkItem: entity('WorkItem'),
     ChangeOrder: entity('ChangeOrder'),
     Invoice: entity('Invoice'),
+    PunchList: entity('PunchList'),
     Expense: entity('Expense'),
+  },
+  punchList: {
+    complete(id, data) { return post(`/punch-list/${encodeURIComponent(id)}/complete`, data); },
   },
   catalog: {
     search(filters = {}) {
@@ -61,6 +65,9 @@ export const api = {
       }
       return request(`/catalog?${params}`);
     },
+  },
+  workTypes: {
+    list() { return request('/work-types'); },
   },
   estimates: {
     sendSign(id, data) { return post(`/estimates/${encodeURIComponent(id)}/send-sign`, data); },

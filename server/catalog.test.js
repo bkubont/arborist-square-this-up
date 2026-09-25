@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchCatalog, catalogItemToEstimateLine, loadCatalog } from './catalog.js';
+import { searchCatalog, catalogItemToEstimateLine, loadCatalog, getWorkTypes } from './catalog.js';
+
+test('getWorkTypes exposes Brittany + Tess work-type list', () => {
+  const types = getWorkTypes();
+  assert.equal(types.length, 51);
+  assert.deepEqual(types.slice(0, 3), ['propane', 'bathroom', 'stairs']);
+  assert.ok(types.includes('inside doors'));
+  assert.ok(types.includes('fencing'));
+  assert.deepEqual(types.slice(-5), ['closet', 'electronics', 'theater', 'general', 'unknown']);
+  assert.equal(types[types.length - 1], 'unknown');
+});
 
 test('handyman catalog loads labor + materials prices', () => {
   const catalog = loadCatalog();

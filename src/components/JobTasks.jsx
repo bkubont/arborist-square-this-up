@@ -7,8 +7,19 @@ import StatusSelect from "@/components/StatusSelect";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 import TaskNotes from "@/components/TaskNotes";
 import { moneyCents } from "@/lib/format";
-import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining, isTaskCompleted } from "@/lib/tasks";
+import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining, isTaskCompleted, isHiddenBuiltInTask } from "@/lib/tasks";
 import { statusColors, statusCardClass } from "@/lib/statusColors";
+import { useWorkTypes } from "@/hooks/useWorkTypes";
+import {
+  encodeTypeDroppableId,
+  normalizeWorkType,
+  parseTypeDroppableId,
+  workTypeColumnKeys,
+  workTypeForStorage,
+  workTypeLabel,
+} from "@/lib/workTypes";
+import MaterialStatusSelect from "@/components/MaterialStatusSelect";
+import { materialNeedsOrder, materialRowForStorage } from "@/lib/materialStatus";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,21 +33,24 @@ import { cn } from "@/lib/utils";
  * Without a jobId (the Kanban page's Tasks board) it shows every job's tasks, each card naming its
  * job; new tasks are then added from a job.
  *
- * @param {{ jobId?: string, items: Array, documents?: Array, onChanged: () => void, view?: "list" | "board", jobsById?: Record<string, any> }} props
+ * @param {{ jobId?: string, items: Array, documents?: Array, onChanged: () => void, view?: "list" | "board", boardGroupBy?: "stage" | "type", jobsById?: Record<string, any> }} props
  */
-export default function JobTasks({ jobId = undefined, items = [], documents = [], onChanged, view = "list", jobsById = undefined }) {
+export default function JobTasks({ jobId = undefined, items = [], documents = [], onChanged, view = "list", boardGroupBy = "stage", jobsById = undefined }) {
   const [adding, setAdding] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [openId, setOpenId] = useState(null);
   // The task whose "Add a note…" box gets the cursor (after a move into a status that needs a reason).
   const [noteFocusId, setNoteFocusId] = useState(null);
   // Optimistic status/position while a board move saves, so the card doesn't snap back.
-  const [pending, setPending] = useState(/** @type {Record<string, { status: string, sort_order: number }>} */ ({}));
+  const [pending, setPending] = useState(/** @type {Record<string, Partial<{ status: string, category: string, sort_order: number }>>} */ ({}));
+  const { types: catalogTypes } = useWorkTypes();
+
+  const visibleItems = useMemo(() => items.filter((item) => !isHiddenBuiltInTask(item)), [items]);
 
   const shown = useMemo(() => {
-    const merged = items.map((item) => (pending[item.id] ? { ...item, ...pending[item.id] } : item));
+    const merged = visibleItems.map((item) => (pending[item.id] ? { ...item, ...pending[item.id] } : item));
     return view === "list" ? sortTasksForList(merged) : sortTasks(merged);
-  }, [items, pending, view]);
+  }, [visibleItems, pending, view]);
   const doneCount = shown.filter((i) => isTaskCompleted(taskStatus(i))).length;
   const openItem = items.find((i) => i.id === openId) || null;
 
@@ -74,7 +88,12 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
     run("new", () => api.entities.WorkItem.create({ job_id: jobId, description }));
   };
 
-  const onDragEnd = async ({ source, destination, draggableId }) => {
+  const typeColumns = useMemo(
+    () => workTypeColumnKeys(shown, (item) => item.category, catalogTypes),
+    [shown, catalogTypes],
+  );
+
+  const onDragEndStage = async ({ source, destination, draggableId }) => {
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
     const moved = shown.find((i) => i.id === draggableId);
@@ -82,7 +101,6 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
     const status = destination.droppableId;
     const column = shown.filter((i) => taskStatus(i) === status && i.id !== draggableId);
     column.splice(destination.index, 0, { ...moved, status });
-    // Renumber the destination column; only tasks whose position changed are saved.
     const updates = column
       .map((item, index) => ({ item, status, sort_order: (index + 1) * 1000 }))
       .filter(({ item, sort_order }) => item.id === draggableId || item.sort_order !== sort_order);
@@ -103,29 +121,75 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
     }
   };
 
+  const onDragEndType = async ({ source, destination, draggableId }) => {
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+    const moved = shown.find((i) => i.id === draggableId);
+    if (!moved) return;
+    const workType = parseTypeDroppableId(destination.droppableId);
+    if (!workType) return;
+    const category = workTypeForStorage(workType);
+    const inColumn = (item) => normalizeWorkType(item.category) === workType;
+    const column = shown.filter((i) => inColumn(i) && i.id !== draggableId);
+    column.splice(destination.index, 0, { ...moved, category });
+    const updates = column
+      .map((item, index) => ({ item, category: item.id === draggableId ? category : item.category, sort_order: (index + 1) * 1000 }))
+      .filter(({ item, sort_order }) => item.id === draggableId || item.sort_order !== sort_order);
+    setPending((p) => ({ ...p, ...Object.fromEntries(updates.map((u) => [u.item.id, { category: u.category, sort_order: u.sort_order }])) }));
+    setBusyId(draggableId);
+    try {
+      for (const u of updates) {
+        await api.entities.WorkItem.update(
+          u.item.id,
+          u.item.id === draggableId ? { category: u.category, sort_order: u.sort_order } : { sort_order: u.sort_order },
+        );
+      }
+      await onChanged?.();
+    } catch (e) {
+      alert(e?.message || "Could not move the task.");
+      await onChanged?.();
+    } finally {
+      setPending({});
+      setBusyId(null);
+    }
+  };
+
   return (
     <div>
       <div className="text-xs text-slate-500 mb-2">
-        {items.length
-          ? [`${doneCount}/${items.length} done`, formatHours(hoursRemaining(shown)) && `${formatHours(hoursRemaining(shown))} left`].filter(Boolean).join(" · ")
+        {visibleItems.length
+          ? [`${doneCount}/${visibleItems.length} done`, formatHours(hoursRemaining(shown)) && `${formatHours(hoursRemaining(shown))} left`].filter(Boolean).join(" · ")
           : "No tasks yet. Signed estimate and change order lines show up here."}
       </div>
 
       {view === "board" ? (
-        <DragDropContext onDragEnd={onDragEnd}>
+        <DragDropContext onDragEnd={boardGroupBy === "type" ? onDragEndType : onDragEndStage}>
           <div className="flex gap-3 overflow-x-auto pb-3 items-start">
-            {TASK_STATUSES.map((status) => (
-              <BoardColumn
-                key={status}
-                status={status}
-                items={shown.filter((i) => taskStatus(i) === status)}
-                documents={documents}
-                busyId={busyId}
-                onOpen={setOpenId}
-                noteProps={noteProps}
-                jobsById={jobsById}
-              />
-            ))}
+            {boardGroupBy === "type"
+              ? typeColumns.map((workType) => (
+                <TypeBoardColumn
+                  key={workType}
+                  workType={workType}
+                  items={shown.filter((i) => normalizeWorkType(i.category) === workType)}
+                  documents={documents}
+                  busyId={busyId}
+                  onOpen={setOpenId}
+                  noteProps={noteProps}
+                  jobsById={jobsById}
+                />
+              ))
+              : TASK_STATUSES.map((status) => (
+                <StageBoardColumn
+                  key={status}
+                  status={status}
+                  items={shown.filter((i) => taskStatus(i) === status)}
+                  documents={documents}
+                  busyId={busyId}
+                  onOpen={setOpenId}
+                  noteProps={noteProps}
+                  jobsById={jobsById}
+                />
+              ))}
           </div>
         </DragDropContext>
       ) : (
@@ -162,14 +226,15 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
   );
 }
 
-function TaskTags({ item, documents }) {
+function TaskTags({ item, documents, hideWorkType = false }) {
   const steps = item.steps || [];
-  const needed = (item.materials || []).filter((m) => !m.have).length;
+  const needed = (item.materials || []).filter((m) => materialNeedsOrder(m)).length;
   return (
     <>
       {/* Most tasks come from the estimate, so only work added later by a change order is tagged. */}
       {item.source_type === "ChangeOrder" && <Tag tone="brand">Change order</Tag>}
       {taskSourceVoided(item, documents) && <Tag tone="void">Voided</Tag>}
+      {!hideWorkType && item.category?.trim() && <Tag tone="trade">{item.category.trim()}</Tag>}
       {formatHours(item.labor_hours) && <Tag><Clock className="inline w-2.5 h-2.5 mr-0.5 -mt-px" aria-hidden="true" />{formatHours(item.labor_hours)}</Tag>}
       {item.amount_cents != null && <Tag tone="money">{moneyCents(item.amount_cents)}{item.billed_invoice_id ? " · billed" : ""}</Tag>}
       {steps.length > 0 && <Tag>{steps.filter((s) => s.done).length}/{steps.length} steps</Tag>}
@@ -201,6 +266,7 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   const [expanded, setExpanded] = useState(true);
   const status = taskStatus(item);
   const steps = item.steps || [];
+  const materials = item.materials || [];
   const closed = isTaskCompleted(status) || status === "cancelled";
   const done = isTaskCompleted(status);
 
@@ -209,9 +275,27 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
     onStatus(item, done ? "plan" : "completed");
   };
   const toggleStep = (stepId) => onPatch(item, { steps: steps.map((s) => (s.id === stepId ? { ...s, done: !s.done } : s)) });
-  // New steps go up without an id; the server assigns one.
   const addStep = (text) => onPatch(item, { steps: [...steps, { text: text.trim(), done: false }] });
   const removeStep = (stepId) => onPatch(item, { steps: steps.filter((s) => s.id !== stepId) });
+
+  const saveMaterials = (next) => {
+    const num = (v) => (v === "" || v == null ? undefined : Number(v));
+    onPatch(item, {
+      materials: next
+        .filter((m) => m.description?.trim())
+        .map((m) => materialRowForStorage({
+          ...m,
+          description: m.description.trim(),
+          qty: num(m.qty),
+          unit: m.unit || undefined,
+          unit_price: num(m.unit_price),
+        })),
+    });
+  };
+  const setMaterial = (index, patch) => saveMaterials(materials.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  const setMaterialStatus = (index, status) => setMaterial(index, { status, have: status === "on_hand" });
+  const addMaterial = (description) => saveMaterials([...materials, { description: description.trim(), qty: "", unit: "", unit_price: "", status: "needed", have: false }]);
+  const removeMaterial = (index) => saveMaterials(materials.filter((_, i) => i !== index));
 
   return (
     <div data-testid={`task-${item.id}`} className={cn("rounded-lg border p-2.5", statusCardClass(status), closed ? "bg-slate-50/60" : "bg-white")}>
@@ -238,45 +322,131 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
             formatLabel={taskStatusLabel}
             triggerClassName="h-7 text-xs w-auto min-w-[7.5rem] px-2"
           />
-          <button type="button" aria-label={expanded ? "Hide steps" : "Show steps"} className="text-slate-400 hover:text-slate-600 p-1" onClick={() => setExpanded((v) => !v)}>
+          <button type="button" aria-label={expanded ? "Hide details" : "Show details"} className="text-slate-400 hover:text-slate-600 p-1" onClick={() => setExpanded((v) => !v)}>
             {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
-      <TaskNotes item={item} {...note} className="mt-1.5" />
-
       {expanded && (
-        <div className="mt-2 ml-1 space-y-1">
-          {steps.map((step) => (
-            <div key={step.id} className="flex items-center gap-2 group">
-              <button
-                type="button"
-                data-testid={`task-step-${step.id}`}
-                onClick={() => toggleStep(step.id)}
-                disabled={busy}
-                aria-label={step.done ? "Mark step not done" : "Mark step done"}
-                className={cn(
-                  "w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0",
-                  step.done ? "bg-emerald-500 border-emerald-500" : "border-slate-300 hover:border-slate-400"
-                )}
-              >
-                {step.done && <Check className="w-3 h-3 text-white" />}
-              </button>
-              <span className={cn("text-xs flex-1", step.done ? "line-through text-slate-400" : "text-slate-600")}>{step.text}</span>
-              <button type="button" aria-label="Remove step" className="text-slate-300 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100" onClick={() => removeStep(step.id)}>
-                <X className="w-3 h-3" />
-              </button>
+        <div className="mt-3 ml-1 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Steps</div>
+            <div className="space-y-1">
+              {steps.map((step) => (
+                <div key={step.id} className="flex items-center gap-2 group">
+                  <button
+                    type="button"
+                    data-testid={`task-step-${step.id}`}
+                    onClick={() => toggleStep(step.id)}
+                    disabled={busy}
+                    aria-label={step.done ? "Mark step not done" : "Mark step done"}
+                    className={cn(
+                      "w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0",
+                      step.done ? "bg-emerald-500 border-emerald-500" : "border-slate-300 hover:border-slate-400"
+                    )}
+                  >
+                    {step.done && <Check className="w-3 h-3 text-white" />}
+                  </button>
+                  <span className={cn("text-xs flex-1", step.done ? "line-through text-slate-400" : "text-slate-600")}>{step.text}</span>
+                  <button type="button" aria-label="Remove step" className="text-slate-300 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100" onClick={() => removeStep(step.id)}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              <StepAdder disabled={busy} onAdd={addStep} />
             </div>
-          ))}
-          <StepAdder disabled={busy} onAdd={addStep} />
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Materials</div>
+            <div className="space-y-1.5">
+              {materials.map((m, index) => (
+                <div key={m.id || `mat-${index}`} className="flex flex-wrap items-center gap-1.5 group">
+                  <input
+                    value={m.description || ""}
+                    onChange={(e) => setMaterial(index, { description: e.target.value })}
+                    placeholder="Item"
+                    className="flex-1 min-w-[6rem] px-2 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    value={m.qty ?? ""}
+                    onChange={(e) => setMaterial(index, { qty: e.target.value })}
+                    placeholder="Qty"
+                    className="w-12 px-1.5 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  <MaterialStatusSelect
+                    value={m.status}
+                    have={m.have}
+                    onValueChange={(status) => setMaterialStatus(index, status)}
+                    triggerClassName="h-7 min-w-[5.5rem] text-[10px]"
+                  />
+                  <button type="button" aria-label="Remove material" className="text-slate-300 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100" onClick={() => removeMaterial(index)}>
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <MaterialAdder disabled={busy} onAdd={addMaterial} />
+            </div>
+          </div>
         </div>
       )}
+
+      <TaskNotes item={item} {...note} className="mt-2" />
     </div>
   );
 }
 
-function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobsById = undefined }) {
+function TypeBoardColumn({ workType, items, documents, busyId, onOpen, noteProps, jobsById = undefined }) {
+  const dropId = encodeTypeDroppableId(workType);
+  return (
+    <Droppable droppableId={dropId}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.droppableProps}
+          data-testid={`task-type-column-${workType}`}
+          className={cn(
+            "w-60 shrink-0 rounded-xl border-2 border-slate-200 bg-surface-muted/80 flex flex-col",
+            snapshot.isDraggingOver && "ring-2 ring-primary/30 bg-primary/5",
+          )}
+        >
+          <div className="px-3 py-2 border-b rounded-t-[10px] bg-slate-100/80">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-foreground leading-snug line-clamp-2">{workTypeLabel(workType)}</span>
+              <span className="text-xs font-bold tabular-nums text-foreground shrink-0">{items.length}</span>
+            </div>
+          </div>
+          <div className="p-2 space-y-2 min-h-[4rem]">
+            {items.map((item, index) => (
+              <Draggable key={item.id} draggableId={item.id} index={index}>
+                {(dragProvided, dragSnapshot) => (
+                  <TaskBoardCard
+                    item={item}
+                    documents={documents}
+                    busyId={busyId}
+                    onOpen={onOpen}
+                    noteProps={noteProps}
+                    jobsById={jobsById}
+                    dragProvided={dragProvided}
+                    dragSnapshot={dragSnapshot}
+                    status={taskStatus(item)}
+                    showStatus
+                  />
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+            {items.length === 0 && <div className="text-xs text-muted-foreground text-center py-4">Drop tasks here</div>}
+          </div>
+        </div>
+      )}
+    </Droppable>
+  );
+}
+
+function StageBoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobsById = undefined }) {
   const colors = statusColors(status);
   return (
     <Droppable droppableId={status}>
@@ -307,35 +477,17 @@ function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobs
             {items.map((item, index) => (
               <Draggable key={item.id} draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
-                  <div
-                    ref={dragProvided.innerRef}
-                    {...dragProvided.draggableProps}
-                    {...dragProvided.dragHandleProps}
-                    data-testid={`task-card-${item.id}`}
-                    onClick={() => onOpen(item.id)}
-                    className={cn(
-                      "bg-card rounded-lg border p-2.5 shadow-sm cursor-pointer",
-                      statusCardClass(status),
-                      dragSnapshot.isDragging && "shadow-md ring-2 ring-primary/40",
-                      busyId === item.id && "opacity-60"
-                    )}
-                  >
-                    {jobsById && (
-                      <Link
-                        to={`/jobs/${item.job_id}?tab=tasks`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="block text-[11px] font-medium text-primary hover:underline truncate mb-0.5"
-                      >
-                        {jobsById[item.job_id]?.title || "Job"}
-                        {jobsById[item.job_id]?.client_name ? ` · ${jobsById[item.job_id].client_name}` : ""}
-                      </Link>
-                    )}
-                    <div className="text-sm font-medium text-foreground leading-snug line-clamp-3">{item.description}</div>
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      <TaskTags item={item} documents={documents} />
-                    </div>
-                    <TaskNotes item={item} {...noteProps(item)} className="mt-1.5" />
-                  </div>
+                  <TaskBoardCard
+                    item={item}
+                    documents={documents}
+                    busyId={busyId}
+                    onOpen={onOpen}
+                    noteProps={noteProps}
+                    jobsById={jobsById}
+                    dragProvided={dragProvided}
+                    dragSnapshot={dragSnapshot}
+                    status={status}
+                  />
                 )}
               </Draggable>
             ))}
@@ -348,7 +500,42 @@ function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobs
   );
 }
 
-function StepAdder({ onAdd, disabled }) {
+function TaskBoardCard({ item, documents, busyId, onOpen, noteProps, jobsById, dragProvided, dragSnapshot, status, showStatus = false }) {
+  return (
+    <div
+      ref={dragProvided.innerRef}
+      {...dragProvided.draggableProps}
+      {...dragProvided.dragHandleProps}
+      data-testid={`task-card-${item.id}`}
+      onClick={() => onOpen(item.id)}
+      className={cn(
+        "bg-card rounded-lg border p-2.5 shadow-sm cursor-pointer",
+        statusCardClass(status),
+        dragSnapshot.isDragging && "shadow-md ring-2 ring-primary/40",
+        busyId === item.id && "opacity-60",
+      )}
+    >
+      {jobsById && (
+        <Link
+          to={`/jobs/${item.job_id}?tab=tasks`}
+          onClick={(e) => e.stopPropagation()}
+          className="block text-[11px] font-medium text-primary hover:underline truncate mb-0.5"
+        >
+          {jobsById[item.job_id]?.title || "Job"}
+          {jobsById[item.job_id]?.client_name ? ` · ${jobsById[item.job_id].client_name}` : ""}
+        </Link>
+      )}
+      <div className="text-sm font-medium text-foreground leading-snug line-clamp-3">{item.description}</div>
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {showStatus && <Tag tone="stage">{taskStatusLabel(status)}</Tag>}
+        <TaskTags item={item} documents={documents} hideWorkType={showStatus} />
+      </div>
+      <TaskNotes item={item} {...noteProps(item)} className="mt-1.5" />
+    </div>
+  );
+}
+
+function StepAdder({ onAdd, disabled, placeholder = "Add a step…" }) {
   const [text, setText] = useState("");
   const submit = () => {
     if (!text.trim() || disabled) return;
@@ -361,10 +548,33 @@ function StepAdder({ onAdd, disabled }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
-        placeholder="Add a step…"
+        placeholder={placeholder}
         className="flex-1 px-2 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
       />
       <button type="button" onClick={submit} aria-label="Add step" className="text-slate-400 hover:text-primary">
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function MaterialAdder({ onAdd, disabled }) {
+  const [text, setText] = useState("");
+  const submit = () => {
+    if (!text.trim() || disabled) return;
+    onAdd(text);
+    setText("");
+  };
+  return (
+    <div className="flex items-center gap-2 pt-1">
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="Add material…"
+        className="flex-1 px-2 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+      />
+      <button type="button" onClick={submit} aria-label="Add material" className="text-slate-400 hover:text-primary">
         <Plus className="w-3.5 h-3.5" />
       </button>
     </div>
@@ -378,6 +588,8 @@ function Tag({ children, tone = "slate" }) {
     money: "bg-emerald-100 text-emerald-700",
     materials: "bg-attention-materials-muted text-attention-materials-foreground",
     void: "bg-red-50 text-red-600",
+    trade: "bg-sky-50 text-sky-700",
+    stage: "bg-violet-50 text-violet-700",
   };
   return <span className={cn("text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded", tones[tone])}>{children}</span>;
 }

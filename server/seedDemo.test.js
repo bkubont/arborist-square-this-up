@@ -37,6 +37,8 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     assert.equal(result.clientsWithJobs, 8);
     assert.equal(result.clientsWithoutJobs, 7);
     assert.equal(DEMO_SPEC.totalJobs, 14);
+    assert.equal(DEMO_SPEC.expectedBoardJobs, 12);
+    assert.equal(DEMO_SPEC.expectedArchivedJobs, 2);
 
     const clients = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'Client']);
     const jobs = await db.all('SELECT id, parent_id, data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'Job']);
@@ -64,6 +66,19 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
       assert.ok(statuses.has(needed), `missing job status ${needed}`);
     }
 
+    assert.equal(result.visibility.allJobs, 14);
+    assert.equal(result.visibility.boardJobs, 12);
+    assert.equal(result.visibility.archivedJobs, 2);
+    assert.deepEqual(result.visibility.archivedStatuses, ['Paid']);
+    assert.deepEqual(result.visibility.boardByPhase, { lead: 3, working: 7, payment: 2 });
+
+    const paidJobs = jobs.filter((j) => JSON.parse(j.data).status === 'Paid');
+    assert.equal(paidJobs.length, 2);
+    for (const row of paidJobs) {
+      const data = JSON.parse(row.data);
+      assert.ok(data.archived_at, `Paid job ${data.title} should carry archived_at after seed`);
+    }
+
     const profiles = await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'CompanyProfile']);
     assert.equal(profiles.length, 1);
     assert.equal(JSON.parse(profiles[0].data).default_tax_rate, 7);
@@ -83,8 +98,9 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     assert.ok(tasks.some((task) => task.source_type === 'Estimate' && task.status === 'plan'));
     assert.ok(tasks.some((task) => task.source_type === 'ChangeOrder'), 'the approved change order has its tasks');
     assert.equal(tasks.filter((task) => task.template_key === 'prep').length, 14);
-    assert.equal(tasks.filter((task) => task.template_key === 'materials').length, 14);
-    assert.equal(tasks.filter((task) => task.template_key === 'final_walkthrough').length, 14);
+    assert.equal(tasks.filter((task) => task.template_key === 'materials').length, 0, 'no built-in Materials tasks');
+    const punchLists = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'PunchList'])).map((r) => JSON.parse(r.data));
+    assert.equal(punchLists.length, 14);
     assert.ok(jobs.every((j) => JSON.parse(j.data).checklist === undefined), 'no old free-text checklist');
 
     // Deposits must not double-count: do not set both deposit_amount and timeline amounts.

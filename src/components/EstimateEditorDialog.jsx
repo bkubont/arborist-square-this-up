@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import CatalogTypeahead from "@/components/CatalogTypeahead";
 import DocumentLifecycleActions from "@/components/DocumentLifecycleActions";
 import StatusOverrideSelect from "@/components/StatusOverrideSelect";
-import { WORK_CATEGORIES } from "@/lib/documentMapping";
+import WorkTypeSelect from "@/components/WorkTypeSelect";
 import { money, shortDate } from "@/lib/format";
 import {
   addDaysIso,
@@ -370,21 +370,15 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
               <div key={index} className="rounded-lg border border-slate-200 p-3 bg-slate-50/50 space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-[minmax(7rem,9rem)_1fr_4.5rem_auto] gap-2 items-end">
                   <div>
-                    <Label className="text-xs">Category</Label>
-                    <Input
-                      className={readOnly ? "bg-slate-50" : "bg-white"}
-                      list={readOnly ? undefined : `est-cat-${index}`}
-                      value={line.category}
-                      onChange={(e) => setLine(index, { category: e.target.value })}
-                      placeholder="e.g. Plumbing"
-                      readOnly={readOnly}
-                    />
-                    {!readOnly && (
-                      <datalist id={`est-cat-${index}`}>
-                        {WORK_CATEGORIES.map((c) => (
-                          <option key={c} value={c} />
-                        ))}
-                      </datalist>
+                    <Label className="text-xs">Work type</Label>
+                    {readOnly ? (
+                      <Input className="bg-slate-50" value={line.category || ""} readOnly />
+                    ) : (
+                      <WorkTypeSelect
+                        value={line.category || ""}
+                        onValueChange={(category) => setLine(index, { category })}
+                        placeholder="e.g. Plumbing"
+                      />
                     )}
                   </div>
                   <div>

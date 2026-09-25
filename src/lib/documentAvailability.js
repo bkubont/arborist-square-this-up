@@ -7,7 +7,7 @@
  */
 
 /** Entities limited to one non-void document per job. */
-export const SINGLE_DOC_ENTITIES = new Set(["Estimate", "Invoice"]);
+export const SINGLE_DOC_ENTITIES = new Set(["Estimate", "Invoice", "PunchList"]);
 
 /** Live accepted estimate — voided snapshots do not authorize. */
 export function isLiveAcceptedEstimate(doc) {

@@ -12,7 +12,8 @@ import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
 import JobTasks from "@/components/JobTasks";
-import { JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
+import PunchListPanel from "@/components/PunchListPanel";
+import { JobRunningTotal, JobQuickNote } from "@/components/JobCardInfo";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
@@ -22,7 +23,7 @@ import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-const DOC_ENTITIES = ["Estimate", "MaterialOrder", "ChangeOrder", "Invoice"];
+const DOC_ENTITIES = ["Estimate", "MaterialOrder", "ChangeOrder", "Invoice", "PunchList"];
 const TASK_VIEW_KEY = "jobTasksView";
 
 /** @returns {"list" | "board"} */
@@ -61,6 +62,7 @@ export default function JobDetail() {
   const [documents, setDocuments] = useState([]);
   const [workItems, setWorkItems] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [punchList, setPunchList] = useState(null);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
@@ -102,7 +104,9 @@ export default function JobDetail() {
     setWorkItems(items);
     setExpenses(jobExpenses);
     setSummary(money);
-    setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
+    const flatDocs = docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] })));
+    setDocuments(flatDocs);
+    setPunchList(flatDocs.find((d) => d.entity === "PunchList" && d.status !== "void") || null);
     if (j?.client_id) {
       try {
         setClient(await api.entities.Client.get(j.client_id));
@@ -301,7 +305,7 @@ export default function JobDetail() {
                 materialOrders={materialOrders}
                 onChange={changeTrack}
               />
-              <JobQuickAdd job={job} onSaved={load} />
+              <JobQuickNote job={job} onSaved={load} />
             </div>
             {summary && summary.running_total_basis !== "none" && (
               <div className="text-right">
@@ -361,7 +365,8 @@ export default function JobDetail() {
           ) : null}
         </TabsContent>
 
-        <TabsContent value="tasks" className="mt-0">
+        <TabsContent value="tasks" className="mt-0 space-y-4">
+          <PunchListPanel jobId={id} punchList={punchList} onChanged={load} />
           <div className="bg-card rounded-xl border border-border p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tasks</div>

@@ -6,7 +6,7 @@ import { passwordHash } from './security.js';
 import { saveRecord } from './domain.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { createWorkItemsForLines } from './workItems.js';
-import { PREP_TASK_STEPS, MATERIALS_TASK_STEPS, FINAL_WALKTHROUGH_STEPS } from '../shared/taskTemplates.js';
+import { PREP_TASK_STEPS } from '../shared/taskTemplates.js';
 import { normalizeTaskStatus } from '../shared/taskStatus.js';
 
 async function createUser(db, email) {
@@ -26,7 +26,7 @@ const CLIENT_ADDR = {
   zip: '62701',
 };
 
-test('attachDefaultJobTasks adds Prep, Materials, and Final walkthrough with template steps', async () => {
+test('attachDefaultJobTasks adds Prep with template steps only', async () => {
   const db = await openDatabase({ SQLITE_PATH: ':memory:' });
   try {
     await migrate(db);
@@ -34,7 +34,7 @@ test('attachDefaultJobTasks adds Prep, Materials, and Final walkthrough with tem
     const client = await saveRecord(db, ownerId, 'Client', { name: 'Task client', ...CLIENT_ADDR });
     const job = await saveRecord(db, ownerId, 'Job', { title: 'Task job', client_id: client.id });
 
-    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 3);
+    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 1);
     assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 0);
 
     const rows = (await db.all(
@@ -42,25 +42,17 @@ test('attachDefaultJobTasks adds Prep, Materials, and Final walkthrough with tem
       [ownerId, 'WorkItem', job.id],
     )).map((r) => JSON.parse(r.data)).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
-    assert.equal(rows.length, 3);
+    assert.equal(rows.length, 1);
     assert.equal(rows[0].template_key, 'prep');
     assert.equal(rows[0].description, 'Prep');
     assert.deepEqual(rows[0].steps.map((s) => s.text), PREP_TASK_STEPS.map((s) => s.text));
-    assert.equal(rows[1].template_key, 'materials');
-    assert.equal(rows[1].description, 'Materials');
-    assert.deepEqual(rows[1].steps.map((s) => s.text), MATERIALS_TASK_STEPS.map((s) => s.text));
-    assert.equal(rows[2].template_key, 'final_walkthrough');
-    assert.equal(rows[2].description, 'Final walkthrough');
-    assert.deepEqual(rows[2].steps.map((s) => s.text), FINAL_WALKTHROUGH_STEPS.map((s) => s.text));
     assert.equal(rows[0].status, 'plan');
-    assert.equal(rows[1].status, 'materials');
-    assert.equal(rows[2].status, 'finish');
   } finally {
     await db.close();
   }
 });
 
-test('attachDefaultJobTasks keeps Final walkthrough after signed scope tasks by sort_order', async () => {
+test('attachDefaultJobTasks keeps signed scope tasks after Prep by sort_order', async () => {
   const db = await openDatabase({ SQLITE_PATH: ':memory:' });
   try {
     await migrate(db);
@@ -86,14 +78,12 @@ test('attachDefaultJobTasks keeps Final walkthrough after signed scope tasks by 
     )).map((r) => JSON.parse(r.data)).sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity));
     assert.equal(rows[0].template_key, 'prep');
     assert.equal(rows[1].description, 'Install cabinets', 'signed scope sits after Prep');
-    assert.equal(rows[2].template_key, 'materials');
-    assert.equal(rows.at(-1).template_key, 'final_walkthrough');
   } finally {
     await db.close();
   }
 });
 
-test('attachDefaultJobTasks adopts legacy Final walkthrough rows without duplicating', async () => {
+test('attachDefaultJobTasks does not adopt legacy Materials rows as built-in tasks', async () => {
   const db = await openDatabase({ SQLITE_PATH: ':memory:' });
   try {
     await migrate(db);
@@ -102,21 +92,21 @@ test('attachDefaultJobTasks adopts legacy Final walkthrough rows without duplica
     const job = await saveRecord(db, ownerId, 'Job', { title: 'Legacy job', client_id: client.id });
     const legacy = await saveRecord(db, ownerId, 'WorkItem', {
       job_id: job.id,
-      description: 'Final walkthrough',
-      status: 'done',
+      description: 'Materials',
+      status: 'materials',
     });
 
-    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 3);
+    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 1);
 
     const rows = (await db.all(
       'SELECT id, data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?',
       [ownerId, 'WorkItem', job.id],
     )).map((r) => ({ id: r.id, ...JSON.parse(r.data) }));
 
-    assert.equal(rows.filter((r) => r.description.toLowerCase() === 'final walkthrough').length, 1);
-    const walkthrough = rows.find((r) => r.template_key === 'final_walkthrough');
-    assert.equal(walkthrough.id, legacy.id);
-    assert.equal(normalizeTaskStatus(walkthrough.status), 'completed', 'legacy done normalizes to completed');
+    const materials = rows.find((r) => r.description.toLowerCase() === 'materials');
+    assert.equal(materials.id, legacy.id);
+    assert.equal(materials.template_key, undefined, 'legacy Materials task is not re-tagged');
+    assert.equal(normalizeTaskStatus(materials.status), 'plan');
   } finally {
     await db.close();
   }

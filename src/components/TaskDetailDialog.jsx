@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import StatusSelect from "@/components/StatusSelect";
+import WorkTypeSelect from "@/components/WorkTypeSelect";
+import MaterialStatusSelect from "@/components/MaterialStatusSelect";
+import { materialRowForStorage } from "@/lib/materialStatus";
 import { NoteList } from "@/components/TaskNotes";
 import { money, moneyCents } from "@/lib/format";
 import { TASK_STATUSES, taskStatus, taskStatusLabel, taskDeletable, taskSourceVoided } from "@/lib/tasks";
@@ -14,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 const blankStep = () => ({ text: "", done: false });
 const blankMeasurement = () => ({ label: "", value: "" });
-const blankMaterial = () => ({ description: "", qty: "", unit: "", unit_price: "", have: false });
+const blankMaterial = () => ({ description: "", qty: "", unit: "", unit_price: "", status: "needed", have: false });
 
 function toDraft(item) {
   return {
@@ -32,7 +35,7 @@ function toDraft(item) {
 
 /**
  * Everything about one job task: status, notes, steps (edit / reorder), measurements and the
- * material list. Materials not ticked "have" feed the job's draft Material Order (server side).
+ * material list. Lines not on hand feed the job's draft Material Order (server side).
  *
  * @param {{ open: boolean, onOpenChange: (open: boolean) => void, item: object | null, documents?: Array, onChanged: () => void }} props
  */
@@ -77,7 +80,13 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
         measurements: draft.measurements.filter((m) => m.label.trim() || m.value.trim()),
         materials: draft.materials
           .filter((m) => m.description.trim())
-          .map((m) => ({ ...m, description: m.description.trim(), qty: num(m.qty), unit: m.unit || undefined, unit_price: num(m.unit_price) })),
+          .map((m) => materialRowForStorage({
+            ...m,
+            description: m.description.trim(),
+            qty: num(m.qty),
+            unit: m.unit || undefined,
+            unit_price: num(m.unit_price),
+          })),
       });
       await onChanged?.();
       onOpenChange(false);
@@ -149,8 +158,8 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
               <Input type="number" min="0" step="0.25" inputMode="decimal" value={draft.labor_hours} onChange={(e) => set("labor_hours", e.target.value)} />
             </div>
             <div>
-              <Label>Category</Label>
-              <Input value={draft.category} onChange={(e) => set("category", e.target.value)} />
+              <Label>Work type</Label>
+              <WorkTypeSelect value={draft.category} onValueChange={(v) => set("category", v)} placeholder="e.g. Plumbing" />
             </div>
             <div className="col-span-2 sm:col-span-1">
               <Label>Tools</Label>
@@ -196,20 +205,22 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
 
           <Section
             title="Materials"
-            hint={`Anything not ticked “Have it” is added to the job’s draft Material Order, with its price.${materialsTotal ? ` Materials total ${money(materialsTotal)}.` : ""}`}
+            hint={`Anything not on hand is added to the job’s draft Material Order, with its price.${materialsTotal ? ` Materials total ${money(materialsTotal)}.` : ""}`}
             onAdd={() => set("materials", [...draft.materials, blankMaterial()])}
             addLabel="Add material"
           >
             {draft.materials.map((m, i) => (
-              <div key={m.id || `new-${i}`} className="grid grid-cols-[3.5rem_4.5rem_5rem_1fr_auto] sm:grid-cols-[1fr_4rem_5rem_5.5rem_auto_auto] gap-1.5 items-center pb-1.5 sm:pb-0 border-b border-slate-100 sm:border-0 last:border-0">
-                <Input value={m.description} onChange={(e) => setRow("materials", i, { description: e.target.value })} placeholder="Item" className="h-8 text-sm col-span-5 sm:col-span-1" />
+              <div key={m.id || `new-${i}`} className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_4rem_5rem_5.5rem_7rem_auto] gap-1.5 items-center pb-1.5 sm:pb-0 border-b border-slate-100 sm:border-0 last:border-0">
+                <Input value={m.description} onChange={(e) => setRow("materials", i, { description: e.target.value })} placeholder="Item" className="h-8 text-sm" />
                 <Input type="number" min="0" value={m.qty} onChange={(e) => setRow("materials", i, { qty: e.target.value })} placeholder="Qty" className="h-8 text-sm" />
                 <Input value={m.unit || ""} onChange={(e) => setRow("materials", i, { unit: e.target.value })} placeholder="Unit" className="h-8 text-sm" />
                 <Input type="number" min="0" step="0.01" inputMode="decimal" value={m.unit_price} onChange={(e) => setRow("materials", i, { unit_price: e.target.value })} placeholder="$ each" aria-label="Price each" className="h-8 text-sm" />
-                <label className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
-                  <input type="checkbox" checked={!!m.have} onChange={(e) => setRow("materials", i, { have: e.target.checked })} />
-                  Have it
-                </label>
+                <MaterialStatusSelect
+                  value={m.status}
+                  have={m.have}
+                  onValueChange={(status) => setRow("materials", i, { status, have: status === "on_hand" })}
+                  triggerClassName="h-8"
+                />
                 <IconButton label="Remove material" onClick={() => removeRow("materials", i)} danger><X className="w-3.5 h-3.5" /></IconButton>
               </div>
             ))}

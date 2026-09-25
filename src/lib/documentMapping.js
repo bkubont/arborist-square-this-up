@@ -14,7 +14,7 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-/** Primary work-category options (Decision #1) — free text still allowed in UI. */
+/** @deprecated Use WorkTypeSelect / catalog categories instead. Kept for legacy imports. */
 export const WORK_CATEGORIES = [
   'Plumbing',
   'Electrical',
