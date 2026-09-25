@@ -66,6 +66,9 @@ export const api = {
       return request(`/catalog?${params}`);
     },
   },
+  workTypes: {
+    list() { return request('/work-types'); },
+  },
   estimates: {
     sendSign(id, data) { return post(`/estimates/${encodeURIComponent(id)}/send-sign`, data); },
   },

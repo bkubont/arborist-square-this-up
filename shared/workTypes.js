@@ -1,17 +1,57 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+/** Brittany + Tess work-type list — order preserved. */
+export const WORK_TYPES = [
+  'propane',
+  'bathroom',
+  'stairs',
+  'demolition',
+  'gutters',
+  'windows',
+  'doors',
+  'addition',
+  'cement',
+  'lawn',
+  'finish',
+  'cleaning',
+  'floors',
+  'appliance',
+  'cabinetry',
+  'counters',
+  'roofing',
+  'siding',
+  'deck',
+  'insulation',
+  'electric',
+  'plumbing',
+  'HVAC',
+  'drywall',
+  'painting',
+  'trim',
+  'prep',
+  'paperwork',
+  'permits',
+  'structural',
+  'inside doors',
+  'installation',
+  'removal',
+  'fencing',
+  'tile',
+  'masonry',
+  'framing',
+  'garage',
+  'drainage',
+  'waterproofing',
+  'chimney',
+  'hauling',
+  'glass',
+  'foundation',
+  'landscaping',
+  'irrigation',
+  'general',
+  'unknown',
+];
 
-const catalogPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'handyman-catalog.json');
-let cached;
-
-/** Full trade list from handyman-catalog.json (until Brittany sends a custom list). */
 export function loadWorkTypes() {
-  if (!cached) {
-    const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
-    cached = catalog.categories || [];
-  }
-  return cached;
+  return WORK_TYPES;
 }
 
 /** Sentinel for kanban columns / selects when no work type is set. */
@@ -33,14 +73,10 @@ export function workTypeLabel(value) {
   return value;
 }
 
-/** Kanban columns: unassigned (if used), catalog order, then any legacy/custom values. */
-export function workTypeColumnKeys(items, getType, catalogTypes = loadWorkTypes()) {
+/** Kanban columns: unassigned, full work-type list, then any legacy values on items. */
+export function workTypeColumnKeys(items, getType, types = loadWorkTypes()) {
   const present = new Set(items.map((item) => normalizeWorkType(getType(item))));
-  const cols = [];
-  if (present.has(UNASSIGNED_WORK_TYPE)) cols.push(UNASSIGNED_WORK_TYPE);
-  for (const type of catalogTypes) {
-    if (present.has(type)) cols.push(type);
-  }
+  const cols = [UNASSIGNED_WORK_TYPE, ...types];
   for (const type of present) {
     if (!cols.includes(type)) cols.push(type);
   }

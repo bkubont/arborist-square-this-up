@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchCatalog, catalogItemToEstimateLine, loadCatalog, getWorkTypes } from './catalog.js';
 
-test('getWorkTypes exposes catalog trade list', () => {
+test('getWorkTypes exposes Brittany + Tess work-type list', () => {
   const types = getWorkTypes();
-  assert.ok(types.length >= 50);
-  assert.ok(types.includes('Plumbing'));
+  assert.equal(types.length, 48);
+  assert.deepEqual(types.slice(0, 3), ['propane', 'bathroom', 'stairs']);
+  assert.ok(types.includes('inside doors'));
+  assert.ok(types.includes('fencing'));
+  assert.equal(types[types.length - 1], 'unknown');
 });
 
 test('handyman catalog loads labor + materials prices', () => {

@@ -10,10 +10,8 @@ export function loadCatalog() {
   return cached;
 }
 
-/** Trade categories for work-type dropdowns and kanban grouping. */
-export function getWorkTypes() {
-  return loadCatalog().categories || [];
-}
+/** Brittany's work-type list for dropdowns and kanban grouping. */
+export { loadWorkTypes as getWorkTypes } from '../shared/workTypes.js';
 
 /** Search handyman catalog (Estimate / WO search→fill). */
 export function searchCatalog({ q = '', category = '', maintenance = '', source = '', limit = 40 } = {}) {

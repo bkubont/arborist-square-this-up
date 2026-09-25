@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, fileIdsOf } from './domain.js';
 import { searchCatalog } from './catalog.js';
+import { loadWorkTypes } from '../shared/workTypes.js';
 import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
 import { buildInvoiceAutofill, sumActiveInvoiceTotals } from './mapping.js';
@@ -271,6 +272,9 @@ export async function createApp(db, env = process.env) {
     const source = z.enum(['everyday', 'less_frequent', '']).optional().parse(req.query.source || '');
     const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 40);
     res.json(searchCatalog({ q: q || '', category: category || '', maintenance: maintenance || '', source: source || '', limit }));
+  });
+  app.get('/api/work-types', async (_req, res) => {
+    res.json({ types: loadWorkTypes() });
   });
   /** Free address typeahead (Photon). Google Places is client-side when VITE_GOOGLE_PLACES_API_KEY is set. */
   app.get('/api/address-suggest', async (req, res) => {

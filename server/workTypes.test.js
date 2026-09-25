@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  WORK_TYPES,
   loadWorkTypes,
   normalizeWorkType,
   workTypeColumnKeys,
@@ -10,18 +11,22 @@ import {
   parseTypeDroppableId,
 } from '../shared/workTypes.js';
 
-test('loadWorkTypes returns catalog categories', () => {
+test('loadWorkTypes returns Brittany + Tess work-type list in order', () => {
   const types = loadWorkTypes();
-  assert.ok(types.length >= 50);
-  assert.ok(types.includes('Plumbing'));
-  assert.ok(types.includes('Electrical'));
-  assert.ok(types.includes('Drywall / Finishing'));
+  assert.deepEqual(types, WORK_TYPES);
+  assert.equal(types.length, 48);
+  assert.equal(types[0], 'propane');
+  assert.equal(types[types.length - 1], 'unknown');
+  assert.ok(types.includes('doors'));
+  assert.ok(types.includes('inside doors'));
+  assert.deepEqual(types.slice(32, 35), ['removal', 'fencing', 'tile']);
+  assert.equal(types.filter((t) => t === 'doors').length, 1);
 });
 
 test('normalizeWorkType maps empty to unassigned sentinel', () => {
   assert.equal(normalizeWorkType(''), UNASSIGNED_WORK_TYPE);
   assert.equal(normalizeWorkType('  '), UNASSIGNED_WORK_TYPE);
-  assert.equal(normalizeWorkType('Plumbing'), 'Plumbing');
+  assert.equal(normalizeWorkType('plumbing'), 'plumbing');
 });
 
 test('workTypeForStorage clears unassigned', () => {
@@ -29,17 +34,20 @@ test('workTypeForStorage clears unassigned', () => {
   assert.equal(workTypeForStorage('HVAC'), 'HVAC');
 });
 
-test('workTypeColumnKeys orders unassigned then catalog then extras', () => {
+test('workTypeColumnKeys uses full list plus legacy extras', () => {
   const items = [
-    { category: 'Custom Trade' },
-    { category: 'Plumbing' },
+    { category: 'Legacy Trade' },
+    { category: 'plumbing' },
     { category: '' },
   ];
-  const keys = workTypeColumnKeys(items, (item) => item.category, ['Plumbing', 'Electrical']);
-  assert.deepEqual(keys, [UNASSIGNED_WORK_TYPE, 'Plumbing', 'Custom Trade']);
+  const keys = workTypeColumnKeys(items, (item) => item.category, WORK_TYPES);
+  assert.equal(keys[0], UNASSIGNED_WORK_TYPE);
+  assert.equal(keys[1], 'propane');
+  assert.ok(keys.includes('plumbing'));
+  assert.equal(keys[keys.length - 1], 'Legacy Trade');
 });
 
 test('type droppable ids round-trip', () => {
-  const id = encodeTypeDroppableId('Painting / Finishing');
-  assert.equal(parseTypeDroppableId(id), 'Painting / Finishing');
+  const id = encodeTypeDroppableId('inside doors');
+  assert.equal(parseTypeDroppableId(id), 'inside doors');
 });

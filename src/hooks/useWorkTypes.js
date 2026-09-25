@@ -7,8 +7,8 @@ let inflight = null;
 async function fetchWorkTypes() {
   if (cachedTypes) return cachedTypes;
   if (!inflight) {
-    inflight = api.catalog.search({ limit: 1 }).then((data) => {
-      cachedTypes = data.categories || [];
+    inflight = api.workTypes.list().then((data) => {
+      cachedTypes = data.types || [];
       inflight = null;
       return cachedTypes;
     }).catch((error) => {
@@ -19,7 +19,7 @@ async function fetchWorkTypes() {
   return inflight;
 }
 
-/** Catalog trade list for category / work-type dropdowns. */
+/** Brittany's work-type list for category / work-type dropdowns and kanban. */
 export function useWorkTypes() {
   const [types, setTypes] = useState(cachedTypes || []);
   const [loading, setLoading] = useState(!cachedTypes);
