@@ -66,6 +66,8 @@ export type Job = {
   /** Job-level materials checklist (not estimate lines). Unticked → draft MO. */
   materials?: JobMaterial[];
   materials_cost?: number;
+  deposit_amount?: number;
+  archived_at?: string;
   created_date?: string;
   updated_date?: string;
 };
@@ -441,6 +443,9 @@ const entity = <T extends { id: string }>(name: string) => ({
   },
   list(sort = '-created_date', limit = 200) {
     return this.filter({}, sort, limit);
+  },
+  listAll(sort = '-updated_date') {
+    return this.filter({}, sort, PAGE_SIZE_MAX);
   },
   get(id: string) {
     return request(`/entities/${name}/${encodeURIComponent(id)}`) as Promise<T>;
