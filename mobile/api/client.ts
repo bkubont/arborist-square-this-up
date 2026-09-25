@@ -119,6 +119,9 @@ export type Invoice = {
   date?: string;
   notes?: string;
   payment_terms?: string;
+  project_name?: string;
+  estimate_ref?: string;
+  change_order_refs?: string;
   related_estimate_id?: string;
   material_lines?: InvoiceMaterialLine[];
   labor_lines?: InvoiceLaborLine[];
@@ -562,6 +565,24 @@ export const api = {
   jobs: {
     authorizedTotal(id: string) {
       return request(`/jobs/${encodeURIComponent(id)}/authorized-total`) as Promise<JobAuthorizedTotal>;
+    },
+  },
+  address: {
+    suggest(q: string) {
+      const params = new URLSearchParams({ q });
+      return request(`/address-suggest?${params}`) as Promise<{
+        items: Array<{
+          id?: string;
+          label: string;
+          parsed?: {
+            address?: string;
+            address_line2?: string;
+            city?: string;
+            state?: string;
+            zip?: string;
+          };
+        }>;
+      }>;
     },
   },
   /** Resize → JPEG, then multipart POST /api/files (Bearer). */

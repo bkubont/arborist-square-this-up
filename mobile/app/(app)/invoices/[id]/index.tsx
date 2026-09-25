@@ -7,6 +7,8 @@ import { InvoicePaymentsSection } from '@/components/InvoicePaymentsSection';
 import { BRAND_HEX } from '@/lib/brand';
 import { statusLabel } from '@/lib/documents';
 import { money, shortDate } from '@/lib/format';
+import { buildInvoicePrintHtml, loadInvoicePrintContext } from '@/lib/printDocuments';
+import { sharePrintHtml } from '@/lib/sharePrintDocument';
 
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -16,6 +18,7 @@ export default function InvoiceDetailScreen() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -46,6 +49,19 @@ export default function InvoiceDetailScreen() {
       void load();
     }, [load]),
   );
+
+  const sharePrintable = async () => {
+    if (!invoice) return;
+    setSharing(true);
+    try {
+      const ctx = await loadInvoicePrintContext(invoice);
+      const html = buildInvoicePrintHtml(invoice, ctx);
+      const name = `invoice-${invoice.number || invoice.id}.html`;
+      await sharePrintHtml(html, name, `Invoice ${invoice.number || ''}`.trim());
+    } finally {
+      setSharing(false);
+    }
+  };
 
   if (loading && !invoice) {
     return (
@@ -78,12 +94,25 @@ export default function InvoiceDetailScreen() {
       {invoice.payment_terms ? <Text style={styles.body}>Terms: {invoice.payment_terms}</Text> : null}
       {invoice.notes ? <Text style={styles.body}>{invoice.notes}</Text> : null}
 
-      <Pressable
-        style={styles.editBtn}
-        onPress={() => router.push(`/(app)/invoices/${invoice.id}/edit`)}
-      >
-        <Text style={styles.editText}>Edit invoice</Text>
-      </Pressable>
+      <View style={styles.actions}>
+        <Pressable
+          style={styles.editBtn}
+          onPress={() => router.push(`/(app)/invoices/${invoice.id}/edit`)}
+        >
+          <Text style={styles.editText}>Edit invoice</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
+          onPress={() => void sharePrintable()}
+          disabled={sharing}
+        >
+          {sharing ? (
+            <ActivityIndicator color={BRAND_HEX.royalBlue} />
+          ) : (
+            <Text style={styles.shareText}>Share printable</Text>
+          )}
+        </Pressable>
+      </View>
 
       <InvoicePaymentsSection invoice={invoice} payments={payments} onChanged={load} />
 
@@ -113,6 +142,9 @@ export default function InvoiceDetailScreen() {
           <Text style={styles.link}>Open job · {job.title}</Text>
         </Pressable>
       ) : null}
+      <Text style={styles.hint}>
+        Share printable uses the same HTML layout as web Print (no separate PDF engine).
+      </Text>
     </ScrollView>
   );
 }
@@ -137,6 +169,7 @@ const styles = StyleSheet.create({
   amount: { fontSize: 20, fontWeight: '700', color: BRAND_HEX.black },
   due: { fontSize: 16, fontWeight: '600', color: '#8a6a12' },
   body: { fontSize: 15, color: '#444', lineHeight: 22 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   editBtn: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -146,6 +179,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   editText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
+  shareBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d0d0dc',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  shareBtnDisabled: { opacity: 0.55 },
+  shareText: { color: BRAND_HEX.black, fontWeight: '600' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -158,5 +204,6 @@ const styles = StyleSheet.create({
   line: { fontSize: 14, color: '#333' },
   linkBtn: { marginTop: 8 },
   link: { color: BRAND_HEX.royalBlue, fontWeight: '600', fontSize: 16 },
+  hint: { marginTop: 8, fontSize: 12, color: '#888' },
   error: { color: '#b00020' },
 });

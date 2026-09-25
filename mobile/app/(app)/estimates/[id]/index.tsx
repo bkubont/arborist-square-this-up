@@ -7,6 +7,8 @@ import { BRAND_HEX } from '@/lib/brand';
 import { isEstimateReadOnly, statusLabel } from '@/lib/documents';
 import { estimateLineAmount } from '@/lib/estimateMath';
 import { money, shortDate } from '@/lib/format';
+import { buildEstimatePrintHtml } from '@/lib/printDocuments';
+import { sharePrintHtml } from '@/lib/sharePrintDocument';
 
 export default function EstimateDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -15,6 +17,7 @@ export default function EstimateDetailScreen() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -43,6 +46,18 @@ export default function EstimateDetailScreen() {
     }, [load]),
   );
 
+  const sharePrintable = async () => {
+    if (!estimate) return;
+    setSharing(true);
+    try {
+      const html = buildEstimatePrintHtml(estimate, job?.title);
+      const name = `estimate-${estimate.number || estimate.id}.html`;
+      await sharePrintHtml(html, name, `Estimate ${estimate.number || ''}`.trim());
+    } finally {
+      setSharing(false);
+    }
+  };
+
   if (loading && !estimate) {
     return (
       <View style={styles.centered}>
@@ -69,12 +84,25 @@ export default function EstimateDetailScreen() {
       {estimate.total != null ? <Text style={styles.amount}>{money(estimate.total)}</Text> : null}
       {estimate.notes ? <Text style={styles.body}>{estimate.notes}</Text> : null}
 
-      <Pressable
-        style={styles.editBtn}
-        onPress={() => router.push(`/(app)/estimates/${estimate.id}/edit`)}
-      >
-        <Text style={styles.editText}>{readOnly ? 'View / sign link' : 'Edit estimate'}</Text>
-      </Pressable>
+      <View style={styles.actions}>
+        <Pressable
+          style={styles.editBtn}
+          onPress={() => router.push(`/(app)/estimates/${estimate.id}/edit`)}
+        >
+          <Text style={styles.editText}>{readOnly ? 'View / sign link' : 'Edit estimate'}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
+          onPress={() => void sharePrintable()}
+          disabled={sharing}
+        >
+          {sharing ? (
+            <ActivityIndicator color={BRAND_HEX.royalBlue} />
+          ) : (
+            <Text style={styles.shareText}>Share printable</Text>
+          )}
+        </Pressable>
+      </View>
 
       {lines.length ? (
         <View style={styles.card}>
@@ -93,7 +121,9 @@ export default function EstimateDetailScreen() {
           <Text style={styles.link}>Open job · {job.title}</Text>
         </Pressable>
       ) : null}
-      <Text style={styles.hint}>Customer e-sign stays on the web app.</Text>
+      <Text style={styles.hint}>
+        Share printable uses the same HTML layout as web Print. Customer e-sign stays on the web app.
+      </Text>
     </ScrollView>
   );
 }
@@ -117,6 +147,7 @@ const styles = StyleSheet.create({
   meta: { color: '#666', fontSize: 14 },
   amount: { fontSize: 22, fontWeight: '700', color: BRAND_HEX.black },
   body: { fontSize: 15, color: '#444', lineHeight: 22 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   editBtn: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -126,6 +157,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   editText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
+  shareBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d0d0dc',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  shareBtnDisabled: { opacity: 0.55 },
+  shareText: { color: BRAND_HEX.black, fontWeight: '600' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,

@@ -65,3 +65,41 @@ export function sortTasksForList<T extends {
       (a.created_date || '').localeCompare(b.created_date || ''),
   );
 }
+
+/** Board order: by status column, then position, then age. */
+export function sortTasks<T extends {
+  status?: string;
+  done?: boolean;
+  sort_order?: number;
+  created_date?: string;
+}>(items: T[] = []): T[] {
+  const rank = (item: T) => TASK_STATUSES.indexOf(taskStatus(item));
+  return [...items].sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity) ||
+      (a.created_date || '').localeCompare(b.created_date || ''),
+  );
+}
+
+export function isTaskCompleted(status: string | null | undefined): boolean {
+  return normalizeTaskStatus(status) === 'completed';
+}
+
+/** Statuses that usually need a reason note on web. */
+export const NOTE_PROMPT_STATUSES: TaskStatus[] = [
+  'waiting_on_approval',
+  'blocked',
+  'cancelled',
+];
+
+export function taskTitle(item: {
+  description?: string;
+  template_key?: string;
+} | null | undefined): string {
+  if (item?.description?.trim()) return item.description.trim();
+  if (item?.template_key === 'prep') return 'Prep';
+  if (item?.template_key === 'materials') return 'Materials';
+  if (item?.template_key === 'final_walkthrough') return 'Final walkthrough';
+  return 'Task';
+}

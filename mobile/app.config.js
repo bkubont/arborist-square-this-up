@@ -66,6 +66,7 @@ const expoConfig = {
     ],
     'expo-secure-store',
     'expo-image',
+    'expo-sharing',
     [
       'expo-image-picker',
       {

@@ -81,7 +81,7 @@ export default function JobDetailScreen() {
       />
 
       <JobDocumentsSection jobId={job.id} documents={documents} onChanged={onChanged} />
-      <JobTasksSection jobId={job.id} items={workItems} />
+      <JobTasksSection jobId={job.id} items={workItems} onChanged={onChanged} />
       <JobPhotosSection jobId={job.id} entries={entries} onChanged={onChanged} />
     </ScrollView>
   );
