@@ -539,6 +539,12 @@ export const api = {
       return request(`/catalog?${params}`) as Promise<CatalogSearchResult>;
     },
   },
+  workTypes: {
+    list() {
+      return request('/work-types') as Promise<{ types: string[] }>;
+    },
+  },
+
   payments: {
     create(data: {
       job_id: string;

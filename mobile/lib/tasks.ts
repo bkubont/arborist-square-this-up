@@ -86,6 +86,11 @@ export function isTaskCompleted(status: string | null | undefined): boolean {
   return normalizeTaskStatus(status) === 'completed';
 }
 
+/** Built-in materials checklist task is hidden on the board (web parity). */
+export function isHiddenBuiltInTask(item: { template_key?: string } | null | undefined): boolean {
+  return item?.template_key === 'materials';
+}
+
 /** Statuses that usually need a reason note on web. */
 export const NOTE_PROMPT_STATUSES: TaskStatus[] = [
   'waiting_on_approval',
