@@ -301,6 +301,44 @@ export type AccountSummaries = {
   waiting_payment: Array<{ id: string; job_id?: string; number?: string; status?: string; balance_cents?: number }>;
 };
 
+/** Derived money for one job (`GET /api/jobs/:id/summary`). */
+export type JobSummary = {
+  has_accepted_estimate: boolean;
+  estimate_cents: number;
+  approved_change_cents: number;
+  authorized_cents: number;
+  running_total_cents: number;
+  running_total_basis: 'signed' | 'estimate' | 'none' | string;
+  invoiced_cents: number;
+  paid_cents: number;
+  balance_cents: number;
+  credit_cents: number;
+  invoices: Array<{
+    id: string;
+    job_id?: string;
+    number?: string;
+    status?: string;
+    total_cents?: number;
+    paid_cents?: number;
+    balance_cents?: number;
+    payment_status?: string;
+  }>;
+  awaiting_approval: Array<{
+    entity: string;
+    id: string;
+    job_id?: string;
+    number?: string;
+    amount_cents?: number;
+  }>;
+};
+
+export type JobAuthorizedTotal = {
+  baseline: number;
+  approved_net: number;
+  authorized_total: number;
+  approved_change_order_ids: string[];
+};
+
 /**
  * Absolute API base (no trailing slash). Examples:
  * - iOS Simulator / Expo web (same machine): http://localhost:3000
@@ -519,7 +557,12 @@ export const api = {
   },
   summaries: {
     all: () => request('/summaries') as Promise<AccountSummaries>,
-    job: (id: string) => request(`/jobs/${encodeURIComponent(id)}/summary`),
+    job: (id: string) => request(`/jobs/${encodeURIComponent(id)}/summary`) as Promise<JobSummary>,
+  },
+  jobs: {
+    authorizedTotal(id: string) {
+      return request(`/jobs/${encodeURIComponent(id)}/authorized-total`) as Promise<JobAuthorizedTotal>;
+    },
   },
   /** Resize → JPEG, then multipart POST /api/files (Bearer). */
   async uploadFile(localUri: string): Promise<{ file_url: string }> {

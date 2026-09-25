@@ -1,80 +1,39 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import {
-  api,
-  type ChangeOrder,
-  type Client,
-  type Estimate,
-  type Invoice,
-  type Job,
-  type MaterialOrder,
-  type TimelineEntry,
-  type WorkItem,
-} from '@/api/client';
 import { JobDocumentsSection } from '@/components/JobDocumentsSection';
+import { JobFinancialSection } from '@/components/JobFinancialSection';
 import { JobPhotosSection } from '@/components/JobPhotosSection';
 import { JobTasksSection } from '@/components/JobTasksSection';
 import { BRAND_HEX } from '@/lib/brand';
-import type { JobDoc } from '@/lib/documents';
+import { jobDetailQueryKey, loadJobDetail } from '@/lib/jobDetail';
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [job, setJob] = useState<Job | null>(null);
-  const [client, setClient] = useState<Client | null>(null);
-  const [entries, setEntries] = useState<TimelineEntry[]>([]);
-  const [documents, setDocuments] = useState<JobDoc[]>([]);
-  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    setError('');
-    try {
-      const [next, timeline, estimates, invoices, changeOrders, materialOrders, tasks] =
-        await Promise.all([
-          api.entities.Job.get(id),
-          api.entities.TimelineEntry.filter({ job_id: id }, '-created_date', 500),
-          api.entities.Estimate.filter({ job_id: id }, '-created_date', 50),
-          api.entities.Invoice.filter({ job_id: id }, '-created_date', 50),
-          api.entities.ChangeOrder.filter({ job_id: id }, '-created_date', 100),
-          api.entities.MaterialOrder.filter({ job_id: id }, '-created_date', 100),
-          api.entities.WorkItem.filter({ job_id: id }, '-created_date', 500),
-        ]);
-      setJob(next);
-      setEntries(timeline);
-      setWorkItems(tasks);
-      setDocuments([
-        ...estimates.map((d: Estimate) => ({ ...d, entity: 'Estimate' as const })),
-        ...invoices.map((d: Invoice) => ({ ...d, entity: 'Invoice' as const })),
-        ...changeOrders.map((d: ChangeOrder) => ({ ...d, entity: 'ChangeOrder' as const })),
-        ...materialOrders.map((d: MaterialOrder) => ({ ...d, entity: 'MaterialOrder' as const })),
-      ]);
-      if (next.client_id) {
-        try {
-          setClient(await api.entities.Client.get(next.client_id));
-        } catch {
-          setClient(null);
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load job');
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  const { data, error, isLoading, isFetching, refetch } = useQuery({
+    queryKey: jobDetailQueryKey(id || ''),
+    queryFn: () => loadJobDetail(id!),
+    enabled: !!id,
+  });
 
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load]),
+      if (!id) return;
+      void refetch();
+    }, [id, refetch]),
   );
 
-  if (loading && !job) {
+  const onChanged = useCallback(async () => {
+    if (!id) return;
+    await queryClient.invalidateQueries({ queryKey: jobDetailQueryKey(id) });
+  }, [id, queryClient]);
+
+  if ((isLoading || isFetching) && !data) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={BRAND_HEX.royalBlue} />
@@ -82,13 +41,16 @@ export default function JobDetailScreen() {
     );
   }
 
-  if (error || !job) {
+  const errMsg = error instanceof Error ? error.message : error ? 'Failed to load job' : '';
+  if (errMsg || !data?.job) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.error}>{error || 'Job not found'}</Text>
+        <Text style={styles.error}>{errMsg || 'Job not found'}</Text>
       </View>
     );
   }
+
+  const { job, client, entries, documents, workItems, summary, authorized, payments } = data;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -110,9 +72,17 @@ export default function JobDetailScreen() {
         ) : null}
       </View>
 
-      <JobDocumentsSection jobId={job.id} documents={documents} onChanged={load} />
+      <JobFinancialSection
+        jobId={job.id}
+        summary={summary}
+        authorized={authorized}
+        payments={payments}
+        onChanged={onChanged}
+      />
+
+      <JobDocumentsSection jobId={job.id} documents={documents} onChanged={onChanged} />
       <JobTasksSection jobId={job.id} items={workItems} />
-      <JobPhotosSection jobId={job.id} entries={entries} onChanged={load} />
+      <JobPhotosSection jobId={job.id} entries={entries} onChanged={onChanged} />
     </ScrollView>
   );
 }
