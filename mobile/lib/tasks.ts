@@ -2,9 +2,9 @@
 
 export const TASK_STATUSES = [
   'plan',
-  'materials',
   'permits',
   'waiting_on_approval',
+  'waiting_on_materials',
   'blocked',
   'finish',
   'completed',
@@ -16,16 +16,18 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 const LEGACY_TASK_STATUS_MAP: Record<string, TaskStatus> = {
   prep: 'plan',
   in_progress: 'plan',
-  waiting_materials: 'materials',
+  materials: 'plan',
+  waiting_materials: 'waiting_on_materials',
   on_hold: 'blocked',
   done: 'completed',
 };
 
 const LABELS: Record<string, string> = {
   plan: 'Plan',
-  materials: 'Materials',
+  materials: 'Plan',
   permits: 'Permits',
   waiting_on_approval: 'Waiting on Approval',
+  waiting_on_materials: 'Waiting on Materials',
   blocked: 'Blocked',
   finish: 'Finish',
   completed: 'Completed',
@@ -94,6 +96,7 @@ export function isHiddenBuiltInTask(item: { template_key?: string } | null | und
 /** Statuses that usually need a reason note on web. */
 export const NOTE_PROMPT_STATUSES: TaskStatus[] = [
   'waiting_on_approval',
+  'waiting_on_materials',
   'blocked',
   'cancelled',
 ];

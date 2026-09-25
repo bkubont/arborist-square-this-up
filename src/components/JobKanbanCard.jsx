@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera, DollarSign, Loader2, MessageSquare, Phone } from "lucide-react";
+import { Camera, DollarSign, Loader2, MessageSquare, Phone, StickyNote } from "lucide-react";
 import { api } from "@/api/client";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -203,11 +203,21 @@ export default function JobKanbanCard({
               </div>
             )}
 
-            {job.notes?.trim() && (
-              <p className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap mb-1.5">
-                {job.notes}
+            <div
+              data-testid="job-card-note"
+              className="mb-1.5 rounded-md border border-border bg-muted/50 px-2 py-1.5"
+            >
+              <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">
+                <StickyNote className="w-3 h-3 shrink-0" aria-hidden="true" />
+                Note
+              </div>
+              <p className={cn(
+                "text-[11px] leading-snug whitespace-pre-wrap line-clamp-3 min-h-[1rem]",
+                job.notes?.trim() ? "text-foreground" : "text-muted-foreground italic",
+              )}>
+                {job.notes?.trim() || "Add a note on the job"}
               </p>
-            )}
+            </div>
 
             {rollup.hasEstimate && (
               <div className="text-[10px] text-muted-foreground space-y-0.5 mb-1.5">

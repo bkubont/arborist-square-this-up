@@ -450,13 +450,14 @@ function TypeBoardColumn({
           ref={provided.innerRef}
           {...provided.droppableProps}
           className={cn(
-            "w-64 shrink-0 rounded-xl border-2 border-slate-200 bg-surface-muted/80 flex flex-col max-h-[28rem]",
+            jobs.length === 0 ? "w-40" : "w-64",
+            "shrink-0 rounded-xl border-2 border-slate-200 bg-surface-muted/80 flex flex-col max-h-[28rem]",
             snapshot.isDraggingOver && "ring-2 ring-primary/30 bg-primary/5",
           )}
         >
           <div className="px-3 py-2 border-b sticky top-0 rounded-t-[10px] z-10 bg-slate-100/80">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold text-foreground leading-snug line-clamp-2">{workTypeLabel(workType)}</span>
+              <span className="min-w-0 text-[11px] font-semibold text-foreground leading-tight line-clamp-3">{workTypeLabel(workType)}</span>
               <span className="text-[11px] font-bold tabular-nums text-foreground shrink-0">{jobs.length}</span>
             </div>
           </div>
@@ -513,17 +514,19 @@ function StageBoardColumn({
         <div
           ref={provided.innerRef}
           {...provided.droppableProps}
+          data-testid={`job-column-${phase}-${status}`}
           className={cn(
-            "w-64 shrink-0 rounded-xl border-2 bg-surface-muted/80 flex flex-col max-h-[28rem]",
+            jobs.length === 0 ? "w-40" : "w-64",
+            "shrink-0 rounded-xl border-2 bg-surface-muted/80 flex flex-col max-h-[28rem]",
             colors.column,
             snapshot.isDraggingOver && cn("ring-2", colors.ring, colors.columnHeader),
           )}
         >
           <div className={cn("px-3 py-2 border-b sticky top-0 rounded-t-[10px] z-10", colors.columnHeader)}>
             <div className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground">
-                <span className={cn("w-2 h-2 rounded-full", colors.swatch)} aria-hidden="true" />
-                {status}
+              <span className="inline-flex items-start gap-1.5 min-w-0 text-[11px] font-semibold uppercase tracking-wide text-foreground leading-tight">
+                <span className={cn("w-2 h-2 rounded-full mt-0.5 shrink-0", colors.swatch)} aria-hidden="true" />
+                <span className="break-words">{status}</span>
               </span>
               <span className="text-[11px] font-bold tabular-nums text-foreground">{jobs.length}</span>
             </div>

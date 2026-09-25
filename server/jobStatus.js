@@ -21,11 +21,12 @@ export const JOB_PHASES = {
   working: {
     label: 'Working',
     statuses: [
+      'Waiting on materials',
       'Prep',
       'In progress',
       'Blocked',
-      'Cancelled',
       'Completed',
+      'Cancelled',
     ],
   },
   payment: {
@@ -34,8 +35,8 @@ export const JOB_PHASES = {
       INVOICE_GATE_STATUS,
       PAYMENT_ENTRY_STATUS,
       'Partial',
-      'Paid',
       'Late',
+      'Paid',
     ],
   },
 };
@@ -50,8 +51,7 @@ export const LEGACY_JOB_STATUS_MAP = {
   Estimate: { phase: 'lead', status: 'Plan / draft estimate' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
-  'Waiting on Materials': { phase: 'working', status: 'In progress' },
-  'Waiting on materials': { phase: 'working', status: 'In progress' },
+  'Waiting on Materials': { phase: 'working', status: 'Waiting on materials' },
   Completed: { phase: 'working', status: 'Completed' },
   Paid: { phase: 'payment', status: 'Paid' },
 };
@@ -103,9 +103,6 @@ export function normalizeJobRecord(job) {
   if (legacy) {
     phase = legacy.phase;
     status = legacy.status;
-  } else if (status === 'Waiting on materials') {
-    phase = 'working';
-    status = 'In progress';
   }
 
   if (status === INVOICE_GATE_STATUS) {

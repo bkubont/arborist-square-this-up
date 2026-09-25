@@ -57,6 +57,7 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     for (const needed of [
       'Plan / draft estimate',
       'Waiting on approval',
+      'Waiting on materials',
       'Prep',
       'In progress',
       'Blocked',

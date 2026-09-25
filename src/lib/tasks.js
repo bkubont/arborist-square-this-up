@@ -3,6 +3,7 @@ export const TASK_STATUSES = [
   "plan",
   "permits",
   "waiting_on_approval",
+  "waiting_on_materials",
   "blocked",
   "finish",
   "completed",
@@ -13,7 +14,7 @@ const LEGACY_TASK_STATUS_MAP = {
   prep: "plan",
   in_progress: "plan",
   materials: "plan",
-  waiting_materials: "blocked",
+  waiting_materials: "waiting_on_materials",
   on_hold: "blocked",
   done: "completed",
 };
@@ -23,6 +24,7 @@ const LABELS = {
   materials: "Plan",
   permits: "Permits",
   waiting_on_approval: "Waiting on Approval",
+  waiting_on_materials: "Waiting on Materials",
   blocked: "Blocked",
   finish: "Finish",
   completed: "Completed",
@@ -30,7 +32,7 @@ const LABELS = {
   // Legacy labels (shown only before the server normalizes on save)
   prep: "Plan",
   in_progress: "Plan",
-  waiting_materials: "Blocked",
+  waiting_materials: "Waiting on Materials",
   on_hold: "Blocked",
   done: "Completed",
 };
@@ -77,6 +79,7 @@ export const taskDeletable = (item, documents = []) => !item?.source_type || tas
 /** Statuses that usually need a reason; moving a task into one opens its card note. */
 export const NOTE_PROMPT_STATUSES = [
   "waiting_on_approval",
+  "waiting_on_materials",
   "blocked",
   "cancelled",
 ];

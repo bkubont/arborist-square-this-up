@@ -3,6 +3,7 @@ export const TASK_STATUSES = [
   'plan',
   'permits',
   'waiting_on_approval',
+  'waiting_on_materials',
   'blocked',
   'finish',
   'completed',
@@ -14,7 +15,7 @@ export const LEGACY_TASK_STATUS_MAP = {
   prep: 'plan',
   in_progress: 'plan',
   materials: 'plan',
-  waiting_materials: 'blocked',
+  waiting_materials: 'waiting_on_materials',
   on_hold: 'blocked',
   done: 'completed',
 };
