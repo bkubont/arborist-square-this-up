@@ -3,7 +3,9 @@ import { moneyBlockForPhase, overviewFigures } from "../../shared/overviewMoney.
 import ExpenseFormDialog from "@/components/ExpenseFormDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { money, shortDate } from "@/lib/format";
+import { PAYMENT_METHODS } from "@/lib/paymentMethods";
 import { cn } from "@/lib/utils";
 
 const TONE = {
@@ -102,6 +104,7 @@ export default function FinancialPanel({
   onExpensesChanged,
 }) {
   const [pay, setPay] = useState("");
+  const [payMethod, setPayMethod] = useState("cash");
   const figures = useMemo(
     () => overviewFigures({ job, documents, timeline }),
     [job, documents, timeline],
@@ -145,13 +148,23 @@ export default function FinancialPanel({
               placeholder="Amount"
               className="text-sm"
             />
+            <Select value={payMethod} onValueChange={setPayMethod}>
+              <SelectTrigger className="w-32 text-sm" aria-label="Type of payment">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAYMENT_METHODS.map((method) => (
+                  <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               size="sm"
               className="bg-emerald-600 hover:bg-emerald-500"
               onClick={() => {
                 const amount = Number(pay);
                 if (!Number.isFinite(amount) || amount <= 0) return;
-                onLogPayment?.(amount);
+                onLogPayment?.(amount, payMethod);
                 setPay("");
               }}
             >

@@ -6,9 +6,8 @@ import { ArrowLeft, Pencil, Phone, StickyNote, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import JobPhaseStatusSelect from "@/components/JobPhaseStatusSelect";
-import { JOB_PHASES } from "@/lib/jobStatus";
+import JobHeaderStatuses from "@/components/JobHeaderStatuses";
+import { JOB_PHASES, headerTracks } from "@/lib/jobStatus";
 import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
@@ -18,7 +17,6 @@ import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
 import JobMaterialsPanel from "@/components/JobMaterialsPanel";
-import MaterialsStatusLine from "@/components/MaterialsStatusLine";
 import TimelineFeed from "@/components/TimelineFeed";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
@@ -67,7 +65,6 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [editJob, setEditJob] = useState(false);
-  const [timelineFilter, setTimelineFilter] = useState("all");
   const [taskView, setTaskView] = useState(readTaskView);
 
   /** @param {"list" | "board"} next */
@@ -130,36 +127,6 @@ export default function JobDetail() {
     [documents],
   );
 
-  const shownTimeline = useMemo(() => {
-    if (timelineFilter === "all") return activity;
-    return activity.filter((e) => {
-      if (timelineFilter === "document") {
-        return (
-          e.category === "document" ||
-          ["document_created", "document_voided", "work_order_created", "estimate_signed", "change_order_signed", "document"].includes(e.type)
-        );
-      }
-      if (timelineFilter === "financial") {
-        return (
-          e.category === "financial" ||
-          ["deposit_received", "payment_received", "invoice_sent", "estimate_sent", "change_order_sent", "document_voided"].includes(e.type)
-        );
-      }
-      if (timelineFilter === "note") {
-        return e.category === "note" || e.type === "note" || e.type === "status_change" || e.type === "checklist";
-      }
-      return e.category === timelineFilter;
-    });
-  }, [activity, timelineFilter]);
-
-  const noteEntries = useMemo(
-    () =>
-      activity.filter(
-        (e) => e.type === "note" || e.category === "note" || e.type === "checklist" || e.type === "status_change"
-      ),
-    [activity]
-  );
-
   const addNote = async () => {
     if (!note.trim()) return;
     await api.entities.TimelineEntry.create({
@@ -167,6 +134,7 @@ export default function JobDetail() {
       type: "note",
       text: note.trim(),
       category: "note",
+      job_status: job?.status || undefined,
     });
     setNote("");
     load();
@@ -177,28 +145,94 @@ export default function JobDetail() {
     load();
   };
 
-  const changeStatus = async ({ phase, status }) => {
-    await api.entities.Job.update(id, { phase, status });
+  const changeTrack = async ({ track, status }) => {
+    const shown = headerTracks(job, client);
+    const patch = {
+      lead_status: track === "lead" ? status : shown.lead,
+    };
+    if (track === "working" || shown.working) patch.working_status = track === "working" ? status : shown.working;
+    if (track === "payment" || shown.payment) patch.payment_status = track === "payment" ? status : shown.payment;
+    if (track === "lead" && (status === "Declined" || job.phase === "lead")) {
+      patch.phase = "lead";
+      patch.status = status;
+    } else if (track === "working") {
+      patch.phase = "working";
+      patch.status = status;
+    } else if (track === "payment") {
+      patch.phase = "payment";
+      patch.status = status;
+    }
+    await api.entities.Job.update(id, patch);
+    if (track === "lead" && client?.id) {
+      const today = new Date().toISOString().slice(0, 10);
+      await api.entities.Client.update(client.id, {
+        status,
+        archived_at: status === "Declined" ? (client.archived_at || today) : "",
+      });
+    }
+    const phase = track === "working" ? "working" : track === "payment" ? "payment" : "lead";
     const phaseLabel = JOB_PHASES[phase]?.label || phase;
     await api.entities.TimelineEntry.create({
       job_id: id,
       type: "status_change",
       text: `Status changed to ${phaseLabel} · ${status}`,
       category: "note",
+      job_status: status,
     });
     load();
   };
 
-  const logPayment = async (amount) => {
+  const logPayment = async (amount, paymentMethod = "cash") => {
     await api.entities.TimelineEntry.create({
       job_id: id,
       type: "payment_received",
       text: "Payment received",
       category: "financial",
       amount,
+      payment_method: paymentMethod,
+      job_status: job?.status || undefined,
     });
     load();
   };
+
+  const renderActivity = () => (
+    <>
+      <div className="bg-card rounded-xl border border-border p-4">
+        <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          Add note
+        </div>
+        <div className="flex gap-2">
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Quick note… (e.g. Customer deciding on mirror)"
+            rows={2}
+            className="text-sm"
+          />
+          <Button className="self-stretch" onClick={addNote}>
+            <StickyNote className="w-4 h-4" />
+          </Button>
+        </div>
+        <div className="mt-3 pt-3 border-t border-border">
+          <VoiceRecorder jobId={id} jobStatus={job?.status} onTranscribed={load} />
+        </div>
+      </div>
+      {job?.notes ? (
+        <div className="bg-card rounded-xl border border-border p-4">
+          <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Job notes
+          </div>
+          <p className="text-sm text-foreground whitespace-pre-wrap">{job.notes}</p>
+        </div>
+      ) : null}
+      <div className="bg-card rounded-xl border border-border p-4">
+        <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          Timeline
+        </div>
+        <TimelineFeed entries={activity} />
+      </div>
+    </>
+  );
 
   const deleteJob = async () => {
     if (!confirm("Delete this job and all its timeline entries?")) return;
@@ -260,19 +294,12 @@ export default function JobDetail() {
           </div>
           <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
             <div className="flex items-start gap-2 w-full sm:w-auto">
-              <JobPhaseStatusSelect
-                phase={job.phase}
-                status={job.status}
-                onChange={changeStatus}
-                className="w-full sm:w-64"
-                belowStatus={
-                  <MaterialsStatusLine
-                    job={job}
-                    workItems={workItems}
-                    materialOrders={materialOrders}
-                    className="mt-1.5 text-right sm:text-left"
-                  />
-                }
+              <JobHeaderStatuses
+                job={job}
+                client={client}
+                workItems={workItems}
+                materialOrders={materialOrders}
+                onChange={changeTrack}
               />
               <JobQuickAdd job={job} onSaved={load} />
             </div>
@@ -377,73 +404,8 @@ export default function JobDetail() {
           <JobPhotosPanel jobId={id} entries={entries} onChanged={load} mode="photos" />
         </TabsContent>
 
-        <TabsContent value="notes" className="space-y-4 mt-0">
-          <div className="bg-card rounded-xl border border-border p-4">
-            <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-              Add note
-            </div>
-            <div className="flex gap-2">
-              <Textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Quick note… (e.g. Customer deciding on mirror)"
-                rows={2}
-                className="text-sm"
-              />
-              <Button className="self-stretch" onClick={addNote}>
-                <StickyNote className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="mt-3 pt-3 border-t border-border">
-              <VoiceRecorder jobId={id} onTranscribed={load} />
-            </div>
-          </div>
-          {job.notes ? (
-            <div className="bg-card rounded-xl border border-border p-4">
-              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                Job notes
-              </div>
-              <p className="text-sm text-foreground whitespace-pre-wrap">{job.notes}</p>
-            </div>
-          ) : null}
-          <div className="bg-card rounded-xl border border-border p-4">
-            <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-              Notes & status
-            </div>
-            {noteEntries.length ? (
-              <TimelineFeed entries={noteEntries} />
-            ) : (
-              <p className="text-sm text-muted-foreground py-4 text-center">No notes yet.</p>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="timeline" className="mt-0">
-          <div className="bg-card rounded-xl border border-border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Timeline
-              </div>
-              <Select value={timelineFilter} onValueChange={setTimelineFilter}>
-                <SelectTrigger className="h-8 w-40 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All activity</SelectItem>
-                  <SelectItem value="document">Documents</SelectItem>
-                  <SelectItem value="financial">Financial</SelectItem>
-                  <SelectItem value="before">Before photos</SelectItem>
-                  <SelectItem value="after">After photos</SelectItem>
-                  <SelectItem value="addition">Additions</SelectItem>
-                  <SelectItem value="gallery">Gallery</SelectItem>
-                  <SelectItem value="receipt">Receipts</SelectItem>
-                  <SelectItem value="note">Notes & status</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <TimelineFeed entries={shownTimeline} />
-          </div>
-        </TabsContent>
+        <TabsContent value="notes" className="space-y-4 mt-0">{renderActivity()}</TabsContent>
+        <TabsContent value="timeline" className="space-y-4 mt-0">{renderActivity()}</TabsContent>
       </Tabs>
 
       <JobFormDialog

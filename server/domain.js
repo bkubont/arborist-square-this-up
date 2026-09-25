@@ -1,9 +1,16 @@
 import { z } from 'zod';
+import { JOB_PHASES } from './jobStatus.js';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 
 const text = z.string().max(20000);
+const [leadStatusHead, ...leadStatusTail] = JOB_PHASES.lead.statuses;
+const clientLeadStatus = z.enum(/** @type {[string, ...string[]]} */ ([leadStatusHead, ...leadStatusTail]));
+const [workingStatusHead, ...workingStatusTail] = JOB_PHASES.working.statuses;
+const jobWorkingStatus = z.enum(/** @type {[string, ...string[]]} */ ([workingStatusHead, ...workingStatusTail]));
+const [paymentStatusHead, ...paymentStatusTail] = JOB_PHASES.payment.statuses;
+const jobPaymentStatus = z.enum(/** @type {[string, ...string[]]} */ ([paymentStatusHead, ...paymentStatusTail]));
 const id = z.string().min(1).max(36);
 const money = z.number().finite().min(0).max(1e12);
 const signedMoney = z.number().finite().min(-1e12).max(1e12);
@@ -106,9 +113,17 @@ export const schemas = {
     phone: text.optional(),
     email: text.optional(),
     notes: text.optional(),
+    /** Lead pipeline — same values as a lead job. Contact profiles and the job header share this. */
+    status: clientLeadStatus.optional(),
+    /** Set when status is Declined so the contact can leave the active customers list. */
+    archived_at: date.optional(),
   }),
   Job: z.object({ title: z.string().trim().max(250).optional(), client_id: id, client_name: text.optional(), description: text.optional(),
     phase: z.enum(['lead', 'working', 'payment']).default('lead'),
+    /** Parallel tracks. The board column is still phase + status; these do not replace each other. */
+    lead_status: clientLeadStatus.optional(),
+    working_status: jobWorkingStatus.optional(),
+    payment_status: jobPaymentStatus.optional(),
     status: z.enum([
       'Contact', 'Assessment', 'Plan / draft estimate', 'Waiting on approval', 'Approved', 'Declined',
       'Prep', 'In progress', 'Blocked', 'Cancelled', 'Completed',
@@ -140,6 +155,10 @@ export const schemas = {
     text: text.optional(), photo_url: z.string().max(200).optional(),
     category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery']).default('note'),
     amount: money.optional(),
+    /** How a payment or deposit was received. */
+    payment_method: z.enum(['cash', 'check', 'card', 'transfer', 'other']).optional(),
+    /** Job status this event belonged to when it was added — drives the timeline color. */
+    job_status: z.string().max(80).optional(),
     /** When set, ties a receipt/photo to a specific Material Order (same job). */
     related_material_order_id: id.optional(),
   }),

@@ -6,7 +6,6 @@ import {
   JOB_PHASES,
   migrateLegacyStatus,
   normalizeJobRecord,
-  PAYMENT_ENTRY_STATUS,
   phaseForStatus,
 } from './jobStatus.js';
 
@@ -44,32 +43,41 @@ describe('job status model', () => {
     }
   });
 
-  it('working phase excludes Waiting on materials but includes Blocked for the board', () => {
+  it('working phase excludes Waiting on materials and Invoiced; Blocked stays a column', () => {
     assert.deepEqual(JOB_PHASES.working.statuses, [
       'Prep',
       'In progress',
       'Blocked',
       'Cancelled',
       'Completed',
-      INVOICE_GATE_STATUS,
     ]);
-    const stored = JOB_PHASES.working.statuses.filter((s) => s !== INVOICE_GATE_STATUS);
-    assert.ok(!stored.includes('Waiting on materials'));
-    assert.ok(stored.includes('Blocked'));
+    assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on materials'));
+    assert.ok(!JOB_PHASES.working.statuses.includes(INVOICE_GATE_STATUS));
+    assert.ok(JOB_PHASES.working.statuses.includes('Blocked'));
+    assert.deepEqual(JOB_PHASES.payment.statuses, [
+      INVOICE_GATE_STATUS,
+      'Waiting on payment',
+      'Partial',
+      'Paid',
+      'Late',
+    ]);
     const normalized = normalizeJobRecord({ status: 'Waiting on materials' });
     assert.equal(normalized.status, 'In progress');
     assert.equal(normalized.phase, 'working');
     assert.notEqual(normalized.status, 'Blocked');
   });
 
-  it('invoiced gate moves job to payment waiting on payment', () => {
+  it('invoiced stays Invoiced on the payment phase and does not clear the lead track', () => {
     const next = applyJobStatusFields(
-      { status: INVOICE_GATE_STATUS },
-      { phase: 'working', status: 'Completed' },
+      { status: INVOICE_GATE_STATUS, lead_status: 'Approved' },
+      { phase: 'working', status: 'Completed', lead_status: 'Contact' },
     );
     assert.equal(next.phase, 'payment');
-    assert.equal(next.status, PAYMENT_ENTRY_STATUS);
-    const normalized = normalizeJobRecord({ phase: 'payment', status: INVOICE_GATE_STATUS });
-    assert.equal(normalized.status, PAYMENT_ENTRY_STATUS);
+    assert.equal(next.status, INVOICE_GATE_STATUS);
+    assert.equal(next.payment_status, INVOICE_GATE_STATUS);
+    assert.equal(next.lead_status, 'Approved');
+    const normalized = normalizeJobRecord({ phase: 'working', status: INVOICE_GATE_STATUS });
+    assert.equal(normalized.phase, 'payment');
+    assert.equal(normalized.status, INVOICE_GATE_STATUS);
   });
 });
