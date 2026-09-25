@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { api, type Client, type Job } from '@/api/client';
+import { ScreenMessage } from '@/components/ScreenMessage';
 import { BRAND_HEX } from '@/lib/brand';
 
 export default function CustomerDetailScreen() {
@@ -46,7 +47,14 @@ export default function CustomerDetailScreen() {
   if (error || !client) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.error}>{error || 'Customer not found'}</Text>
+        <ScreenMessage
+          variant="error"
+          title={error ? 'Couldn’t load customer' : 'Customer not found'}
+          detail={error || 'They may have been deleted, or you may not have access.'}
+          onRetry={error ? () => void load() : undefined}
+          actionLabel="Back to customers"
+          onAction={() => router.push('/(app)/(tabs)/customers')}
+        />
       </View>
     );
   }
@@ -82,7 +90,9 @@ export default function CustomerDetailScreen() {
             </Pressable>
           </View>
           <Text style={styles.section}>Jobs</Text>
-          {!jobs.length ? <Text style={styles.meta}>No jobs for this customer</Text> : null}
+          {!jobs.length ? (
+            <Text style={styles.meta}>No jobs for this customer yet. Tap Add job to start one.</Text>
+          ) : null}
         </View>
       }
       renderItem={({ item }) => (
@@ -127,5 +137,4 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: '#f0f0f8' },
   jobTitle: { fontSize: 16, fontWeight: '600', color: BRAND_HEX.black },
-  error: { color: '#b00020' },
 });

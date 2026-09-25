@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '@/api/client';
 import { authStyles as styles } from '@/lib/authStyles';
@@ -34,57 +35,63 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.hero}>
-        <View style={styles.mark} />
-        <Text style={styles.brand}>{PRODUCT_NAME}</Text>
-        <Text style={styles.subtitle}>Reset password</Text>
-        <Text style={styles.hint}>We will email a link if that account exists (SMTP must be configured).</Text>
-      </View>
-
-      <View style={styles.form}>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        {sent ? (
-          <Text style={styles.success}>
-            If an account exists with that email, you will receive a password reset link shortly.
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f7f7fb' }}>
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.hero}>
+          <View style={styles.mark} />
+          <Text style={styles.brand}>{PRODUCT_NAME}</Text>
+          <Text style={styles.subtitle}>Reset password</Text>
+          <Text style={styles.hint}>
+            We will email a link if that account exists (SMTP must be configured).
           </Text>
-        ) : (
-          <>
-            <Text style={styles.label}>Email address</Text>
-            <TextInput
-              style={styles.input}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="you@example.com"
-              placeholderTextColor="#999"
-              editable={!busy}
-            />
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                (pressed || busy || !email) && styles.buttonDisabled,
-              ]}
-              onPress={onSubmit}
-              disabled={busy || !email}
-            >
-              {busy ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Send reset link</Text>
-              )}
-            </Pressable>
-          </>
-        )}
-        <Link href="/login" style={styles.link}>
-          Back to log in
-        </Link>
-      </View>
-    </KeyboardAvoidingView>
+        </View>
+
+        <View style={styles.form}>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {sent ? (
+            <Text style={styles.success}>
+              If an account exists with that email, you will receive a password reset link shortly.
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.label}>Email address</Text>
+              <TextInput
+                style={styles.input}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="you@example.com"
+                placeholderTextColor="#999"
+                editable={!busy}
+                returnKeyType="done"
+                onSubmitEditing={onSubmit}
+              />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.button,
+                  (pressed || busy || !email) && styles.buttonDisabled,
+                ]}
+                onPress={onSubmit}
+                disabled={busy || !email}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Send reset link</Text>
+                )}
+              </Pressable>
+            </>
+          )}
+          <Link href="/login" style={styles.link}>
+            Back to log in
+          </Link>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }

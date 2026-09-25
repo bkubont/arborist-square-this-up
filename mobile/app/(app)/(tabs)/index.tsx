@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { api, type AccountSummaries, type Job } from '@/api/client';
+import { ScreenMessage } from '@/components/ScreenMessage';
 import { useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX, PRODUCT_NAME } from '@/lib/brand';
 import { ACTIVE_JOB_STATUSES, moneyCents } from '@/lib/format';
@@ -82,6 +83,19 @@ export default function DashboardScreen() {
     );
   }
 
+  if (error && !summaries && jobs.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <ScreenMessage
+          variant="error"
+          title="Couldn’t load dashboard"
+          detail={error}
+          onRetry={() => void load()}
+        />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.screen}
@@ -93,7 +107,11 @@ export default function DashboardScreen() {
       <Text style={styles.meta}>
         {user?.email} · {attention.length} need attention · {active.length} active jobs
       </Text>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Pressable onPress={() => void load(true)}>
+          <Text style={styles.error}>{error} · Tap to retry</Text>
+        </Pressable>
+      ) : null}
 
       <Text style={styles.section}>Money snapshot</Text>
       <View style={styles.cards}>
@@ -120,7 +138,12 @@ export default function DashboardScreen() {
 
       <Text style={styles.section}>Active jobs</Text>
       {active.length === 0 ? (
-        <Text style={styles.empty}>No active jobs</Text>
+        <ScreenMessage
+          title="No active jobs"
+          detail="Add a job from the Jobs tab when you’re ready for the next site visit."
+          actionLabel="Go to Jobs"
+          onAction={() => router.push('/(app)/(tabs)/jobs')}
+        />
       ) : (
         active.slice(0, 8).map(job => (
           <Pressable

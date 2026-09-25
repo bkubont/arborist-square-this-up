@@ -1,9 +1,12 @@
+import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,8 +14,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api } from '@/api/client';
+import { getPrivacyPolicyUrl, getSupportUrl } from '@/lib/appConfig';
 import { useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX, PRODUCT_NAME } from '@/lib/brand';
 
@@ -20,27 +25,49 @@ function LinkRow({
   title,
   hint,
   onPress,
+  disabled,
 }: {
   title: string;
   hint: string;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <Pressable style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]} onPress={onPress}>
-      <Text style={styles.linkRowText}>{title}</Text>
+    <Pressable
+      style={({ pressed }) => [
+        styles.linkRow,
+        disabled && styles.linkRowDisabled,
+        pressed && !disabled && styles.pressed,
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={[styles.linkRowText, disabled && styles.linkRowTextDisabled]}>{title}</Text>
       <Text style={styles.linkRowHint}>{hint}</Text>
     </Pressable>
   );
 }
 
+async function openExternalUrl(url: string, label: string) {
+  try {
+    await WebBrowser.openBrowserAsync(url);
+  } catch {
+    Alert.alert(`Could not open ${label}`, url);
+  }
+}
+
 export default function MoreScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, logout, deleteAccount } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  const privacyUrl = getPrivacyPolicyUrl();
+  const supportUrl = getSupportUrl();
 
   const onLogout = async () => {
     setBusy(true);
@@ -80,8 +107,34 @@ export default function MoreScreen() {
     }
   };
 
+  const onPrivacy = () => {
+    if (!privacyUrl) {
+      Alert.alert(
+        'Privacy policy',
+        'Set EXPO_PUBLIC_PRIVACY_POLICY_URL to your live HTTPS privacy page before store submit. See the EAS store setup walkthrough.',
+      );
+      return;
+    }
+    void openExternalUrl(privacyUrl, 'privacy policy');
+  };
+
+  const onSupport = () => {
+    if (!supportUrl) {
+      Alert.alert(
+        'Support',
+        'Set EXPO_PUBLIC_SUPPORT_URL to your live HTTPS support or contact page before store submit.',
+      );
+      return;
+    }
+    void openExternalUrl(supportUrl, 'support');
+  };
+
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={[styles.container, { paddingBottom: Math.max(insets.bottom, 24) + 16 }]}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.brand}>{PRODUCT_NAME}</Text>
 
       <Text style={styles.groupLabel}>Work</Text>
@@ -125,6 +178,30 @@ export default function MoreScreen() {
         onPress={() => router.push('/(app)/company')}
       />
 
+      <Text style={styles.groupLabel}>Legal & support</Text>
+      <LinkRow
+        title="Privacy policy"
+        hint={
+          privacyUrl
+            ? privacyUrl
+            : 'URL not configured yet — set EXPO_PUBLIC_PRIVACY_POLICY_URL for App Review'
+        }
+        onPress={onPrivacy}
+      />
+      <LinkRow
+        title="Support"
+        hint={
+          supportUrl
+            ? supportUrl
+            : 'URL not configured yet — set EXPO_PUBLIC_SUPPORT_URL for App Review'
+        }
+        onPress={onSupport}
+      />
+      <Text style={styles.legalNote}>
+        Account deletion is available below (App Store Guideline 5.1.1). Registration is
+        invitation-only.
+      </Text>
+
       <Text style={styles.groupLabel}>Account</Text>
       <View style={styles.card}>
         <Text style={styles.label}>Signed in</Text>
@@ -148,9 +225,16 @@ export default function MoreScreen() {
       >
         <Text style={styles.dangerText}>Delete account</Text>
       </Pressable>
+      <Text style={styles.deleteHint}>
+        Permanently removes your account and all jobs, customers, documents, and photos stored for
+        this login. Requires your password.
+      </Text>
 
       <Modal visible={deleteOpen} transparent animationType="fade" onRequestClose={() => setDeleteOpen(false)}>
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <View style={styles.modalCard}>
             <Text style={styles.heading}>Confirm deletion</Text>
             <Text style={styles.meta}>Enter your password to permanently delete this account.</Text>
@@ -162,6 +246,10 @@ export default function MoreScreen() {
               value={password}
               onChangeText={setPassword}
               editable={!deleting}
+              autoCapitalize="none"
+              textContentType="password"
+              returnKeyType="done"
+              onSubmitEditing={() => void onDelete()}
             />
             <View style={styles.modalActions}>
               <Pressable
@@ -186,7 +274,7 @@ export default function MoreScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -194,7 +282,7 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: '#f7f7fb' },
-  container: { padding: 24, gap: 10, paddingBottom: 40 },
+  container: { padding: 24, gap: 10 },
   brand: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.royalBlue, marginBottom: 4 },
   groupLabel: {
     fontSize: 12,
@@ -216,6 +304,8 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, color: '#666' },
   value: { fontSize: 17, fontWeight: '600', color: BRAND_HEX.black },
   meta: { fontSize: 13, color: '#666' },
+  legalNote: { fontSize: 12, color: '#777', lineHeight: 18, marginTop: 2 },
+  deleteHint: { fontSize: 12, color: '#777', lineHeight: 18, marginTop: -2 },
   linkRow: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -224,7 +314,9 @@ const styles = StyleSheet.create({
     borderColor: '#e4e4ef',
     gap: 4,
   },
+  linkRowDisabled: { opacity: 0.65 },
   linkRowText: { fontSize: 16, fontWeight: '600', color: BRAND_HEX.royalBlue },
+  linkRowTextDisabled: { color: '#555' },
   linkRowHint: { fontSize: 13, color: '#666' },
   error: { color: '#b00020', fontSize: 14 },
   button: {
