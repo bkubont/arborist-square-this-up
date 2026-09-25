@@ -10,6 +10,9 @@ export function loadCatalog() {
   return cached;
 }
 
+/** Brittany's work-type list for dropdowns and kanban grouping. */
+export { loadWorkTypes as getWorkTypes } from '../shared/workTypes.js';
+
 /** Search handyman catalog (Estimate / WO search→fill). */
 export function searchCatalog({ q = '', category = '', maintenance = '', source = '', limit = 40 } = {}) {
   const catalog = loadCatalog();

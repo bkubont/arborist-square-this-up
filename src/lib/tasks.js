@@ -1,7 +1,6 @@
 /** Job task (WorkItem) statuses, in board-column order — mirrors shared/taskStatus.js. */
 export const TASK_STATUSES = [
   "plan",
-  "materials",
   "permits",
   "waiting_on_approval",
   "blocked",
@@ -13,14 +12,15 @@ export const TASK_STATUSES = [
 const LEGACY_TASK_STATUS_MAP = {
   prep: "plan",
   in_progress: "plan",
-  waiting_materials: "materials",
+  materials: "plan",
+  waiting_materials: "blocked",
   on_hold: "blocked",
   done: "completed",
 };
 
 const LABELS = {
   plan: "Plan",
-  materials: "Materials",
+  materials: "Plan",
   permits: "Permits",
   waiting_on_approval: "Waiting on Approval",
   blocked: "Blocked",
@@ -30,7 +30,7 @@ const LABELS = {
   // Legacy labels (shown only before the server normalizes on save)
   prep: "Plan",
   in_progress: "Plan",
-  waiting_materials: "Materials",
+  waiting_materials: "Blocked",
   on_hold: "Blocked",
   done: "Completed",
 };
@@ -47,6 +47,9 @@ export const taskStatusLabel = (status) => LABELS[normalizeTaskStatus(status)] |
 /** A task's status; tasks saved before statuses existed fall back to their old done flag. */
 export const taskStatus = (item) => normalizeTaskStatus(item?.status || (item?.done ? "completed" : "plan"));
 
+/** Built-in Materials task removed — job materials live on Overview. */
+export const isHiddenBuiltInTask = (item) => item?.template_key === "materials";
+
 /** Board/list order: by status column, then position, then age. */
 export function sortTasks(items = []) {
   const rank = (item) => TASK_STATUSES.indexOf(taskStatus(item));
@@ -56,14 +59,9 @@ export function sortTasks(items = []) {
     || (a.created_date || "").localeCompare(b.created_date || ""));
 }
 
-/** List view: Prep, Materials, signed scope, Final walkthrough — regardless of status. */
+/** List view: Prep, then signed scope — regardless of status. */
 export function sortTasksForList(items = []) {
-  const band = (item) => {
-    if (item?.template_key === "prep") return 0;
-    if (item?.template_key === "materials") return 1;
-    if (item?.template_key === "final_walkthrough") return 3;
-    return 2;
-  };
+  const band = (item) => (item?.template_key === "prep" ? 0 : 1);
   return [...items].sort((a, b) =>
     band(a) - band(b)
     || (a.sort_order ?? 0) - (b.sort_order ?? 0)

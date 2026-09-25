@@ -4,7 +4,10 @@ export const DOCUMENT_TYPES = [
   { entity: 'MaterialOrder', label: 'Material Order', createLabel: 'New Material Order' },
   { entity: 'ChangeOrder', label: 'Change Order', createLabel: 'New Change Order' },
   { entity: 'Invoice', label: 'Invoice', createLabel: 'New Invoice' },
+  { entity: 'PunchList', label: 'Punch List', createLabel: 'Punch List' },
 ];
+
+export const PUNCH_LIST_STATUSES = ['in_progress', 'completed', 'void'];
 
 export const DOCUMENT_STATUSES = {
   Estimate: ['draft', 'sent', 'accepted', 'declined', 'void'],
@@ -31,6 +34,8 @@ const STATUS_LABELS = {
   issued: 'Issued',
   complete: 'Complete',
   paid: 'Paid',
+  in_progress: 'In progress',
+  completed: 'Completed',
   pricing: 'Pricing',
   backorder: 'Backorder',
   unavailable: 'Unavailable',

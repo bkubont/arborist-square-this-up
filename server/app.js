@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, fileIdsOf } from './domain.js';
 import { searchCatalog } from './catalog.js';
+import { loadWorkTypes } from '../shared/workTypes.js';
 import { suggestAddresses } from './addressSuggest.js';
 import { createSignLink, loadPublicSign, completeSign, jobAuthorizedTotal } from './sign.js';
 import { buildInvoiceAutofill, sumActiveInvoiceTotals } from './mapping.js';
@@ -36,6 +37,8 @@ import { normalizeWorkItemRecord } from './taskStatus.js';
 import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
 import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable, completeJobWhenTasksDone } from './workItems.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
+import { attachDefaultPunchList } from './defaultPunchList.js';
+import { preparePunchListUpdate, completePunchList } from './punchList.js';
 import { overrideScopeStatus } from './statusOverride.js';
 import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token } from './security.js';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
@@ -270,6 +273,9 @@ export async function createApp(db, env = process.env) {
     const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit || 40);
     res.json(searchCatalog({ q: q || '', category: category || '', maintenance: maintenance || '', source: source || '', limit }));
   });
+  app.get('/api/work-types', async (_req, res) => {
+    res.json({ types: loadWorkTypes() });
+  });
   /** Free address typeahead (Photon). Google Places is client-side when VITE_GOOGLE_PLACES_API_KEY is set. */
   app.get('/api/address-suggest', async (req, res) => {
     const q = z.string().trim().min(1).max(200).parse(req.query.q || '');
@@ -487,6 +493,11 @@ export async function createApp(db, env = process.env) {
     const created = await ownedTransaction(req.user.id, tx => reviseDocument(tx, req.user.id, entity, req.params.id));
     res.status(201).json(created);
   });
+  app.post('/api/punch-list/:id/complete', async (req, res) => {
+    const photo_url = z.string().min(1).max(200).parse(req.body?.photo_url);
+    const updated = await ownedTransaction(req.user.id, tx => completePunchList(tx, req.user.id, req.params.id, { photo_url }));
+    res.json(updated);
+  });
   app.post('/api/entities/:entity', async (req, res) => {
     const entity = req.params.entity;
     let body = req.body;
@@ -496,6 +507,7 @@ export async function createApp(db, env = process.env) {
       body = applyJobArchiveFields(body);
     }
     if (entity === 'WorkItem') body = prepareWorkItemCreate(body);
+    if (entity === 'PunchList') throw fail(400, 'Punch lists are created automatically with each job');
     const created = await ownedTransaction(req.user.id, async tx => {
       if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
         await assertSingularDocument(tx, req.user.id, entity, body.job_id);
@@ -503,7 +515,10 @@ export async function createApp(db, env = process.env) {
         if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.user.id, 'Estimate', body.job_id)), 'creating');
       }
       let record = await saveRecord(tx, req.user.id, entity, body);
-      if (entity === 'Job') await attachDefaultJobTasks(tx, req.user.id, record.id);
+      if (entity === 'Job') {
+        await attachDefaultJobTasks(tx, req.user.id, record.id);
+        await attachDefaultPunchList(tx, req.user.id, record.id);
+      }
       if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, record.job_id);
       if (entity === 'MaterialOrder' && record.job_id) {
         const hasLines = Array.isArray(record.lines)
@@ -541,6 +556,7 @@ export async function createApp(db, env = process.env) {
       body = applyJobArchiveFields(body, previous);
     }
     if (entity === 'WorkItem') body = prepareWorkItemUpdate(previous, body);
+    if (entity === 'PunchList') body = preparePunchListUpdate(previous, body);
     let withdrawingSignLink = false;
     if ((entity === 'Estimate' || entity === 'ChangeOrder') && previous) {
       assertScopeUpdatable(entity, previous, body);

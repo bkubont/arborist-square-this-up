@@ -8,6 +8,7 @@ export function materialsStatusClass(key) {
     case "ordered":
     case "pricing":
       return "text-attention-materials-foreground";
+    case "needed":
     case "backorder":
     case "unavailable":
     case "waiting":

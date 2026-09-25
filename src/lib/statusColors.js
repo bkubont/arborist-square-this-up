@@ -215,6 +215,9 @@ export function statusSemantic(status, opts = {}) {
   if ((entity === "Estimate" || entity === "ChangeOrder") && key === "sent") {
     return "attention-approval";
   }
+  if (entity === "PunchList" && key === "in_progress") {
+    return "sky";
+  }
   return STATUS_SEMANTIC_MAP[key] || "neutral";
 }
 
