@@ -126,13 +126,12 @@ export function normalizeJobRecord(job) {
     if (status === INVOICE_GATE_STATUS) status = PAYMENT_ENTRY_STATUS;
   }
 
-  if (phase !== job.phase || status !== job.status) {
-    return { ...job, phase, status };
+  const changed = phase !== job.phase || status !== job.status || !job.phase;
+  const next = changed ? { ...job, phase, status } : job;
+  if (!next.lead_status && JOB_PHASES.lead.statuses.includes(next.status)) {
+    return { ...next, lead_status: next.status };
   }
-  if (!job.phase) {
-    return { ...job, phase };
-  }
-  return job;
+  return next;
 }
 
 /** Apply phase/status on create or patch; keeps phase and status consistent. */

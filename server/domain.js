@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
+import { JOB_PHASES } from './jobStatus.js';
 import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 
 const text = z.string().max(20000);
+const [leadStatusHead, ...leadStatusTail] = JOB_PHASES.lead.statuses;
+const clientLeadStatus = z.enum([leadStatusHead, ...leadStatusTail]);
 const id = z.string().min(1).max(36);
 const money = z.number().finite().min(0).max(1e12);
 const signedMoney = z.number().finite().min(-1e12).max(1e12);
@@ -106,6 +109,10 @@ export const schemas = {
     phone: text.optional(),
     email: text.optional(),
     notes: text.optional(),
+    /** Lead-phase pipeline status — same values as a lead job (see JOB_PHASES.lead). */
+    status: clientLeadStatus.optional(),
+    /** Set when status is Declined so the contact leaves the active customers list. */
+    archived_at: date.optional(),
   }),
   Job: z.object({ title: z.string().trim().max(250).optional(), client_id: id, client_name: text.optional(), description: text.optional(),
     phase: z.enum(['lead', 'working', 'payment']).default('lead'),
@@ -115,6 +122,8 @@ export const schemas = {
       'Invoiced',
       'Waiting on payment', 'Partial', 'Late', 'Paid',
     ]).default('Contact'),
+    /** Shared lead pipeline. Same values as Client.status. Independent of working/payment status. */
+    lead_status: clientLeadStatus.optional(),
     start_date: date.optional(), end_date: date.optional(),
     /** Set when a job reaches a terminal status — hides it from working lists; view under Archive. */
     archived_at: date.optional(),

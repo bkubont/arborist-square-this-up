@@ -7,8 +7,10 @@ import StatusBadge from "@/components/StatusBadge";
 import ClientFormDialog from "@/components/ClientFormDialog";
 import JobFormDialog from "@/components/JobFormDialog";
 import ClientAddress from "@/components/ClientAddress";
-import { money } from "@/lib/format";
+import StatusSelect from "@/components/StatusSelect";
+import { money, shortDate } from "@/lib/format";
 import { depositsByJobId, invoicesByJobId, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
+import { JOB_PHASES, contactLeadStatus, isArchivedClient } from "@/lib/jobStatus";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +24,7 @@ export default function ClientDetail() {
   const [loading, setLoading] = useState(true);
   const [editClient, setEditClient] = useState(false);
   const [jobDialog, setJobDialog] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
 
   const load = async () => {
     try {
@@ -61,6 +64,24 @@ export default function ClientDetail() {
     load();
   };
 
+  const pipelineStatus = contactLeadStatus(client, jobs);
+  const archived = isArchivedClient(client);
+
+  const changePipelineStatus = async (status) => {
+    if (!client || status === pipelineStatus || savingStatus) return;
+    const snapshot = client;
+    setSavingStatus(true);
+    setClient({ ...client, status });
+    try {
+      await api.entities.Client.update(id, { status });
+      await load();
+    } catch {
+      setClient(snapshot);
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
   if (loading) return <div className="p-8 text-slate-400">Loading…</div>;
   if (!client) return <div className="p-8 text-slate-400">Client not found.</div>;
 
@@ -70,12 +91,35 @@ export default function ClientDetail() {
         <ArrowLeft className="w-4 h-4" /> Clients
       </button>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
-        <div className="flex items-start justify-between">
-          <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
-          <Button variant="outline" size="sm" onClick={() => setEditClient(true)}>
-            <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
-          </Button>
+      <div className={cn("bg-white rounded-xl border border-slate-200 p-5 mb-6", statusCardClass(pipelineStatus))}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
+            {archived && (
+              <p className="text-sm text-slate-500 mt-1">
+                Archived{client.archived_at ? ` ${shortDate(client.archived_at)}` : ""}
+              </p>
+            )}
+          </div>
+          <div className="flex items-end gap-2 w-full sm:w-auto">
+            <div className="flex-1 sm:w-64 sm:flex-none">
+              <label htmlFor="client-lead-status" className="block text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+                Lead status
+              </label>
+              <StatusSelect
+                id="client-lead-status"
+                ariaLabel="Lead status"
+                value={pipelineStatus}
+                onValueChange={changePipelineStatus}
+                statuses={JOB_PHASES.lead.statuses}
+                disabled={savingStatus}
+                triggerClassName="w-full"
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setEditClient(true)}>
+              <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
+            </Button>
+          </div>
         </div>
         <div className="mt-3 space-y-1.5 text-sm text-slate-600">
           <ClientAddress client={client} />
