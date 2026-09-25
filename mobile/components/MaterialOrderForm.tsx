@@ -11,9 +11,10 @@ import {
 } from 'react-native';
 
 import { api, type MaterialOrder, type MaterialOrderLine } from '@/api/client';
+import { CatalogPicker } from '@/components/CatalogPicker';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
 import { DOCUMENT_STATUSES, statusLabel } from '@/lib/documents';
-import { materialOrderLineAmount, roundMoney } from '@/lib/estimateMath';
+import { catalogItemToMaterialLine, materialOrderLineAmount, roundMoney } from '@/lib/estimateMath';
 import { money } from '@/lib/format';
 
 type LineForm = {
@@ -59,6 +60,7 @@ export function MaterialOrderForm({ materialOrder }: Props) {
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [catalogFor, setCatalogFor] = useState<number | null>(null);
 
   const subtotal = useMemo(
     () =>
@@ -179,6 +181,9 @@ export function MaterialOrderForm({ materialOrder }: Props) {
             />
             {!frozen ? (
               <View style={formStyles.chipRow}>
+                <Pressable style={formStyles.chip} onPress={() => setCatalogFor(index)}>
+                  <Text style={formStyles.chipText}>From catalog</Text>
+                </Pressable>
                 <Pressable style={formStyles.chip} onPress={() => setLines(rows => [...rows, emptyLine()])}>
                   <Text style={formStyles.chipText}>Add line</Text>
                 </Pressable>
@@ -211,6 +216,22 @@ export function MaterialOrderForm({ materialOrder }: Props) {
           </Pressable>
         ) : null}
       </ScrollView>
+
+      <CatalogPicker
+        visible={catalogFor != null}
+        title="Add from catalog"
+        onClose={() => setCatalogFor(null)}
+        onPick={item => {
+          if (catalogFor == null) return;
+          const mapped = catalogItemToMaterialLine(item);
+          setLine(catalogFor, {
+            description: mapped.description,
+            qty: String(mapped.qty ?? 1),
+            unit_price: mapped.unit_price != null ? String(mapped.unit_price) : '',
+            notes: mapped.notes || '',
+          });
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }

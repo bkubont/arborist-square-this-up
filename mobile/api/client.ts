@@ -244,6 +244,42 @@ export type Expense = {
   updated_date?: string;
 };
 
+export type Payment = {
+  id: string;
+  job_id: string;
+  amount_cents: number;
+  kind?: 'payment' | 'deposit';
+  date?: string;
+  method?: string;
+  note?: string;
+  invoice_id?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type CatalogItem = {
+  id: string;
+  task: string;
+  category?: string;
+  notes?: string;
+  tools?: string;
+  materials_note?: string;
+  materials_flag?: string;
+  hours_mid?: number;
+  labor_rate?: number;
+  est_labor_cost?: number;
+  est_materials_cost?: number;
+  source?: string;
+  maintenance?: string;
+};
+
+export type CatalogSearchResult = {
+  default_labor_rate?: number;
+  categories?: string[];
+  total?: number;
+  items: CatalogItem[];
+};
+
 export type AccountSummaries = {
   jobs: Record<string, {
     balance_cents?: number;
@@ -415,6 +451,35 @@ export const api = {
     ChangeOrder: entity<ChangeOrder>('ChangeOrder'),
     Invoice: entity<Invoice>('Invoice'),
     Expense: entity<Expense>('Expense'),
+    Payment: entity<Payment>('Payment'),
+  },
+  catalog: {
+    search(filters: {
+      q?: string;
+      category?: string;
+      maintenance?: string;
+      source?: string;
+      limit?: number;
+    } = {}) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) {
+        if (value != null && value !== '' && value !== 'all') params.set(key, String(value));
+      }
+      return request(`/catalog?${params}`) as Promise<CatalogSearchResult>;
+    },
+  },
+  payments: {
+    create(data: {
+      job_id: string;
+      amount_cents: number;
+      kind?: 'payment' | 'deposit';
+      date?: string;
+      method?: string;
+      note?: string;
+      invoice_id?: string;
+    }) {
+      return post('/payments', data) as Promise<Payment>;
+    },
   },
   estimates: {
     sendSign(id: string, data: { email?: string; message?: string } = {}) {

@@ -2,7 +2,8 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { api, type Invoice, type Job } from '@/api/client';
+import { api, type Invoice, type Job, type Payment } from '@/api/client';
+import { InvoicePaymentsSection } from '@/components/InvoicePaymentsSection';
 import { BRAND_HEX } from '@/lib/brand';
 import { statusLabel } from '@/lib/documents';
 import { money, shortDate } from '@/lib/format';
@@ -12,6 +13,7 @@ export default function InvoiceDetailScreen() {
   const router = useRouter();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [job, setJob] = useState<Job | null>(null);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -22,13 +24,16 @@ export default function InvoiceDetailScreen() {
     try {
       const next = await api.entities.Invoice.get(id);
       setInvoice(next);
-      if (next.job_id) {
-        try {
-          setJob(await api.entities.Job.get(next.job_id));
-        } catch {
-          setJob(null);
-        }
-      }
+      const [jobRow, paymentRows] = await Promise.all([
+        next.job_id
+          ? api.entities.Job.get(next.job_id).catch(() => null)
+          : Promise.resolve(null),
+        next.job_id
+          ? api.entities.Payment.filter({ job_id: next.job_id }, '-created_date', 200).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      setJob(jobRow);
+      setPayments(paymentRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
@@ -79,6 +84,8 @@ export default function InvoiceDetailScreen() {
       >
         <Text style={styles.editText}>Edit invoice</Text>
       </Pressable>
+
+      <InvoicePaymentsSection invoice={invoice} payments={payments} onChanged={load} />
 
       {(materials.length > 0 || labor.length > 0 || misc.length > 0) && (
         <View style={styles.card}>

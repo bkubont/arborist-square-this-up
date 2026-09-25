@@ -1,6 +1,7 @@
 /** Estimate / change-order line math — mirrors src/lib/estimateMath.js (field essentials). */
 
 export const ESTIMATE_VALID_DAYS = 10;
+export const DEFAULT_LABOR_RATE = 55;
 
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -189,4 +190,69 @@ export function invoiceTotals({
     Math.max(0, total - (Number(deposits_applied) || 0) - (Number(payments_applied) || 0)),
   );
   return { materials_total, labor_total, misc_total, subtotal, tax_amount, total, balance_due };
+}
+
+export type CatalogLike = {
+  id?: string;
+  task?: string;
+  category?: string;
+  notes?: string;
+  tools?: string;
+  materials_note?: string;
+  materials_flag?: string;
+  hours_mid?: number;
+  labor_rate?: number;
+  est_labor_cost?: number;
+  est_materials_cost?: number;
+};
+
+/** Map catalog row → estimate/CO form line (whole-line amount). */
+export function catalogItemToFormLine(
+  item: CatalogLike,
+  fallbackRate = DEFAULT_LABOR_RATE,
+): ScopeLineForm {
+  const hours = item.hours_mid;
+  const rate = item.labor_rate ?? fallbackRate;
+  const labor = item.est_labor_cost ?? (hours != null ? hours * rate : 0);
+  const materials = Number(item.est_materials_cost) || 0;
+  const wholeLine = roundMoney(Number(labor || 0) + materials);
+  const noteParts = [
+    item.notes,
+    item.materials_note,
+    item.materials_flag ? `Materials: ${item.materials_flag}` : '',
+    item.tools ? `Tools: ${item.tools}` : '',
+  ].filter(Boolean);
+  return {
+    description: item.task || '',
+    line_amount: wholeLine > 0 ? String(wholeLine) : '',
+    labor_hours: hours != null ? String(hours) : '',
+    labor_rate: rate != null ? String(rate) : '',
+    category: item.category || '',
+    notes: noteParts.join(' · '),
+    tools: item.tools || '',
+    catalog_id: item.id || '',
+  };
+}
+
+/** Map catalog row → material-order / invoice material line essentials. */
+export function catalogItemToMaterialLine(item: CatalogLike) {
+  const unit = Number(item.est_materials_cost) || 0;
+  return {
+    description: item.task || '',
+    qty: 1,
+    unit_price: unit > 0 ? unit : undefined,
+    notes: [item.materials_note, item.notes].filter(Boolean).join(' · ') || undefined,
+    category: item.category || undefined,
+  };
+}
+
+/** Map catalog row → invoice labor line essentials. */
+export function catalogItemToLaborLine(item: CatalogLike, fallbackRate = DEFAULT_LABOR_RATE) {
+  const hours = item.hours_mid;
+  const rate = item.labor_rate ?? fallbackRate;
+  return {
+    description: item.task || '',
+    hours: hours != null ? hours : undefined,
+    rate: rate != null ? rate : undefined,
+  };
 }

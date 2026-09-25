@@ -11,12 +11,15 @@ import {
 } from 'react-native';
 
 import { api, type Invoice, type InvoiceLaborLine, type InvoiceMaterialLine, type InvoiceMiscLine } from '@/api/client';
+import { CatalogPicker } from '@/components/CatalogPicker';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
 import { DOCUMENT_STATUSES, statusLabel } from '@/lib/documents';
-import { invoiceTotals } from '@/lib/estimateMath';
+import { catalogItemToLaborLine, catalogItemToMaterialLine, invoiceTotals } from '@/lib/estimateMath';
 import { money } from '@/lib/format';
 
 type Props = { invoice: Invoice };
+
+type CatalogTarget = { kind: 'material' | 'labor'; index: number };
 
 export function InvoiceForm({ invoice }: Props) {
   const router = useRouter();
@@ -38,6 +41,7 @@ export function InvoiceForm({ invoice }: Props) {
   );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [catalogTarget, setCatalogTarget] = useState<CatalogTarget | null>(null);
 
   const totals = useMemo(
     () =>
@@ -183,6 +187,25 @@ export function InvoiceForm({ invoice }: Props) {
             <Text style={formStyles.chipText}>Add material line</Text>
           </Pressable>
         ) : null}
+        {!frozen && materialLines.length > 0 ? (
+          <Pressable
+            style={formStyles.chip}
+            onPress={() => setCatalogTarget({ kind: 'material', index: materialLines.length - 1 })}
+          >
+            <Text style={formStyles.chipText}>Fill last material from catalog</Text>
+          </Pressable>
+        ) : null}
+        {!frozen && materialLines.length === 0 ? (
+          <Pressable
+            style={formStyles.chip}
+            onPress={() => {
+              setMaterialLines([{ description: '', qty: 1, unit_price: 0 }]);
+              setCatalogTarget({ kind: 'material', index: 0 });
+            }}
+          >
+            <Text style={formStyles.chipText}>Add material from catalog</Text>
+          </Pressable>
+        ) : null}
 
         <Text style={formStyles.sectionLabel}>Labor lines ({laborLines.length})</Text>
         {laborLines.map((line, i) => (
@@ -225,6 +248,25 @@ export function InvoiceForm({ invoice }: Props) {
             onPress={() => setLaborLines(rows => [...rows, { description: '', hours: 1, rate: 55 }])}
           >
             <Text style={formStyles.chipText}>Add labor line</Text>
+          </Pressable>
+        ) : null}
+        {!frozen && laborLines.length > 0 ? (
+          <Pressable
+            style={formStyles.chip}
+            onPress={() => setCatalogTarget({ kind: 'labor', index: laborLines.length - 1 })}
+          >
+            <Text style={formStyles.chipText}>Fill last labor from catalog</Text>
+          </Pressable>
+        ) : null}
+        {!frozen && laborLines.length === 0 ? (
+          <Pressable
+            style={formStyles.chip}
+            onPress={() => {
+              setLaborLines([{ description: '', hours: 1, rate: 55 }]);
+              setCatalogTarget({ kind: 'labor', index: 0 });
+            }}
+          >
+            <Text style={formStyles.chipText}>Add labor from catalog</Text>
           </Pressable>
         ) : null}
 
@@ -275,6 +317,42 @@ export function InvoiceForm({ invoice }: Props) {
           </Pressable>
         ) : null}
       </ScrollView>
+
+      <CatalogPicker
+        visible={catalogTarget != null}
+        title="Add from catalog"
+        onClose={() => setCatalogTarget(null)}
+        onPick={item => {
+          if (!catalogTarget) return;
+          if (catalogTarget.kind === 'material') {
+            const mapped = catalogItemToMaterialLine(item);
+            setMaterialLines(rows =>
+              rows.map((r, idx) =>
+                idx === catalogTarget.index
+                  ? {
+                      description: mapped.description,
+                      qty: mapped.qty,
+                      unit_price: mapped.unit_price,
+                    }
+                  : r,
+              ),
+            );
+          } else {
+            const mapped = catalogItemToLaborLine(item);
+            setLaborLines(rows =>
+              rows.map((r, idx) =>
+                idx === catalogTarget.index
+                  ? {
+                      description: mapped.description,
+                      hours: mapped.hours,
+                      rate: mapped.rate,
+                    }
+                  : r,
+              ),
+            );
+          }
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }

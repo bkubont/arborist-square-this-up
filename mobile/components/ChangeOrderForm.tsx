@@ -2,7 +2,6 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,12 +9,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
 
 import { api, type ChangeOrder } from '@/api/client';
+import { CatalogPicker } from '@/components/CatalogPicker';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
 import { isChangeOrderReadOnly } from '@/lib/documents';
 import {
+  catalogItemToFormLine,
   changeOrderNet,
   emptyEstimateLine,
   estimateLineAmount,
@@ -24,6 +24,7 @@ import {
   type ScopeLineForm,
 } from '@/lib/estimateMath';
 import { money } from '@/lib/format';
+import { presentSignLinkResult } from '@/lib/shareSignLink';
 
 type Props = { changeOrder: ChangeOrder };
 
@@ -47,6 +48,7 @@ export function ChangeOrderForm({ changeOrder }: Props) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [signBusy, setSignBusy] = useState(false);
+  const [catalogFor, setCatalogFor] = useState<number | null>(null);
 
   const addedCost = useMemo(
     () => lines.reduce((sum, line) => sum + estimateLineAmount(serializeChangeOrderLine(line)), 0),
@@ -95,14 +97,7 @@ export function ChangeOrderForm({ changeOrder }: Props) {
     try {
       if (!readOnly) await persist();
       const result = await api.changeOrders.sendSign(changeOrder.id, {});
-      if (result.sign_url) {
-        Alert.alert('Sign link ready', 'Customer e-sign stays on the web.', [
-          { text: 'Open link', onPress: () => void WebBrowser.openBrowserAsync(result.sign_url!) },
-          { text: 'OK' },
-        ]);
-      } else {
-        Alert.alert('Sent', result.message || 'Sign link created.');
-      }
+      await presentSignLinkResult(result, 'change order');
       router.replace(`/(app)/change-orders/${changeOrder.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create sign link');
@@ -165,6 +160,9 @@ export function ChangeOrderForm({ changeOrder }: Props) {
             />
             {!readOnly ? (
               <View style={formStyles.chipRow}>
+                <Pressable style={formStyles.chip} onPress={() => setCatalogFor(index)}>
+                  <Text style={formStyles.chipText}>From catalog</Text>
+                </Pressable>
                 <Pressable
                   style={formStyles.chip}
                   onPress={() => setLines(rows => [...rows, emptyEstimateLine()])}
@@ -216,10 +214,20 @@ export function ChangeOrderForm({ changeOrder }: Props) {
           {signBusy ? (
             <ActivityIndicator color="#0504AA" />
           ) : (
-            <Text style={[formStyles.buttonText, { color: '#0504AA' }]}>Get customer sign link</Text>
+            <Text style={[formStyles.buttonText, { color: '#0504AA' }]}>Share customer sign link</Text>
           )}
         </Pressable>
       </ScrollView>
+
+      <CatalogPicker
+        visible={catalogFor != null}
+        title="Add from catalog"
+        onClose={() => setCatalogFor(null)}
+        onPick={item => {
+          if (catalogFor == null) return;
+          setLine(catalogFor, catalogItemToFormLine(item));
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }

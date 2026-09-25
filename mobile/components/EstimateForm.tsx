@@ -2,7 +2,6 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,12 +9,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
 
 import { api, type Estimate } from '@/api/client';
+import { CatalogPicker } from '@/components/CatalogPicker';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
 import { isEstimateReadOnly } from '@/lib/documents';
 import {
+  catalogItemToFormLine,
   emptyEstimateLine,
   estimateTotals,
   fromApiEstimateLine,
@@ -23,6 +23,7 @@ import {
   type ScopeLineForm,
 } from '@/lib/estimateMath';
 import { money } from '@/lib/format';
+import { presentSignLinkResult } from '@/lib/shareSignLink';
 
 type Props = { estimate: Estimate };
 
@@ -43,6 +44,7 @@ export function EstimateForm({ estimate }: Props) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [signBusy, setSignBusy] = useState(false);
+  const [catalogFor, setCatalogFor] = useState<number | null>(null);
 
   const totals = useMemo(
     () => estimateTotals(lines.map(serializeEstimateLine), taxRate),
@@ -96,18 +98,7 @@ export function EstimateForm({ estimate }: Props) {
     try {
       if (!readOnly) await persist();
       const result = await api.estimates.sendSign(estimate.id, {});
-      if (result.sign_url) {
-        Alert.alert(
-          'Sign link ready',
-          'Customer e-sign stays on the web. Open the link to copy or share.',
-          [
-            { text: 'Open link', onPress: () => void WebBrowser.openBrowserAsync(result.sign_url!) },
-            { text: 'OK' },
-          ],
-        );
-      } else {
-        Alert.alert('Sent', result.message || 'Sign link created.');
-      }
+      await presentSignLinkResult(result, 'estimate');
       router.replace(`/(app)/estimates/${estimate.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create sign link');
@@ -179,6 +170,9 @@ export function EstimateForm({ estimate }: Props) {
             />
             {!readOnly ? (
               <View style={formStyles.chipRow}>
+                <Pressable style={formStyles.chip} onPress={() => setCatalogFor(index)}>
+                  <Text style={formStyles.chipText}>From catalog</Text>
+                </Pressable>
                 <Pressable
                   style={formStyles.chip}
                   onPress={() => setLines(rows => [...rows, emptyEstimateLine()])}
@@ -227,10 +221,20 @@ export function EstimateForm({ estimate }: Props) {
           {signBusy ? (
             <ActivityIndicator color="#0504AA" />
           ) : (
-            <Text style={[formStyles.buttonText, { color: '#0504AA' }]}>Get customer sign link</Text>
+            <Text style={[formStyles.buttonText, { color: '#0504AA' }]}>Share customer sign link</Text>
           )}
         </Pressable>
       </ScrollView>
+
+      <CatalogPicker
+        visible={catalogFor != null}
+        title="Add from catalog"
+        onClose={() => setCatalogFor(null)}
+        onPick={item => {
+          if (catalogFor == null) return;
+          setLine(catalogFor, catalogItemToFormLine(item));
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
