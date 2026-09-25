@@ -10,8 +10,10 @@ import {
   View,
 } from 'react-native';
 
-import { api, JOB_STATUSES, type Client, type Job, type JobStatus } from '@/api/client';
+import { api, type Client, type Job } from '@/api/client';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
+import { JobPhaseStatusSelect } from '@/components/JobPhaseStatusSelect';
+import { resolvePhaseStatus, type JobPhase } from '@/lib/jobStatus';
 
 type Props = {
   job?: Job | null;
@@ -23,7 +25,9 @@ export function JobForm({ job, defaultClientId = '' }: Props) {
   const [clients, setClients] = useState<Client[]>([]);
   const [title, setTitle] = useState(job?.title || '');
   const [description, setDescription] = useState(job?.description || '');
-  const [status, setStatus] = useState<JobStatus | string>(job?.status || 'Estimate');
+  const initial = resolvePhaseStatus(job?.phase, job?.status);
+  const [phase, setPhase] = useState<JobPhase>(initial.phase);
+  const [status, setStatus] = useState(initial.status);
   const [clientId, setClientId] = useState(job?.client_id || defaultClientId || '');
   const [startDate, setStartDate] = useState(job?.start_date || '');
   const [endDate, setEndDate] = useState(job?.end_date || '');
@@ -69,6 +73,7 @@ export function JobForm({ job, defaultClientId = '' }: Props) {
         client_id: clientId,
         client_name: client?.name || job?.client_name,
         description: description.trim() || undefined,
+        phase,
         status,
         start_date: startDate.trim() || '',
         end_date: endDate.trim() || '',
@@ -121,21 +126,15 @@ export function JobForm({ job, defaultClientId = '' }: Props) {
 
         <FormField label="Description" value={description} onChangeText={setDescription} multiline />
 
-        <Text style={formStyles.sectionLabel}>Status</Text>
-        <View style={formStyles.chipRow}>
-          {JOB_STATUSES.map(s => {
-            const active = s === status;
-            return (
-              <Pressable
-                key={s}
-                onPress={() => setStatus(s)}
-                style={[formStyles.chip, active && formStyles.chipActive]}
-              >
-                <Text style={[formStyles.chipText, active && formStyles.chipTextActive]}>{s}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <Text style={formStyles.sectionLabel}>Phase & status</Text>
+        <JobPhaseStatusSelect
+          phase={phase}
+          status={status}
+          onChange={({ phase: nextPhase, status: nextStatus }) => {
+            setPhase(nextPhase);
+            setStatus(nextStatus);
+          }}
+        />
 
         <FormField
           label="Start date"

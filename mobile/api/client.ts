@@ -1,3 +1,4 @@
+import { STORED_JOB_STATUSES } from '@/lib/jobStatus';
 import { clearSessionToken, getSessionToken, setSessionToken } from '@/lib/session';
 import { preparePhoto } from '@/lib/preparePhoto';
 
@@ -18,28 +19,19 @@ export type Client = {
   state?: string;
   zip?: string;
   notes?: string;
+  /** Lead pipeline status (Contact … Declined). */
+  status?: string;
+  archived_at?: string;
   created_date?: string;
   updated_date?: string;
 };
 
-export type JobStatus =
-  | 'Estimate'
-  | 'Scheduled'
-  | 'In Progress'
-  | 'Waiting on Materials'
-  | 'On Hold'
-  | 'Completed'
-  | 'Paid';
+/** Three-phase stored statuses (Lead → Working → Payment). Legacy labels still appear on old rows. */
+export type JobStatus = (typeof STORED_JOB_STATUSES)[number] | string;
 
-export const JOB_STATUSES: JobStatus[] = [
-  'Estimate',
-  'Scheduled',
-  'In Progress',
-  'Waiting on Materials',
-  'On Hold',
-  'Completed',
-  'Paid',
-];
+export const JOB_STATUSES: string[] = [...STORED_JOB_STATUSES];
+
+export type JobPhase = 'lead' | 'working' | 'payment';
 
 export type JobMaterial = {
   id?: string;
@@ -57,7 +49,12 @@ export type Job = {
   client_id: string;
   client_name?: string;
   description?: string;
+  phase?: JobPhase | string;
   status?: JobStatus | string;
+  lead_status?: string;
+  working_status?: string;
+  payment_status?: string;
+  work_type?: string;
   start_date?: string;
   end_date?: string;
   notes?: string;
@@ -80,6 +77,7 @@ export type TimelineEntry = {
   photo_url?: string;
   category?: string;
   amount?: number;
+  job_status?: string;
   /** When set, receipt is linked to a Material Order (web MO editor parity). */
   related_material_order_id?: string;
   created_date?: string;

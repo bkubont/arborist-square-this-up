@@ -14,6 +14,7 @@ import { api, type AccountSummaries, type Job } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX, PRODUCT_NAME } from '@/lib/brand';
 import { ACTIVE_JOB_STATUSES, moneyCents } from '@/lib/format';
+import { isWorkingJob } from '@/lib/jobStatus';
 
 type AttentionRow = { id: string; title: string; detail: string; href?: string };
 
@@ -51,7 +52,9 @@ export default function DashboardScreen() {
     }, [load]),
   );
 
-  const active = jobs.filter(j => ACTIVE_JOB_STATUSES.includes(j.status as (typeof ACTIVE_JOB_STATUSES)[number]));
+  const active = jobs.filter(
+    j => isWorkingJob(j) && ACTIVE_JOB_STATUSES.includes(j.status || ''),
+  );
   const totals = summaries?.totals;
   const attention: AttentionRow[] = [];
   if (summaries?.waiting_payment?.length) {

@@ -16,10 +16,4 @@ export function shortDate(d: string | null | undefined): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export const ACTIVE_JOB_STATUSES = [
-  'Estimate',
-  'Scheduled',
-  'In Progress',
-  'Waiting on Materials',
-  'On Hold',
-] as const;
+export { ACTIVE_JOB_STATUSES } from '@/lib/jobStatus';

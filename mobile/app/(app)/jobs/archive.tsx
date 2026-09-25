@@ -5,34 +5,33 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
-import { api, JOB_STATUSES, type Job } from '@/api/client';
+import { api, type Job } from '@/api/client';
 import { BRAND_HEX } from '@/lib/brand';
 import { shortDate } from '@/lib/format';
 import { formatJobStatus, isArchivedJob } from '@/lib/jobStatus';
 
 /**
- * All Jobs — full list with status filter (web /jobs, includes archived).
+ * Archive — Paid, Declined, and Cancelled jobs (web /jobs/archive).
  */
-export default function AllJobsScreen() {
+export default function ArchiveJobsScreen() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState<string>('All');
 
   const load = useCallback(async () => {
     setError('');
     try {
-      setJobs(await api.entities.Job.listAll('-created_date'));
+      const all = await api.entities.Job.listAll('-updated_date');
+      setJobs(all.filter(isArchivedJob));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load jobs');
+      setError(err instanceof Error ? err.message : 'Failed to load archive');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -45,16 +44,14 @@ export default function AllJobsScreen() {
     }, [load]),
   );
 
-  const filterOptions = useMemo(() => {
-    const present = new Set(jobs.map(j => j.status || '—').filter(Boolean));
-    const known = JOB_STATUSES.filter(s => present.has(s));
-    const extras = [...present].filter(s => !(JOB_STATUSES as string[]).includes(s)).sort();
-    return ['All', ...known, ...extras];
-  }, [jobs]);
-
-  const shown = useMemo(
-    () => (filter === 'All' ? jobs : jobs.filter(j => (j.status || '—') === filter)),
-    [jobs, filter],
+  const sorted = useMemo(
+    () =>
+      [...jobs].sort((a, b) =>
+        String(b.archived_at || b.updated_date || '').localeCompare(
+          String(a.archived_at || a.updated_date || ''),
+        ),
+      ),
+    [jobs],
   );
 
   if (loading && !jobs.length) {
@@ -68,35 +65,28 @@ export default function AllJobsScreen() {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>All Jobs</Text>
+        <Text style={styles.title}>Archive</Text>
         <Text style={styles.subtitle}>
-          {shown.length} of {jobs.length} jobs
+          {loading ? 'Paid, declined, and cancelled jobs' : `${sorted.length} archived`}
         </Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}
-        >
-          {filterOptions.map(opt => {
-            const active = filter === opt;
-            return (
-              <Pressable
-                key={opt}
-                onPress={() => setFilter(opt)}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        <View style={styles.links}>
+          <Pressable onPress={() => router.push('/(app)/(tabs)/jobs')}>
+            <Text style={styles.link}>Active</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push('/(app)/jobs/all')}>
+            <Text style={styles.link}>All jobs</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push('/(app)/jobs/board')}>
+            <Text style={styles.link}>Board</Text>
+          </Pressable>
+        </View>
       </View>
 
       <FlatList
-        data={shown}
+        data={sorted}
         keyExtractor={item => item.id}
-        contentContainerStyle={shown.length ? styles.listPad : styles.centered}
+        contentContainerStyle={sorted.length ? styles.listPad : styles.centered}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -107,7 +97,12 @@ export default function AllJobsScreen() {
             tintColor={BRAND_HEX.royalBlue}
           />
         }
-        ListEmptyComponent={<Text style={styles.empty}>No jobs here.</Text>}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <Text style={styles.empty}>No archived jobs yet.</Text>
+            <Text style={styles.emptyHint}>Jobs move here when marked Paid, Declined, or Cancelled.</Text>
+          </View>
+        }
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}
@@ -116,12 +111,10 @@ export default function AllJobsScreen() {
             <View style={styles.rowBody}>
               <Text style={styles.rowTitle}>{item.title}</Text>
               <Text style={styles.rowMeta}>
-                {item.client_name || 'No customer'} · {formatJobStatus(item) || item.status || '—'}
+                {item.client_name || '—'} · {formatJobStatus(item) || item.status || '—'}
               </Text>
-              {isArchivedJob(item) ? (
-                <Text style={styles.archived}>
-                  Archived{item.archived_at ? ` ${shortDate(item.archived_at)}` : ''}
-                </Text>
+              {item.archived_at ? (
+                <Text style={styles.archived}>Archived {shortDate(item.archived_at)}</Text>
               ) : null}
             </View>
             <Text style={styles.chevron}>›</Text>
@@ -139,20 +132,12 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.black },
   subtitle: { fontSize: 13, color: '#666' },
   error: { color: '#b00020', fontSize: 14 },
-  filters: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
-  chip: {
-    borderWidth: 1,
-    borderColor: '#d0d0dc',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: '#fff',
-  },
-  chipActive: { borderColor: BRAND_HEX.royalBlue, backgroundColor: '#e8e8f8' },
-  chipText: { fontSize: 13, color: '#444', fontWeight: '500' },
-  chipTextActive: { color: BRAND_HEX.royalBlue, fontWeight: '700' },
+  links: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 4 },
+  link: { fontSize: 14, fontWeight: '600', color: BRAND_HEX.royalBlue },
   listPad: { paddingHorizontal: 16, paddingBottom: 32 },
+  emptyWrap: { alignItems: 'center', gap: 8 },
   empty: { color: '#888', fontSize: 15 },
+  emptyHint: { color: '#aaa', fontSize: 13, textAlign: 'center' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
