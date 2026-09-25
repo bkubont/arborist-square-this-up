@@ -1,7 +1,6 @@
-/** Brittany's task board columns, in order (finish | completed | cancelled at the end). */
+/** Brittany's task board columns, in order (finish | completed | cancelled at the end). Job materials live on Overview, not the board. */
 export const TASK_STATUSES = [
   'plan',
-  'materials',
   'permits',
   'waiting_on_approval',
   'blocked',
@@ -14,7 +13,8 @@ export const TASK_STATUSES = [
 export const LEGACY_TASK_STATUS_MAP = {
   prep: 'plan',
   in_progress: 'plan',
-  waiting_materials: 'materials',
+  materials: 'plan',
+  waiting_materials: 'blocked',
   on_hold: 'blocked',
   done: 'completed',
 };
@@ -49,10 +49,10 @@ export function isTaskClosed(status) {
   return isTaskCompleted(status) || isTaskCancelled(status);
 }
 
-/** Built-in templates start in their home column (Prep → plan, Materials → materials, Final walkthrough → finish). */
+/** Built-in templates start in their home column (Prep → plan). */
 export function defaultStatusForTemplate(templateKey) {
   if (templateKey === 'final_walkthrough') return 'finish';
-  if (templateKey === 'materials') return 'materials';
+  if (templateKey === 'materials') return 'plan';
   if (templateKey === 'prep') return 'plan';
   return DEFAULT_TASK_STATUS;
 }

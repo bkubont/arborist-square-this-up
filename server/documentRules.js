@@ -4,7 +4,7 @@
  */
 import { fail, decode } from './domain.js';
 
-export const SINGLE_DOC_ENTITIES = new Set(['Estimate', 'Invoice']);
+export const SINGLE_DOC_ENTITIES = new Set(['Estimate', 'Invoice', 'PunchList']);
 
 export function isNonVoid(record) {
   return record && record.status !== 'void';

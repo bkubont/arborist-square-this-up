@@ -1,8 +1,10 @@
 /**
- * Job-level materials: list lives on the job (and task rows); status is derived — never a second dropdown.
+ * Job-level materials: list lives on the job (and task rows); header status is derived — never a second dropdown.
  */
 
-/** @typedef {{ description?: string, qty?: number, unit?: string, unit_price?: number, have?: boolean, notes?: string, id?: string }} MaterialItem */
+import { isMaterialOnHand, normalizeMaterialStatus } from './materialStatus.js';
+
+/** @typedef {{ description?: string, qty?: number, unit?: string, unit_price?: number, have?: boolean, status?: string, notes?: string, id?: string }} MaterialItem */
 
 /**
  * Flatten job.materials plus every task material row (cancelled tasks skipped).
@@ -32,9 +34,9 @@ export function collectJobMaterialItems(job, workItems = []) {
  */
 export function deriveMaterialsStatus({ job, workItems = [], materialOrders = [] } = {}) {
   const items = collectJobMaterialItems(job, workItems);
-  const needed = items.filter((m) => !m.have);
   const totalCount = items.length;
-  const neededCount = needed.length;
+  const statuses = items.map((m) => normalizeMaterialStatus(m));
+  const neededCount = statuses.filter((s) => !isMaterialOnHand({ status: s })).length;
 
   if (totalCount === 0) {
     return { key: 'none', label: 'No materials listed', neededCount: 0, totalCount: 0 };
@@ -42,6 +44,9 @@ export function deriveMaterialsStatus({ job, workItems = [], materialOrders = []
   if (neededCount === 0) {
     return { key: 'on_hand', label: 'All on hand', neededCount: 0, totalCount };
   }
+
+  const counts = { needed: 0, ordered: 0, waiting: 0, on_hand: 0 };
+  for (const status of statuses) counts[status] += 1;
 
   const activeOrders = (materialOrders || []).filter((mo) => mo?.status && mo.status !== 'void');
   const lines = activeOrders.flatMap((mo) => mo.lines || []);
@@ -51,7 +56,15 @@ export function deriveMaterialsStatus({ job, workItems = [], materialOrders = []
   if (lines.some((line) => line.line_status === 'backorder')) {
     return { key: 'backorder', label: 'Backordered', neededCount, totalCount };
   }
-  if (activeOrders.some((mo) => mo.status === 'purchased' || mo.status === 'ordered')) {
+  if (counts.waiting > 0) {
+    const label = counts.waiting === 1 ? 'Waiting' : `Waiting (${counts.waiting})`;
+    return { key: 'waiting', label, neededCount, totalCount };
+  }
+  if (counts.needed > 0) {
+    const label = counts.needed === 1 ? 'Needed' : `Needed (${counts.needed})`;
+    return { key: 'needed', label, neededCount, totalCount };
+  }
+  if (counts.ordered > 0 || activeOrders.some((mo) => mo.status === 'purchased' || mo.status === 'ordered')) {
     return { key: 'ordered', label: 'Ordered', neededCount, totalCount };
   }
   if (lines.some((line) => line.line_status === 'pricing')) {
@@ -60,8 +73,8 @@ export function deriveMaterialsStatus({ job, workItems = [], materialOrders = []
 
   const noun = neededCount === 1 ? 'item' : 'items';
   return {
-    key: 'waiting',
-    label: `Waiting on ${neededCount} ${noun}`,
+    key: 'needed',
+    label: `Needed (${neededCount} ${noun})`,
     neededCount,
     totalCount,
   };

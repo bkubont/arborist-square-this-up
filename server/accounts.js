@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { openDatabase, migrate } from './db.js';
 import { emailSchema, token, hash } from './security.js';
-import { wipeAndSeedAccount } from './seedDemo.js';
+import { wipeAndSeedAccount, describeSeedDatabase } from './seedDemo.js';
 
 const args = process.argv.slice(2);
 const yes = args.includes('--yes');
@@ -20,16 +20,25 @@ try {
   await migrate(db);
 
   if (command === 'seed-demo') {
-    const dbTarget = db.dialect === 'mysql'
-      ? `mysql://${process.env.DB_HOST || '?'}/${process.env.DB_NAME || '?'}`
-      : `sqlite:${process.env.SQLITE_PATH || '.data/job-tracker.sqlite'}`;
-    console.log(`Using database ${dbTarget} (NODE_ENV=${process.env.NODE_ENV || 'unset'})`);
+    const dbTarget = describeSeedDatabase(db);
+    console.log(`Using database ${dbTarget.label} (NODE_ENV=${process.env.NODE_ENV || 'unset'})`);
+    console.log(dbTarget.hint);
     const result = await wipeAndSeedAccount(db, email, { yes });
+    const { visibility: v } = result;
+    const phaseSummary = v
+      ? `Lead ${v.boardByPhase.lead} · Working ${v.boardByPhase.working} · Payment ${v.boardByPhase.payment}`
+      : '';
     console.log(
       `Seeded demo data for ${result.email}: `
       + `${result.clients} clients (${result.clientsWithJobs} with jobs, ${result.clientsWithoutJobs} without), `
       + `${result.jobs} jobs, ${result.expenses} expenses.`,
     );
+    if (v) {
+      console.log(
+        `Visibility: ${v.allJobs} on All Jobs · ${v.boardJobs} on Board (${phaseSummary}) · `
+        + `${v.archivedJobs} in Archive (${v.archivedStatuses.join(', ') || 'none'}).`,
+      );
+    }
     console.log('Company profile and login were kept. Other accounts were not modified.');
   } else {
     const exists = (await db.all('SELECT id FROM users WHERE email = ?', [email])).length;
