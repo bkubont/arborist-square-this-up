@@ -14,7 +14,7 @@ import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
 import JobTasks from "@/components/JobTasks";
 import PunchListPanel from "@/components/PunchListPanel";
-import { JobRunningTotal, JobQuickAdd } from "@/components/JobCardInfo";
+import { JobRunningTotal, JobQuickNote } from "@/components/JobCardInfo";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
@@ -275,7 +275,7 @@ export default function JobDetail() {
                   />
                 }
               />
-              <JobQuickAdd job={job} onSaved={load} />
+              <JobQuickNote job={job} onSaved={load} />
             </div>
             {summary && summary.running_total_basis !== "none" && (
               <div className="text-right">

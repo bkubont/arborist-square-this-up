@@ -108,6 +108,74 @@ export function JobRunningTotal({ job = undefined, summary = undefined, classNam
 }
 
 /**
+ * Sticky-note shortcut for one job — saves a timeline note without leaving the page.
+ * @param {{ job: any, onSaved?: () => void, className?: string, stopNavigation?: boolean }} props
+ */
+export function JobQuickNote({ job, onSaved = undefined, className = undefined, stopNavigation = false }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    const value = text.trim();
+    if (!value) return;
+    setSaving(true);
+    try {
+      await api.entities.TimelineEntry.create({ job_id: job.id, type: "note", text: value, category: "note" });
+      toast({ title: "Note saved", description: job.title });
+      setText("");
+      setOpen(false);
+      onSaved?.();
+    } catch (e) {
+      alert(e?.message || "Could not save note.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const wrap = (child) => (
+    stopNavigation
+      ? <span className={cn("inline-flex", className)} onClick={(e) => e.stopPropagation()}>{child}</span>
+      : <span className={cn("inline-flex", className)}>{child}</span>
+  );
+
+  return wrap(
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="h-8 w-8 shrink-0"
+        aria-label={`Add note to ${job.title}`}
+        title="Quick note"
+        onClick={(e) => { if (stopNavigation) e.preventDefault(); setOpen(true); }}
+      >
+        <StickyNote className="w-4 h-4" />
+      </Button>
+      <Dialog open={open} onOpenChange={(next) => { if (!saving) setOpen(next); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick note</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground -mt-2 truncate">{job.title}</p>
+          <Textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={4}
+            placeholder="Quick note…"
+          />
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={save} disabled={saving || !text.trim()}>{saving ? "Saving…" : "Save note"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>,
+  );
+}
+
+/**
  * Quick add for one job: task, note, expense, receipt or payment, without opening the job.
  * @param {{ job: any, onSaved?: () => void, className?: string }} props
  */
