@@ -18,6 +18,7 @@ import {
   type Invoice,
   type Job,
 } from '@/api/client';
+import { AuthenticatedImage } from '@/components/AuthenticatedImage';
 import { BRAND_HEX } from '@/lib/brand';
 import { money, moneyCents, shortDate } from '@/lib/format';
 
@@ -164,17 +165,25 @@ export default function MoneyScreen() {
           const job = ex.job_id ? jobById[ex.job_id] : undefined;
           return (
             <Pressable
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.row, styles.expenseRow, pressed && styles.pressed]}
               onPress={() => router.push(`/(app)/expenses/${ex.id}`)}
             >
-              <Text style={styles.title}>
-                {money(ex.amount)} · {ex.category || 'Expense'}
-              </Text>
-              <Text style={styles.meta}>
-                {shortDate(ex.date || ex.created_date)}
-                {ex.vendor ? ` · ${ex.vendor}` : ''}
-                {job ? ` · ${job.title}` : ' · Unassigned'}
-              </Text>
+              {ex.photo_url ? (
+                <AuthenticatedImage fileUrl={ex.photo_url} style={styles.receiptThumb} />
+              ) : (
+                <View style={styles.receiptPlaceholder} />
+              )}
+              <View style={styles.expenseBody}>
+                <Text style={styles.title}>
+                  {money(ex.amount)} · {ex.category || 'Expense'}
+                </Text>
+                <Text style={styles.meta}>
+                  {shortDate(ex.date || ex.created_date)}
+                  {ex.vendor ? ` · ${ex.vendor}` : ''}
+                  {job ? ` · ${job.title}` : ' · Unassigned'}
+                  {ex.photo_url ? ' · receipt' : ''}
+                </Text>
+              </View>
             </Pressable>
           );
         }}
@@ -239,6 +248,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e4e4ef',
     gap: 4,
+  },
+  expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  expenseBody: { flex: 1, gap: 4 },
+  receiptThumb: { width: 52, height: 52, borderRadius: 8 },
+  receiptPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f5',
+    borderWidth: 1,
+    borderColor: '#e4e4ef',
   },
   pressed: { backgroundColor: '#f0f0f8' },
   title: { fontSize: 15, fontWeight: '600', color: BRAND_HEX.black },

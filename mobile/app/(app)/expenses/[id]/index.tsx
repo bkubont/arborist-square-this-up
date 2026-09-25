@@ -87,7 +87,9 @@ export default function ExpenseDetailScreen() {
       {expense.note ? <Text style={styles.body}>{expense.note}</Text> : null}
       {expense.photo_url ? (
         <AuthenticatedImage fileUrl={expense.photo_url} style={styles.photo} />
-      ) : null}
+      ) : (
+        <Text style={styles.meta}>No receipt photo — add one in Edit.</Text>
+      )}
       {job ? (
         <Pressable onPress={() => router.push(`/(app)/jobs/${job.id}`)}>
           <Text style={styles.link}>Job · {job.title}</Text>
