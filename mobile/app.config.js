@@ -1,6 +1,5 @@
 const linkHost = process.env.EXPO_PUBLIC_LINK_HOST || 'jobs.yourdomain.com';
-// Store listing / App Review links — leave empty until live HTTPS pages exist.
-// Examples once published: https://squarethisup.com/privacy , https://squarethisup.com
+// Store listing / App Review — production: https://squarethisup.com/privacy and /support
 const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
 const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
 

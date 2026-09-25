@@ -85,6 +85,15 @@ Dictation uses browser SpeechRecognition where supported, with editable text bef
 
 Add/Edit Client can suggest addresses while typing. Set `VITE_GOOGLE_PLACES_API_KEY` (browser Places key, restrict by HTTP referrer) for Google Places (`types: address`). When unset, the API uses free Photon/OSM suggestions at `/api/address-suggest`, filtered to house/street results (US) so city/locality hits do not overwrite the street field. Selecting a suggestion fills street, city, state, and ZIP; fields remain fully editable manually. Street, city, state, and ZIP are required; address line 2 (apt/suite) is not.
 
+## Public privacy and support pages
+
+After deploy, these routes are public (no login):
+
+- Privacy Policy: `https://squarethisup.com/privacy`
+- Support: `https://squarethisup.com/support`
+
+The support mailbox shown on those pages is `SUPPORT_EMAIL` in `src/lib/brand.js` (default `support@squarethisup.com`). Change it to the real inbox before store listing. Mobile store Settings read the same URLs from `EXPO_PUBLIC_PRIVACY_POLICY_URL` / `EXPO_PUBLIC_SUPPORT_URL` (see `mobile/.env.example`).
+
 ## Mobile (Expo)
 
 Native iOS/Android client lives in `mobile/` (Expo managed + Expo Router). Bearer sessions against this API; web still uses cookies. Account deletion: `DELETE /api/auth/account` (Settings on web and More on mobile).

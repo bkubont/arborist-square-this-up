@@ -49,6 +49,15 @@ export default function Login() {
           >
             Create your account
           </Link>
+          <span className="block mt-2 text-muted-foreground">
+            <Link to="/privacy" className="hover:underline">
+              Privacy
+            </Link>
+            {" · "}
+            <Link to="/support" className="hover:underline">
+              Support
+            </Link>
+          </span>
         </>
       }
     >

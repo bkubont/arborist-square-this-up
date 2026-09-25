@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
 import { DEFAULT_SALES_TAX_RATE } from "@/lib/salesTax";
 import { assignAppPath } from "@/lib/desktopSession";
+import { SUPPORT_EMAIL } from "@/lib/brand";
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
 export default function CompanySettings() {
@@ -166,6 +168,30 @@ export default function CompanySettings() {
             <Input value={form.default_payment_terms} onChange={(e) => set("default_payment_terms", e.target.value)} placeholder="Due upon receipt" />
           </div>
         </div>
+      </div>
+
+      <div className="mt-8 bg-white rounded-xl border border-slate-200 p-5 space-y-2">
+        <h2 className="text-base font-semibold text-slate-900">Legal &amp; support</h2>
+        <p className="text-sm text-slate-600">
+          Public pages for App Store / Play listing and account questions.
+        </p>
+        <ul className="text-sm space-y-1">
+          <li>
+            <Link to="/privacy" className="text-primary hover:underline">
+              Privacy Policy
+            </Link>
+          </li>
+          <li>
+            <Link to="/support" className="text-primary hover:underline">
+              Support
+            </Link>
+          </li>
+          <li>
+            <a className="text-primary hover:underline" href={`mailto:${SUPPORT_EMAIL}`}>
+              {SUPPORT_EMAIL}
+            </a>
+          </li>
+        </ul>
       </div>
 
       <div className="mt-8 bg-white rounded-xl border border-destructive/30 p-5 space-y-3">

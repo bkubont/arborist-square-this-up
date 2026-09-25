@@ -16,7 +16,7 @@ function trimUrl(value: unknown): string {
 
 /**
  * Store-listing / App Review URLs from env + app.config `extra`.
- * Leave empty until live HTTPS pages exist (see eas-store-setup walkthrough).
+ * Production: https://squarethisup.com/privacy and /support (web public routes).
  */
 export function getPrivacyPolicyUrl(): string {
   return (

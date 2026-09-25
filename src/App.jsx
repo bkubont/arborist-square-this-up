@@ -26,6 +26,8 @@ import CompanySettings from '@/pages/CompanySettings';
 import Estimates from '@/pages/Estimates';
 import { SchedulePage, ExpensesPage, ReceiptsPage, ReportsPage } from '@/pages/ShellPlaceholders';
 import SignEstimate from '@/pages/SignEstimate';
+import Privacy from '@/pages/Privacy';
+import Support from '@/pages/Support';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -50,6 +52,8 @@ const AuthenticatedApp = () => {
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/support" element={<Support />} />
       <Route path="/sign/:token" element={<SignEstimate />} />
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route element={<AppLayout />}>

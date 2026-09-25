@@ -16,14 +16,14 @@ Native iOS/Android client. Bearer sessions against the Express API (`X-Client: m
 cd mobile
 cp .env.example .env
 # EXPO_PUBLIC_API_URL=http://localhost:3000   (Android emulator: http://10.0.2.2:3000)
-# EXPO_PUBLIC_LINK_HOST=jobs.yourdomain.com   # production HTTPS host for App Links
-# EXPO_PUBLIC_PRIVACY_POLICY_URL=https://…/privacy   # optional until live page exists
-# EXPO_PUBLIC_SUPPORT_URL=https://…                  # optional until live page exists
+# EXPO_PUBLIC_LINK_HOST=squarethisup.com       # production HTTPS host for App Links
+# EXPO_PUBLIC_PRIVACY_POLICY_URL=https://squarethisup.com/privacy
+# EXPO_PUBLIC_SUPPORT_URL=https://squarethisup.com/support
 npm start
 npm run typecheck
 ```
 
-Leave privacy/support URLs blank until you publish live HTTPS pages (do not invent a web `/privacy` route unless you ship one). More → Legal shows a configure reminder when unset.
+Production web routes `/privacy` and `/support` ship in the Vite app. Point the env vars at those URLs for App Review. Leave them blank in local `.env` if you only need Delete account — More → Legal shows a configure reminder when unset.
 Custom scheme (always works in Expo Go / dev builds):
 
 - `squarethisup://register?invite=…&email=…`

@@ -1,6 +1,12 @@
 /** Square This Up brand constants (Brittany Stephenson). */
 export const PRODUCT_NAME = "Square This Up";
 
+/**
+ * Public support mailbox shown on /support and /privacy.
+ * Edit to the real inbox before store listing; keep in sync with Hostinger mail if used.
+ */
+export const SUPPORT_EMAIL = "support@squarethisup.com";
+
 /** Exact brand hexes */
 export const BRAND_HEX = {
   royalBlue: "#0504AA",
