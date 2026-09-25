@@ -76,7 +76,7 @@ const signMeta = {
 export { TASK_STATUSES } from './taskStatus.js';
 
 /** Job-linked document entities (parent_id = job_id). */
-export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice'];
+export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'PunchList'];
 /** Estimate/ChangeOrder statuses that mean "the customer decided" or "withdrawn" — the document is frozen. */
 export const SCOPE_TERMINAL_STATUSES = { Estimate: ['accepted', 'declined', 'void'], ChangeOrder: ['approved', 'rejected', 'void'] };
 /** The one status each reaches only through a real customer signature (see server/sign.js). */
@@ -170,7 +170,7 @@ export const schemas = {
    */
   WorkItem: z.object({
     job_id: id,
-    /** Built-in Prep / Final walkthrough rows; set only by attachDefaultJobTasks. */
+    /** Built-in Prep / Materials rows; set only by attachDefaultJobTasks. Legacy final_walkthrough may remain on old jobs. */
     template_key: z.enum(['prep', 'materials', 'final_walkthrough']).optional(),
     source_type: z.enum(['Estimate', 'ChangeOrder']).optional(),
     source_id: id.optional(),
@@ -322,6 +322,22 @@ export const schemas = {
     }).optional(),
     ...signMeta,
   }),
+  PunchList: z.object({
+    job_id: id,
+    title: text.default('Final walkthrough'),
+    status: z.enum(['in_progress', 'completed', 'void']).default('in_progress'),
+    sections: z.array(z.object({
+      key: z.enum(['finish', 'find', 'funds']),
+      label: text.default(''),
+      items: z.array(z.object({
+        id: z.string().max(64).optional(),
+        text: text.default(''),
+        done: z.boolean().default(false),
+      })).max(200).default([]),
+    })).max(3).default([]),
+    completed_photo_url: z.string().max(200).optional(),
+    completed_at: z.string().max(40).optional(),
+  }),
   Invoice: z.object({
     job_id: id,
     number: docNumber,
@@ -411,6 +427,12 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
     const cents = data.lines.reduce((sum, line) => sum + Math.max(0, Math.round(scopeLineAmount(line) * 100)), 0);
     data.added_cost = cents / 100;
     data.net_change = Math.round(cents - (Number(data.credit) || 0) * 100) / 100;
+  }
+  if (entity === 'PunchList' && Array.isArray(data.sections)) {
+    data.sections = data.sections.map((section) => ({
+      ...section,
+      items: withIds(section.items || []),
+    }));
   }
   if (entity === 'WorkItem') {
     for (const key of ['steps', 'measurements', 'materials']) if (data[key]) data[key] = withIds(data[key]);

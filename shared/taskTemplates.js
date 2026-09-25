@@ -1,12 +1,11 @@
-/** Built-in job task templates — Prep first, Materials next, Final walkthrough last on every job. */
+/** Built-in job task templates — Prep first, Materials next on every job. Final walkthrough is a punch list document. */
 
-export const JOB_TASK_TEMPLATE_KEYS = ['prep', 'materials', 'final_walkthrough'];
+export const JOB_TASK_TEMPLATE_KEYS = ['prep', 'materials'];
 
-/** Prep leads; Materials follows Prep; signed scope sits between; Final walkthrough closes the list. */
+/** Prep leads; signed scope sits between Prep and Materials. */
 export const JOB_TASK_SORT = {
   prep: 100,
   materials: 50_000,
-  final_walkthrough: 999_000,
 };
 
 /** Prep follows plan | prep | permits. */
@@ -23,17 +22,7 @@ export const MATERIALS_TASK_STEPS = [
   { text: 'On hand', done: false },
 ];
 
-/**
- * Final walkthrough follows finish | find | funds — same three-beat ring as plan | prep | permits.
- * Finish = finish work (trim, paint); Find = walk through / double check; Funds = bill / get paid.
- */
-export const FINAL_WALKTHROUGH_STEPS = [
-  { text: 'Finish', done: false },
-  { text: 'Find', done: false },
-  { text: 'Funds', done: false },
-];
-
-/** @typedef {'prep' | 'materials' | 'final_walkthrough'} JobTaskTemplateKey */
+/** @typedef {'prep' | 'materials'} JobTaskTemplateKey */
 
 /** @type {Record<JobTaskTemplateKey, { template_key: JobTaskTemplateKey, description: string, sort_order: number, steps: Array<{ text: string, done: boolean }> }>} */
 export const JOB_TASK_TEMPLATES = {
@@ -49,17 +38,10 @@ export const JOB_TASK_TEMPLATES = {
     sort_order: JOB_TASK_SORT.materials,
     steps: MATERIALS_TASK_STEPS,
   },
-  final_walkthrough: {
-    template_key: 'final_walkthrough',
-    description: 'Final walkthrough',
-    sort_order: JOB_TASK_SORT.final_walkthrough,
-    steps: FINAL_WALKTHROUGH_STEPS,
-  },
 };
 
-/** Templates in attach order: Prep, Materials, Final walkthrough. */
+/** Templates in attach order: Prep, Materials. */
 export const DEFAULT_JOB_TASK_TEMPLATES = [
   JOB_TASK_TEMPLATES.prep,
   JOB_TASK_TEMPLATES.materials,
-  JOB_TASK_TEMPLATES.final_walkthrough,
 ];

@@ -13,7 +13,7 @@ import { carryOverChecklists } from './workItems.js';
 // Dependency order, not JOB_DOCUMENT_ENTITIES' display order: a record can only be imported once
 // everything it references by id exists (Estimate before MaterialOrder's related_estimate_id,
 // Invoice before Payment's invoice_id), or the id lookup below throws on a valid backup.
-const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', 'Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'Payment', 'WorkItem', 'Expense', 'TimelineEntry'];
+const IMPORT_ORDER = ['Client', 'Job', 'CompanyProfile', 'Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'PunchList', 'Payment', 'WorkItem', 'Expense', 'TimelineEntry'];
 // Retired record types a backup may still carry. Skipped rather than rejected, so a backup taken
 // before the checklist replaced the Work Order still restores (the checklist is rebuilt from the
 // signed documents by carryOverChecklists).

@@ -51,7 +51,11 @@ export const api = {
     WorkItem: entity('WorkItem'),
     ChangeOrder: entity('ChangeOrder'),
     Invoice: entity('Invoice'),
+    PunchList: entity('PunchList'),
     Expense: entity('Expense'),
+  },
+  punchList: {
+    complete(id, data) { return post(`/punch-list/${encodeURIComponent(id)}/complete`, data); },
   },
   catalog: {
     search(filters = {}) {

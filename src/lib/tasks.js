@@ -56,13 +56,12 @@ export function sortTasks(items = []) {
     || (a.created_date || "").localeCompare(b.created_date || ""));
 }
 
-/** List view: Prep, Materials, signed scope, Final walkthrough — regardless of status. */
+/** List view: Prep, Materials, signed scope — regardless of status. */
 export function sortTasksForList(items = []) {
   const band = (item) => {
     if (item?.template_key === "prep") return 0;
-    if (item?.template_key === "materials") return 1;
-    if (item?.template_key === "final_walkthrough") return 3;
-    return 2;
+    if (item?.template_key === "materials") return 2;
+    return 1;
   };
   return [...items].sort((a, b) =>
     band(a) - band(b)

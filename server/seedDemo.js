@@ -7,6 +7,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { fileIdsOf, saveRecord, decode } from './domain.js';
 import { createWorkItemsForLines } from './workItems.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
+import { attachDefaultPunchList } from './defaultPunchList.js';
 import { emailSchema } from './security.js';
 
 /** Business entities wiped before reseeding (CompanyProfile is preserved). */
@@ -19,6 +20,7 @@ export const WIPE_ENTITIES = [
   'MaterialOrder',
   'ChangeOrder',
   'Invoice',
+  'PunchList',
   'Payment',
   'WorkItem',
 ];
@@ -291,6 +293,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     materials: blueprint.jobMaterials || undefined,
   });
   await attachDefaultJobTasks(db, ownerId, job.id);
+  await attachDefaultPunchList(db, ownerId, job.id);
 
   const estimatePayload = {
     job_id: job.id,
@@ -317,8 +320,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
   }
   const estimate = await saveRecord(db, ownerId, 'Estimate', estimatePayload);
 
-  // Tasks: built-in Prep + Final walkthrough (attachDefaultJobTasks), one per signed estimate line,
-  // at the job's stage.
+  // Tasks: built-in Prep + Materials (attachDefaultJobTasks), one per signed estimate line, at the job's stage.
   const setTaskStatuses = async (sourceId, status) => {
     const rows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'WorkItem', job.id]);
     for (const item of rows.map(decode)) {
@@ -330,10 +332,10 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     await setTaskStatuses(estimate.id, blueprint.tasks || 'plan');
   }
   if (['Completed', 'Paid'].includes(blueprint.status)) {
-    const rows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'WorkItem', job.id]);
-    for (const item of rows.map(decode)) {
-      if (item.template_key === 'final_walkthrough') {
-        await saveRecord(db, ownerId, 'WorkItem', { status: 'completed' }, item.id);
+    const punchRows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'PunchList', job.id]);
+    for (const punch of punchRows.map(decode)) {
+      if (punch.status !== 'completed') {
+        await saveRecord(db, ownerId, 'PunchList', { status: 'completed', completed_at: new Date().toISOString() }, punch.id);
       }
     }
   }

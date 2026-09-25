@@ -1,6 +1,6 @@
 /**
- * Attach built-in Prep, Materials, and Final walkthrough tasks to a job. Idempotent: skips templates
- * already present (by template_key, or by legacy description for older rows).
+ * Attach built-in Prep and Materials tasks to a job. Idempotent: skips templates already present
+ * (by template_key, or by legacy description for older rows). Final walkthrough is a punch list document.
  */
 import { saveRecord } from './domain.js';
 import { listJobDocuments } from './documentRules.js';
@@ -10,7 +10,6 @@ import { defaultStatusForTemplate } from './taskStatus.js';
 const LEGACY_DESCRIPTION = {
   prep: 'prep',
   materials: 'materials',
-  final_walkthrough: 'final walkthrough',
 };
 
 function matchesLegacy(task, template) {
