@@ -8,6 +8,8 @@ import { fileIdsOf, saveRecord, decode } from './domain.js';
 import { createWorkItemsForLines } from './workItems.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { attachDefaultPunchList } from './defaultPunchList.js';
+import { applyJobArchiveFields, isArchivedJob } from './jobArchive.js';
+import { applyJobStatusFields, JOB_PHASE_ORDER } from './jobStatus.js';
 import { emailSchema } from './security.js';
 
 /** Business entities wiped before reseeding (CompanyProfile is preserved). */
@@ -268,16 +270,8 @@ export async function wipeAccountBusinessData(db, ownerId) {
   };
 }
 
-async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
-  const startOffset = -20 + (jobIndex % 10) * 2;
-  const start_date = isoDate(startOffset);
-  const end_date = isoDate(startOffset + 5);
-  const labor = blueprint.estimate.labor;
-  const material = blueprint.estimate.material;
-  const totals = estimateTotals(labor, material, taxRate);
-  const lines = estimateLines(labor, material);
-
-  const job = await saveRecord(db, ownerId, 'Job', {
+function prepareDemoJobFields(blueprint, client, { start_date, end_date }) {
+  return applyJobArchiveFields(applyJobStatusFields({
     title: blueprint.title,
     client_id: client.id,
     client_name: client.name,
@@ -291,7 +285,38 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     // Do not also set deposit_amount — FinancialPanel / sumDepositsApplied add both.
     deposit_amount: 0,
     materials: blueprint.jobMaterials || undefined,
-  });
+  }));
+}
+
+/** Where seeded jobs land in the UI (Board hides archived terminal statuses). */
+export function summarizeDemoJobVisibility(jobs) {
+  const archived = jobs.filter((job) => isArchivedJob(job));
+  const board = jobs.filter((job) => !isArchivedJob(job));
+  const boardByPhase = Object.fromEntries(
+    JOB_PHASE_ORDER.map((phase) => [
+      phase,
+      board.filter((job) => (job.phase || 'lead') === phase).length,
+    ]),
+  );
+  return {
+    allJobs: jobs.length,
+    boardJobs: board.length,
+    archivedJobs: archived.length,
+    archivedStatuses: [...new Set(archived.map((job) => job.status))],
+    boardByPhase,
+  };
+}
+
+async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
+  const startOffset = -20 + (jobIndex % 10) * 2;
+  const start_date = isoDate(startOffset);
+  const end_date = isoDate(startOffset + 5);
+  const labor = blueprint.estimate.labor;
+  const material = blueprint.estimate.material;
+  const totals = estimateTotals(labor, material, taxRate);
+  const lines = estimateLines(labor, material);
+
+  const job = await saveRecord(db, ownerId, 'Job', prepareDemoJobFields(blueprint, client, { start_date, end_date }));
   await attachDefaultJobTasks(db, ownerId, job.id);
   await attachDefaultPunchList(db, ownerId, job.id);
 
@@ -551,12 +576,19 @@ export async function seedDemoData(db, ownerId) {
     });
   }
 
+  const jobRows = await db.all(
+    'SELECT data FROM records WHERE owner_id = ? AND entity = ?',
+    [ownerId, 'Job'],
+  );
+  const jobRecords = jobRows.map((row) => JSON.parse(row.data));
+
   return {
     clients: clients.length,
     jobs: jobIndex,
     expenses: expenseSpecs.length,
     clientsWithJobs: JOBS_PER_CLIENT.filter((n) => n > 0).length,
     clientsWithoutJobs: JOBS_PER_CLIENT.filter((n) => n === 0).length,
+    visibility: summarizeDemoJobVisibility(jobRecords),
   };
 }
 
@@ -607,4 +639,22 @@ export const DEMO_SPEC = {
   jobsPerClient: JOBS_PER_CLIENT,
   totalJobs: JOB_BLUEPRINTS.length,
   jobStatuses: JOB_BLUEPRINTS.map((b) => b.status),
+  /** Paid demo jobs are intentionally archived — Board/Active show the rest. */
+  expectedBoardJobs: JOB_BLUEPRINTS.length - JOB_BLUEPRINTS.filter((b) => b.status === 'Paid').length,
+  expectedArchivedJobs: JOB_BLUEPRINTS.filter((b) => b.status === 'Paid').length,
 };
+
+/** Human-readable database target for seed-demo CLI output. */
+export function describeSeedDatabase(db, env = process.env) {
+  if (db.dialect === 'mysql') {
+    return {
+      label: `mysql://${env.DB_HOST || '?'}/${env.DB_NAME || '?'}`,
+      hint: 'Production MySQL — confirm this matches the running app.',
+    };
+  }
+  const path = env.SQLITE_PATH || '.data/job-tracker.sqlite';
+  return {
+    label: `sqlite:${path}`,
+    hint: 'Local SQLite dev database — not Hostinger MySQL. Set DB_HOST/DB_USER/DB_PASSWORD/DB_NAME to seed production.',
+  };
+}
