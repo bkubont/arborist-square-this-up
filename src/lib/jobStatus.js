@@ -92,3 +92,27 @@ export function formatJobStatus(job) {
 export function statusesForPhase(phase) {
   return JOB_PHASES[phase]?.statuses ? [...JOB_PHASES[phase].statuses] : [];
 }
+
+/** Declined contacts leave the active customers list. */
+export function isArchivedClient(client) {
+  if (!client) return false;
+  if (client.status === 'Declined') return true;
+  return Boolean(client.archived_at);
+}
+
+/**
+ * Lead status shown on a contact profile.
+ * Stored contact status wins; otherwise a tied lead job's status; otherwise Contact.
+ */
+export function contactLeadStatus(client, jobs = []) {
+  const leadStatuses = JOB_PHASES.lead.statuses;
+  if (leadStatuses.includes(client?.status)) return client.status;
+  const leadJobs = jobs.filter((job) => (job?.phase || phaseForStatus(job?.status)) === 'lead');
+  const shared = [...new Set(leadJobs.map((job) => job.status).filter((status) => leadStatuses.includes(status)))];
+  if (shared.length === 1) return shared[0];
+  if (leadJobs.length > 1) {
+    const newest = [...leadJobs].sort((a, b) => String(b.updated_date || '').localeCompare(String(a.updated_date || '')))[0];
+    if (leadStatuses.includes(newest?.status)) return newest.status;
+  }
+  return defaultStatusForPhase('lead');
+}

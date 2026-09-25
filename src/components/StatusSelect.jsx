@@ -16,13 +16,18 @@ export default function StatusSelect({
   className = undefined,
   triggerClassName = undefined,
   formatLabel = undefined,
+  id = undefined,
+  ariaLabel = undefined,
+  disabled = false,
 }) {
   const opts = entity ? { entity } : {};
   const current = statusColors(value, opts);
   const labelFor = (s) => (formatLabel ? formatLabel(s) : (entity ? statusLabel(s) : s));
   return (
-    <Select value={value} onValueChange={onValueChange}>
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
       <SelectTrigger
+        id={id}
+        aria-label={ariaLabel}
         className={cn(
           "border-2 font-medium",
           current.border,

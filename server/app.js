@@ -30,6 +30,7 @@ import {
   prepareInvoicePatch,
   refreshInvoicePaymentSync,
 } from './invoiceSync.js';
+import { applyClientPipelineFields, clientPipelineStatusChanged, syncClientLeadJobs } from './clientPipeline.js';
 import { applyJobArchiveFields } from './jobArchive.js';
 import { applyJobStatusFields, normalizeJobRecord } from './jobStatus.js';
 import { normalizeWorkItemRecord } from './taskStatus.js';
@@ -495,6 +496,7 @@ export async function createApp(db, env = process.env) {
       body = applyJobStatusFields(body);
       body = applyJobArchiveFields(body);
     }
+    if (entity === 'Client') body = applyClientPipelineFields(body, null);
     if (entity === 'WorkItem') body = prepareWorkItemCreate(body);
     const created = await ownedTransaction(req.user.id, async tx => {
       if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
@@ -532,13 +534,16 @@ export async function createApp(db, env = process.env) {
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
     let body = req.body;
-    const previous = entity === 'Job' || JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'WorkItem'
+    const previous = entity === 'Job' || entity === 'Client' || JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'WorkItem'
       ? await getRecord(db, req.user.id, entity, req.params.id)
       : null;
     if (entity === 'Job' && body && typeof body === 'object') {
       body = stripJobDerivedMoney(body);
       body = applyJobStatusFields(body, previous);
       body = applyJobArchiveFields(body, previous);
+    }
+    if (entity === 'Client' && body && typeof body === 'object') {
+      body = applyClientPipelineFields(body, previous);
     }
     if (entity === 'WorkItem') body = prepareWorkItemUpdate(previous, body);
     let withdrawingSignLink = false;
@@ -571,6 +576,9 @@ export async function createApp(db, env = process.env) {
         await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
       }
       const saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
+      if (entity === 'Client' && clientPipelineStatusChanged(req.body, previous, saved)) {
+        await syncClientLeadJobs(tx, req.user.id, saved.id, saved.status);
+      }
       if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, saved.job_id);
       if (withdrawingSignLink) await invalidateSignLinks(tx, req.user.id, entity, req.params.id);
       return saved;

@@ -6,6 +6,9 @@ import { Plus, Phone, Mail, MapPin, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ClientFormDialog from "@/components/ClientFormDialog";
 import PageHeader from "@/components/PageHeader";
+import StatusBadge from "@/components/StatusBadge";
+import { shortDate } from "@/lib/format";
+import { isArchivedClient } from "@/lib/jobStatus";
 
 export default function Clients() {
   const [clients, setClients] = useState([]);
@@ -13,6 +16,7 @@ export default function Clients() {
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const load = async () => {
     const [c, j] = await Promise.all([
@@ -29,6 +33,9 @@ export default function Clients() {
   }, []);
 
   const jobCount = (clientId) => jobs.filter((j) => j.client_id === clientId).length;
+  const activeClients = clients.filter((c) => !isArchivedClient(c));
+  const archivedClients = clients.filter((c) => isArchivedClient(c));
+  const shown = showArchived ? archivedClients : activeClients;
 
   const save = async (form) => {
     if (editing) {
@@ -45,7 +52,18 @@ export default function Clients() {
     <div className="p-4 lg:p-8 max-w-5xl mx-auto">
       <PageHeader
         title="Customers"
-        description={loading ? undefined : `${clients.length} customer${clients.length === 1 ? "" : "s"}`}
+        description={loading ? undefined : `${shown.length} ${showArchived ? "archived" : "active"}`}
+        secondary={
+          !loading && (archivedClients.length > 0 || showArchived) ? (
+            <button
+              type="button"
+              className="text-sm font-medium text-primary hover:underline px-2"
+              onClick={() => setShowArchived((v) => !v)}
+            >
+              {showArchived ? "Active" : `Archived (${archivedClients.length})`}
+            </button>
+          ) : null
+        }
         primaryAction={
           <Button
             className="bg-primary text-primary-foreground hover:bg-primary/90"
@@ -61,14 +79,14 @@ export default function Clients() {
 
       {loading ? (
         <p className="text-slate-400">Loading…</p>
-      ) : clients.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <Users className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p>No clients yet. Add your first one.</p>
+          <p>{showArchived ? "No archived customers." : clients.length === 0 ? "No clients yet. Add your first one." : "No active customers."}</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-3">
-          {clients.map((c) => (
+          {shown.map((c) => (
             <Link
               key={c.id}
               to={`/clients/${c.id}`}
@@ -80,6 +98,14 @@ export default function Clients() {
                   {jobCount(c.id)} jobs
                 </span>
               </div>
+              {(c.status || c.archived_at) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {c.status && <StatusBadge status={c.status} />}
+                  {c.archived_at && (
+                    <span className="text-xs text-slate-500">Archived {shortDate(c.archived_at)}</span>
+                  )}
+                </div>
+              )}
               <div className="mt-2 space-y-1 text-sm text-slate-500">
                 {addressLines(c).length > 0 && (
                   <div className="flex items-center gap-1.5">
