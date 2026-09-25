@@ -104,15 +104,22 @@ export function isArchivedClient(client) {
  * Lead status shown on a contact profile.
  * Stored contact status wins; otherwise a tied lead job's status; otherwise Contact.
  */
+function jobLeadMark(job) {
+  const leadStatuses = JOB_PHASES.lead.statuses;
+  if (leadStatuses.includes(job?.lead_status)) return job.lead_status;
+  if ((job?.phase || phaseForStatus(job?.status)) === 'lead' && leadStatuses.includes(job?.status)) return job.status;
+  return null;
+}
+
 export function contactLeadStatus(client, jobs = []) {
   const leadStatuses = JOB_PHASES.lead.statuses;
   if (leadStatuses.includes(client?.status)) return client.status;
-  const leadJobs = jobs.filter((job) => (job?.phase || phaseForStatus(job?.status)) === 'lead');
-  const shared = [...new Set(leadJobs.map((job) => job.status).filter((status) => leadStatuses.includes(status)))];
+  const marks = jobs.map(jobLeadMark).filter(Boolean);
+  const shared = [...new Set(marks)];
   if (shared.length === 1) return shared[0];
-  if (leadJobs.length > 1) {
-    const newest = [...leadJobs].sort((a, b) => String(b.updated_date || '').localeCompare(String(a.updated_date || '')))[0];
-    if (leadStatuses.includes(newest?.status)) return newest.status;
+  if (marks.length > 1) {
+    const newest = [...jobs].sort((a, b) => String(b.updated_date || '').localeCompare(String(a.updated_date || '')))[0];
+    return jobLeadMark(newest) || defaultStatusForPhase('lead');
   }
   return defaultStatusForPhase('lead');
 }

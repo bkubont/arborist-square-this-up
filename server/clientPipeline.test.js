@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test, { describe, it } from 'node:test';
 import { createApp } from './app.js';
-import { applyClientPipelineFields, CLIENT_LEAD_STATUSES } from './clientPipeline.js';
+import { applyClientPipelineFields, applyJobLeadField, CLIENT_LEAD_STATUSES, jobLeadChanged } from './clientPipeline.js';
 import { openDatabase, migrate } from './db.js';
 import { JOB_PHASES } from './jobStatus.js';
 import { hash, token } from './security.js';
@@ -48,6 +48,30 @@ describe('contact lead pipeline', () => {
 
     const rejected = applyClientPipelineFields({ status: 'Waiting on materials' }, { status: 'Contact' });
     assert.equal(rejected.status, 'Waiting on materials');
+  });
+
+  it('copies a lead phase status onto lead_status and leaves working patches alone', () => {
+    const lead = applyJobLeadField({ status: 'Waiting on approval' }, { status: 'Contact', phase: 'lead' });
+    assert.equal(lead.lead_status, 'Waiting on approval');
+    const working = applyJobLeadField(
+      { status: 'In progress', phase: 'working' },
+      { status: 'Prep', phase: 'working', lead_status: 'Assessment' },
+    );
+    assert.equal(working.lead_status, undefined);
+    const explicit = applyJobLeadField(
+      { lead_status: 'Approved' },
+      { status: 'Prep', phase: 'working', lead_status: 'Contact' },
+    );
+    assert.equal(explicit.lead_status, 'Approved');
+    assert.equal(explicit.status, undefined);
+    assert.equal(jobLeadChanged(
+      { status: 'Prep', lead_status: 'Contact' },
+      { status: 'In progress', lead_status: 'Contact' },
+    ), false);
+    assert.equal(jobLeadChanged(
+      { status: 'Contact', phase: 'lead' },
+      { status: 'Assessment', phase: 'lead', lead_status: 'Assessment' },
+    ), true);
   });
 });
 
@@ -141,6 +165,12 @@ test('contact lead status syncs lead jobs and Declined archives', async t => {
     data: { phase: 'lead', status: 'Assessment' },
   });
   assert.equal(movedJob.data.status, 'Assessment');
+  assert.equal(movedJob.data.lead_status, 'Assessment');
+  const clientAfterJob = await request(`/entities/Client/${client.id}`, { cookie: a.cookie });
+  assert.equal(clientAfterJob.data.status, 'Assessment');
+  const workingAfterJob = await request(`/entities/Job/${working.data.id}`, { cookie: a.cookie });
+  assert.equal(workingAfterJob.data.status, 'Prep');
+  assert.equal(workingAfterJob.data.lead_status, 'Assessment');
 
   const phone = await request(`/entities/Client/${client.id}`, {
     method: 'PATCH',
@@ -148,7 +178,7 @@ test('contact lead status syncs lead jobs and Declined archives', async t => {
     data: { phone: '555-0100' },
   });
   assert.equal(phone.status, 200);
-  assert.equal(phone.data.status, 'Contact');
+  assert.equal(phone.data.status, 'Assessment');
   const afterPhone = await request(`/entities/Job/${lead.data.id}`, { cookie: a.cookie });
   assert.equal(afterPhone.data.status, 'Assessment');
   assert.equal(afterPhone.data.phase, 'lead');
@@ -174,7 +204,11 @@ test('contact lead status syncs lead jobs and Declined archives', async t => {
     const job = await request(`/entities/Job/${lead.data.id}`, { cookie: a.cookie });
     assert.equal(job.data.phase, 'lead');
     assert.equal(job.data.status, status);
+    assert.equal(job.data.lead_status, status);
     assert.equal(job.data.archived_at, undefined);
+    const workingLead = await request(`/entities/Job/${working.data.id}`, { cookie: a.cookie });
+    assert.equal(workingLead.data.status, 'Prep');
+    assert.equal(workingLead.data.lead_status, status);
   }
 
   const declined = await request(`/entities/Client/${client.id}`, {
@@ -191,6 +225,7 @@ test('contact lead status syncs lead jobs and Declined archives', async t => {
   const workingJob = await request(`/entities/Job/${working.data.id}`, { cookie: a.cookie });
   assert.equal(workingJob.data.status, 'Prep');
   assert.equal(workingJob.data.phase, 'working');
+  assert.equal(workingJob.data.lead_status, 'Declined');
   assert.equal(workingJob.data.archived_at, undefined);
   const untouched = await request(`/entities/Job/${otherJob.data.id}`, { cookie: b.cookie });
   assert.equal(untouched.data.status, 'Assessment');
@@ -205,7 +240,45 @@ test('contact lead status syncs lead jobs and Declined archives', async t => {
   assert.equal(reopened.data.archived_at, undefined);
   const reopenedJob = await request(`/entities/Job/${lead.data.id}`, { cookie: a.cookie });
   assert.equal(reopenedJob.data.status, 'Contact');
+  assert.equal(reopenedJob.data.lead_status, 'Contact');
   assert.equal(reopenedJob.data.archived_at, undefined);
+
+  const progressed = await request(`/entities/Job/${working.data.id}`, {
+    method: 'PATCH',
+    cookie: a.cookie,
+    data: { phase: 'working', status: 'In progress' },
+  });
+  assert.equal(progressed.data.status, 'In progress');
+  assert.equal(progressed.data.lead_status, 'Contact');
+  assert.equal((await request(`/entities/Client/${client.id}`, { cookie: a.cookie })).data.status, 'Contact');
+
+  const fromWorkingLead = await request(`/entities/Job/${working.data.id}`, {
+    method: 'PATCH',
+    cookie: a.cookie,
+    data: { lead_status: 'Approved' },
+  });
+  assert.equal(fromWorkingLead.data.status, 'In progress');
+  assert.equal(fromWorkingLead.data.lead_status, 'Approved');
+  assert.equal((await request(`/entities/Client/${client.id}`, { cookie: a.cookie })).data.status, 'Approved');
+  const leadFollows = await request(`/entities/Job/${lead.data.id}`, { cookie: a.cookie });
+  assert.equal(leadFollows.data.status, 'Approved');
+  assert.equal(leadFollows.data.lead_status, 'Approved');
+  assert.equal(leadFollows.data.archived_at, undefined);
+
+  const declinedFromJob = await request(`/entities/Job/${lead.data.id}`, {
+    method: 'PATCH',
+    cookie: a.cookie,
+    data: { phase: 'lead', status: 'Declined' },
+  });
+  assert.equal(declinedFromJob.data.status, 'Declined');
+  assert.ok(declinedFromJob.data.archived_at);
+  const clientDeclinedFromJob = await request(`/entities/Client/${client.id}`, { cookie: a.cookie });
+  assert.equal(clientDeclinedFromJob.data.status, 'Declined');
+  assert.ok(clientDeclinedFromJob.data.archived_at);
+  const workingStillActive = await request(`/entities/Job/${working.data.id}`, { cookie: a.cookie });
+  assert.equal(workingStillActive.data.status, 'In progress');
+  assert.equal(workingStillActive.data.lead_status, 'Declined');
+  assert.equal(workingStillActive.data.archived_at, undefined);
 
   const timeline = await request(`/entities/TimelineEntry?job_id=${lead.data.id}`, { cookie: a.cookie });
   assert.ok(timeline.data.some(entry => entry.type === 'status_change' && entry.text === 'Status changed to Lead · Declined'));

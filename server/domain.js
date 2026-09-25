@@ -122,6 +122,8 @@ export const schemas = {
       'Invoiced',
       'Waiting on payment', 'Partial', 'Late', 'Paid',
     ]).default('Contact'),
+    /** Shared lead pipeline. Same values as Client.status. Independent of working/payment status. */
+    lead_status: clientLeadStatus.optional(),
     start_date: date.optional(), end_date: date.optional(),
     /** Set when a job reaches a terminal status — hides it from working lists; view under Archive. */
     archived_at: date.optional(),
