@@ -1,0 +1,319 @@
+import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
+
+import { api, type MaterialOrder, type MaterialOrderLine } from '@/api/client';
+import { CatalogPicker } from '@/components/CatalogPicker';
+import { FormError, FormField, formStyles } from '@/components/FormFields';
+import { DOCUMENT_STATUSES, MATERIAL_LINE_STATUSES, statusLabel } from '@/lib/documents';
+import { catalogItemToMaterialLine, materialOrderLineAmount, roundMoney } from '@/lib/estimateMath';
+import { money } from '@/lib/format';
+
+type LineForm = {
+  description: string;
+  qty: string;
+  unit_price: string;
+  supplier: string;
+  notes: string;
+  category: string;
+  on_hand: boolean;
+  line_status: string;
+  source_entity?: string;
+  source_id?: string;
+  source_line_id?: string;
+};
+
+const emptyLine = (): LineForm => ({
+  description: '',
+  qty: '1',
+  unit_price: '',
+  supplier: '',
+  notes: '',
+  category: '',
+  on_hand: false,
+  line_status: '',
+});
+
+function toForm(line: MaterialOrderLine): LineForm {
+  return {
+    description: line.description || '',
+    qty: line.qty != null ? String(line.qty) : '',
+    unit_price: line.unit_price != null ? String(line.unit_price) : '',
+    supplier: line.supplier || '',
+    notes: line.notes || '',
+    category: line.category || '',
+    on_hand: !!line.on_hand,
+    line_status: line.line_status || '',
+    source_entity: line.source_entity,
+    source_id: line.source_id,
+    source_line_id: line.source_line_id,
+  };
+}
+
+type Props = { materialOrder: MaterialOrder };
+
+export function MaterialOrderForm({ materialOrder }: Props) {
+  const router = useRouter();
+  const frozen = materialOrder.status === 'void';
+  const [number, setNumber] = useState(materialOrder.number || '');
+  const [date, setDate] = useState(materialOrder.date || '');
+  const [notes, setNotes] = useState(materialOrder.notes || '');
+  const [status, setStatus] = useState(
+    materialOrder.status === 'ordered' ? 'purchased' : materialOrder.status || 'draft',
+  );
+  const [lines, setLines] = useState<LineForm[]>(() => {
+    const existing = Array.isArray(materialOrder.lines) ? materialOrder.lines.map(toForm) : [];
+    return existing.length ? existing : [emptyLine()];
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [catalogFor, setCatalogFor] = useState<number | null>(null);
+
+  const subtotal = useMemo(
+    () =>
+      roundMoney(
+        lines.reduce(
+          (sum, line) =>
+            sum +
+            materialOrderLineAmount({
+              qty: line.qty === '' ? 0 : Number(line.qty),
+              unit_price: line.unit_price === '' ? 0 : Number(line.unit_price),
+            }),
+          0,
+        ),
+      ),
+    [lines],
+  );
+
+  const setLine = (index: number, patch: Partial<LineForm>) => {
+    setLines(rows => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+
+  const save = async () => {
+    if (frozen) return;
+    setError('');
+    setBusy(true);
+    try {
+      const serialized = lines
+        .map(line => ({
+          description: line.description || '',
+          qty: line.qty === '' ? undefined : Number(line.qty),
+          unit_price: line.unit_price === '' ? undefined : Number(line.unit_price),
+          supplier: line.supplier.trim() || undefined,
+          notes: line.notes.trim() || undefined,
+          category: line.category.trim() || undefined,
+          on_hand: line.on_hand || undefined,
+          line_status: line.line_status || undefined,
+          source_entity: line.source_entity,
+          source_id: line.source_id,
+          source_line_id: line.source_line_id,
+        }))
+        .filter(line => line.description || line.qty || line.unit_price);
+      await api.entities.MaterialOrder.update(materialOrder.id, {
+        number: number.trim() || undefined,
+        date: date.trim() || undefined,
+        notes: notes.trim() || undefined,
+        status,
+        lines: serialized,
+        subtotal,
+        total: subtotal,
+      });
+      router.replace(`/(app)/material-orders/${materialOrder.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={formStyles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+        <FormError message={error} />
+        <FormField label="Number" value={number} onChangeText={setNumber} editable={!frozen} />
+        <FormField
+          label="Date"
+          value={date}
+          onChangeText={setDate}
+          placeholder="YYYY-MM-DD"
+          autoCapitalize="none"
+          editable={!frozen}
+        />
+        <FormField label="Notes" value={notes} onChangeText={setNotes} multiline editable={!frozen} />
+
+        <Text style={formStyles.sectionLabel}>Status</Text>
+        <View style={formStyles.chipRow}>
+          {DOCUMENT_STATUSES.MaterialOrder.map(s => {
+            const active = s === status;
+            return (
+              <Pressable
+                key={s}
+                disabled={frozen}
+                onPress={() => setStatus(s)}
+                style={[formStyles.chip, active && formStyles.chipActive]}
+              >
+                <Text style={[formStyles.chipText, active && formStyles.chipTextActive]}>
+                  {statusLabel(s)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={formStyles.sectionLabel}>Lines</Text>
+        {lines.map((line, index) => (
+          <View key={`mo-${index}`} style={{ gap: 8, marginBottom: 8 }}>
+            <FormField
+              label={`Item ${index + 1}`}
+              value={line.description}
+              onChangeText={v => setLine(index, { description: v })}
+              editable={!frozen}
+            />
+            <FormField
+              label="Qty"
+              value={line.qty}
+              onChangeText={v => setLine(index, { qty: v })}
+              keyboardType="decimal-pad"
+              editable={!frozen}
+            />
+            <FormField
+              label="Unit price"
+              value={line.unit_price}
+              onChangeText={v => setLine(index, { unit_price: v })}
+              keyboardType="decimal-pad"
+              editable={!frozen}
+            />
+            <FormField
+              label="Category"
+              value={line.category}
+              onChangeText={v => setLine(index, { category: v })}
+              editable={!frozen}
+            />
+            <FormField
+              label="Supplier"
+              value={line.supplier}
+              onChangeText={v => setLine(index, { supplier: v })}
+              editable={!frozen}
+            />
+            <FormField
+              label="Notes"
+              value={line.notes}
+              onChangeText={v => setLine(index, { notes: v })}
+              editable={!frozen}
+            />
+
+            {!frozen ? (
+              <>
+                <Text style={formStyles.sectionLabel}>On hand / line status</Text>
+                <View style={formStyles.chipRow}>
+                  <Pressable
+                    style={[
+                      formStyles.chip,
+                      line.on_hand && { borderColor: '#047857', backgroundColor: '#ecfdf5' },
+                    ]}
+                    onPress={() => setLine(index, { on_hand: !line.on_hand })}
+                  >
+                    <Text
+                      style={[
+                        formStyles.chipText,
+                        line.on_hand && { color: '#047857', fontWeight: '700' },
+                      ]}
+                    >
+                      {line.on_hand ? 'On hand ✓' : 'On hand'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[formStyles.chip, !line.line_status && formStyles.chipActive]}
+                    onPress={() => setLine(index, { line_status: '' })}
+                  >
+                    <Text
+                      style={[
+                        formStyles.chipText,
+                        !line.line_status && formStyles.chipTextActive,
+                      ]}
+                    >
+                      None
+                    </Text>
+                  </Pressable>
+                  {MATERIAL_LINE_STATUSES.map(s => {
+                    const active = line.line_status === s;
+                    return (
+                      <Pressable
+                        key={s}
+                        style={[formStyles.chip, active && formStyles.chipActive]}
+                        onPress={() => setLine(index, { line_status: s })}
+                      >
+                        <Text style={[formStyles.chipText, active && formStyles.chipTextActive]}>
+                          {statusLabel(s)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={formStyles.chipRow}>
+                  <Pressable style={formStyles.chip} onPress={() => setCatalogFor(index)}>
+                    <Text style={formStyles.chipText}>From catalog</Text>
+                  </Pressable>
+                  <Pressable style={formStyles.chip} onPress={() => setLines(rows => [...rows, emptyLine()])}>
+                    <Text style={formStyles.chipText}>Add line</Text>
+                  </Pressable>
+                  <Pressable
+                    style={formStyles.chip}
+                    onPress={() =>
+                      setLines(rows => (rows.length <= 1 ? [emptyLine()] : rows.filter((_, i) => i !== index)))
+                    }
+                  >
+                    <Text style={formStyles.chipText}>Remove</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+          </View>
+        ))}
+
+        <Text style={formStyles.sectionLabel}>Total {money(subtotal)}</Text>
+
+        {!frozen ? (
+          <Pressable
+            style={({ pressed }) => [formStyles.button, (pressed || busy) && formStyles.buttonDisabled]}
+            onPress={save}
+            disabled={busy}
+          >
+            {busy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={formStyles.buttonText}>Save material order</Text>
+            )}
+          </Pressable>
+        ) : null}
+      </ScrollView>
+
+      <CatalogPicker
+        visible={catalogFor != null}
+        title="Add from catalog"
+        onClose={() => setCatalogFor(null)}
+        onPick={item => {
+          if (catalogFor == null) return;
+          const mapped = catalogItemToMaterialLine(item);
+          setLine(catalogFor, {
+            description: mapped.description,
+            qty: String(mapped.qty ?? 1),
+            unit_price: mapped.unit_price != null ? String(mapped.unit_price) : '',
+            notes: mapped.notes || '',
+          });
+        }}
+      />
+    </KeyboardAvoidingView>
+  );
+}

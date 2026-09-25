@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 
 import { api, type Client } from '@/api/client';
+import { AddressSuggestFields } from '@/components/AddressSuggestFields';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
 
 type Props = {
@@ -82,11 +83,16 @@ export function ClientForm({ client }: Props) {
       <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
         <FormError message={error} />
         <FormField label="Name" required value={form.name} onChangeText={v => set('name', v)} autoComplete="name" />
-        <FormField label="Street" required value={form.address} onChangeText={v => set('address', v)} autoComplete="street-address" />
-        <FormField label="Apt / suite" value={form.address_line2} onChangeText={v => set('address_line2', v)} />
-        <FormField label="City" required value={form.city} onChangeText={v => set('city', v)} />
-        <FormField label="State" required value={form.state} onChangeText={v => set('state', v)} autoCapitalize="characters" />
-        <FormField label="ZIP" required value={form.zip} onChangeText={v => set('zip', v)} keyboardType="number-pad" />
+        <AddressSuggestFields
+          value={{
+            address: form.address,
+            address_line2: form.address_line2,
+            city: form.city,
+            state: form.state,
+            zip: form.zip,
+          }}
+          onChange={next => setForm(prev => ({ ...prev, ...next }))}
+        />
         <FormField label="Phone" value={form.phone} onChangeText={v => set('phone', v)} keyboardType="phone-pad" autoComplete="tel" />
         <FormField label="Email" value={form.email} onChangeText={v => set('email', v)} keyboardType="email-address" autoCapitalize="none" autoComplete="email" />
         <FormField label="Notes" value={form.notes} onChangeText={v => set('notes', v)} multiline />

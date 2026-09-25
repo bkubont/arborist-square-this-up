@@ -18,6 +18,7 @@ import {
   type Invoice,
   type Job,
 } from '@/api/client';
+import { AuthenticatedImage } from '@/components/AuthenticatedImage';
 import { BRAND_HEX } from '@/lib/brand';
 import { money, moneyCents, shortDate } from '@/lib/format';
 
@@ -105,11 +106,16 @@ export default function MoneyScreen() {
       </View>
 
       {segment === 'expenses' ? (
-        <Pressable style={styles.addBtn} onPress={() => router.push('/(app)/expenses/new')}>
-          <Text style={styles.addText}>Add expense</Text>
-        </Pressable>
+        <View style={styles.expenseActions}>
+          <Pressable style={styles.addBtn} onPress={() => router.push('/(app)/expenses/new')}>
+            <Text style={styles.addText}>Add expense</Text>
+          </Pressable>
+          <Pressable style={styles.inboxBtn} onPress={() => router.push('/(app)/receipts')}>
+            <Text style={styles.inboxText}>Receipts inbox</Text>
+          </Pressable>
+        </View>
       ) : (
-        <Text style={styles.hint}>Create estimates & invoices from a job (same as web).</Text>
+        <Text style={styles.hint}>Create estimates, invoices, and orders from a job.</Text>
       )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -164,17 +170,25 @@ export default function MoneyScreen() {
           const job = ex.job_id ? jobById[ex.job_id] : undefined;
           return (
             <Pressable
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.row, styles.expenseRow, pressed && styles.pressed]}
               onPress={() => router.push(`/(app)/expenses/${ex.id}`)}
             >
-              <Text style={styles.title}>
-                {money(ex.amount)} · {ex.category || 'Expense'}
-              </Text>
-              <Text style={styles.meta}>
-                {shortDate(ex.date || ex.created_date)}
-                {ex.vendor ? ` · ${ex.vendor}` : ''}
-                {job ? ` · ${job.title}` : ' · Unassigned'}
-              </Text>
+              {ex.photo_url ? (
+                <AuthenticatedImage fileUrl={ex.photo_url} style={styles.receiptThumb} />
+              ) : (
+                <View style={styles.receiptPlaceholder} />
+              )}
+              <View style={styles.expenseBody}>
+                <Text style={styles.title}>
+                  {money(ex.amount)} · {ex.category || 'Expense'}
+                </Text>
+                <Text style={styles.meta}>
+                  {shortDate(ex.date || ex.created_date)}
+                  {ex.vendor ? ` · ${ex.vendor}` : ''}
+                  {job ? ` · ${job.title}` : ' · Unassigned'}
+                  {ex.photo_url ? ' · receipt' : ''}
+                </Text>
+              </View>
             </Pressable>
           );
         }}
@@ -220,13 +234,30 @@ const styles = StyleSheet.create({
   segText: { fontSize: 13, fontWeight: '600', color: '#555' },
   segTextActive: { color: BRAND_HEX.royalBlue },
   addBtn: {
-    marginHorizontal: 12,
-    marginBottom: 8,
+    flex: 1,
+    marginHorizontal: 0,
+    marginBottom: 0,
     backgroundColor: BRAND_HEX.royalBlue,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
+  expenseActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 12,
+    marginBottom: 8,
+  },
+  inboxBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: BRAND_HEX.royalBlue,
+    backgroundColor: '#fff',
+  },
+  inboxText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
   addText: { color: '#fff', fontWeight: '600' },
   hint: { marginHorizontal: 12, marginBottom: 8, fontSize: 12, color: '#777' },
   listPad: { paddingBottom: 24 },
@@ -239,6 +270,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e4e4ef',
     gap: 4,
+  },
+  expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  expenseBody: { flex: 1, gap: 4 },
+  receiptThumb: { width: 52, height: 52, borderRadius: 8 },
+  receiptPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f5',
+    borderWidth: 1,
+    borderColor: '#e4e4ef',
   },
   pressed: { backgroundColor: '#f0f0f8' },
   title: { fontSize: 15, fontWeight: '600', color: BRAND_HEX.black },

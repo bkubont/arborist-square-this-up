@@ -1,3 +1,4 @@
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
@@ -6,6 +7,7 @@ import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX } from '@/lib/brand';
+import { queryClient, setupReactQueryFocus } from '@/lib/queryClient';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -18,10 +20,14 @@ export default function RootLayout() {
     SplashScreen.hideAsync();
   }, []);
 
+  useEffect(() => setupReactQueryFocus(), []);
+
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }
 

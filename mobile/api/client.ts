@@ -41,6 +41,16 @@ export const JOB_STATUSES: JobStatus[] = [
   'Paid',
 ];
 
+export type JobMaterial = {
+  id?: string;
+  description?: string;
+  qty?: number;
+  unit?: string;
+  unit_price?: number;
+  have?: boolean;
+  notes?: string;
+};
+
 export type Job = {
   id: string;
   title: string;
@@ -51,6 +61,11 @@ export type Job = {
   start_date?: string;
   end_date?: string;
   notes?: string;
+  estimate_amount?: number;
+  invoice_amount?: number;
+  /** Job-level materials checklist (not estimate lines). Unticked → draft MO. */
+  materials?: JobMaterial[];
+  materials_cost?: number;
   created_date?: string;
   updated_date?: string;
 };
@@ -67,17 +82,42 @@ export type TimelineEntry = {
   updated_date?: string;
 };
 
+export type EstimateLine = {
+  id?: string;
+  description?: string;
+  material_amount?: number;
+  labor_amount?: number;
+  equipment_amount?: number;
+  labor_hours?: number;
+  labor_rate?: number;
+  category?: string;
+  notes?: string;
+  tools?: string;
+  catalog_id?: string;
+  steps?: unknown;
+};
+
 export type Estimate = {
   id: string;
   job_id: string;
   number?: string;
   status?: string;
   total?: number;
+  subtotal?: number;
+  tax_amount?: number;
+  tax_rate?: number;
   date?: string;
+  valid_till?: string;
   notes?: string;
+  lines?: EstimateLine[];
+  accepted_snapshot?: Record<string, unknown>;
   created_date?: string;
   updated_date?: string;
 };
+
+export type InvoiceMaterialLine = { description?: string; qty?: number; unit_price?: number };
+export type InvoiceLaborLine = { description?: string; hours?: number; rate?: number };
+export type InvoiceMiscLine = { description?: string; amount?: number };
 
 export type Invoice = {
   id: string;
@@ -86,8 +126,124 @@ export type Invoice = {
   status?: string;
   total?: number;
   balance_due?: number;
+  subtotal?: number;
+  tax_amount?: number;
+  tax_rate?: number;
   date?: string;
   notes?: string;
+  payment_terms?: string;
+  project_name?: string;
+  estimate_ref?: string;
+  change_order_refs?: string;
+  related_estimate_id?: string;
+  material_lines?: InvoiceMaterialLine[];
+  labor_lines?: InvoiceLaborLine[];
+  misc_lines?: InvoiceMiscLine[];
+  materials_total?: number;
+  labor_total?: number;
+  misc_total?: number;
+  deposits_applied?: number;
+  payments_applied?: number;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type ChangeOrderLine = EstimateLine & { amount?: number };
+
+export type ChangeOrder = {
+  id: string;
+  job_id: string;
+  number?: string;
+  status?: string;
+  related_estimate_id?: string;
+  reason?: string;
+  description?: string;
+  added_cost?: number;
+  credit?: number;
+  net_change?: number;
+  added_days?: number;
+  revised_contract_total?: number;
+  tax_rate?: number;
+  notes?: string;
+  lines?: ChangeOrderLine[];
+  accepted_snapshot?: Record<string, unknown>;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type MaterialOrderLine = {
+  description?: string;
+  qty?: number;
+  unit_price?: number;
+  supplier?: string;
+  notes?: string;
+  category?: string;
+  on_hand?: boolean;
+  line_status?: string;
+  wo_line_number?: number;
+  source_entity?: string;
+  source_id?: string;
+  source_line_id?: string;
+};
+
+export type MaterialOrder = {
+  id: string;
+  job_id: string;
+  number?: string;
+  status?: string;
+  date?: string;
+  notes?: string;
+  related_estimate_id?: string;
+  lines?: MaterialOrderLine[];
+  subtotal?: number;
+  total?: number;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type WorkItemMaterial = {
+  id?: string;
+  description?: string;
+  qty?: number;
+  unit?: string;
+  unit_price?: number;
+  have?: boolean;
+  notes?: string;
+};
+
+export type WorkItem = {
+  id: string;
+  job_id: string;
+  template_key?: 'prep' | 'materials' | 'final_walkthrough';
+  source_type?: 'Estimate' | 'ChangeOrder';
+  source_id?: string;
+  line_id?: string;
+  amount_cents?: number;
+  description?: string;
+  category?: string;
+  tools?: string;
+  notes?: string;
+  status?: string;
+  done?: boolean;
+  done_at?: string;
+  labor_hours?: number;
+  sort_order?: number;
+  materials?: WorkItemMaterial[];
+  billed_invoice_id?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type CompanyProfile = {
+  id: string;
+  name?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  logo_url?: string;
+  default_tax_rate?: number;
+  default_payment_terms?: string;
   created_date?: string;
   updated_date?: string;
 };
@@ -103,6 +259,42 @@ export type Expense = {
   photo_url?: string;
   created_date?: string;
   updated_date?: string;
+};
+
+export type Payment = {
+  id: string;
+  job_id: string;
+  amount_cents: number;
+  kind?: 'payment' | 'deposit';
+  date?: string;
+  method?: string;
+  note?: string;
+  invoice_id?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type CatalogItem = {
+  id: string;
+  task: string;
+  category?: string;
+  notes?: string;
+  tools?: string;
+  materials_note?: string;
+  materials_flag?: string;
+  hours_mid?: number;
+  labor_rate?: number;
+  est_labor_cost?: number;
+  est_materials_cost?: number;
+  source?: string;
+  maintenance?: string;
+};
+
+export type CatalogSearchResult = {
+  default_labor_rate?: number;
+  categories?: string[];
+  total?: number;
+  items: CatalogItem[];
 };
 
 export type AccountSummaries = {
@@ -124,6 +316,44 @@ export type AccountSummaries = {
   };
   waiting_approval: Array<{ entity: string; id: string; job_id?: string; number?: string; amount_cents?: number }>;
   waiting_payment: Array<{ id: string; job_id?: string; number?: string; status?: string; balance_cents?: number }>;
+};
+
+/** Derived money for one job (`GET /api/jobs/:id/summary`). */
+export type JobSummary = {
+  has_accepted_estimate: boolean;
+  estimate_cents: number;
+  approved_change_cents: number;
+  authorized_cents: number;
+  running_total_cents: number;
+  running_total_basis: 'signed' | 'estimate' | 'none' | string;
+  invoiced_cents: number;
+  paid_cents: number;
+  balance_cents: number;
+  credit_cents: number;
+  invoices: Array<{
+    id: string;
+    job_id?: string;
+    number?: string;
+    status?: string;
+    total_cents?: number;
+    paid_cents?: number;
+    balance_cents?: number;
+    payment_status?: string;
+  }>;
+  awaiting_approval: Array<{
+    entity: string;
+    id: string;
+    job_id?: string;
+    number?: string;
+    amount_cents?: number;
+  }>;
+};
+
+export type JobAuthorizedTotal = {
+  baseline: number;
+  approved_net: number;
+  authorized_total: number;
+  approved_change_order_ids: string[];
 };
 
 /**
@@ -269,13 +499,105 @@ export const api = {
     Client: entity<Client>('Client'),
     Job: entity<Job>('Job'),
     TimelineEntry: entity<TimelineEntry>('TimelineEntry'),
+    CompanyProfile: entity<CompanyProfile>('CompanyProfile'),
     Estimate: entity<Estimate>('Estimate'),
+    MaterialOrder: entity<MaterialOrder>('MaterialOrder'),
+    WorkItem: entity<WorkItem>('WorkItem'),
+    ChangeOrder: entity<ChangeOrder>('ChangeOrder'),
     Invoice: entity<Invoice>('Invoice'),
     Expense: entity<Expense>('Expense'),
+    Payment: entity<Payment>('Payment'),
+  },
+  catalog: {
+    search(filters: {
+      q?: string;
+      category?: string;
+      maintenance?: string;
+      source?: string;
+      limit?: number;
+    } = {}) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) {
+        if (value != null && value !== '' && value !== 'all') params.set(key, String(value));
+      }
+      return request(`/catalog?${params}`) as Promise<CatalogSearchResult>;
+    },
+  },
+  payments: {
+    create(data: {
+      job_id: string;
+      amount_cents: number;
+      kind?: 'payment' | 'deposit';
+      date?: string;
+      method?: string;
+      note?: string;
+      invoice_id?: string;
+    }) {
+      return post('/payments', data) as Promise<Payment>;
+    },
+  },
+  estimates: {
+    sendSign(id: string, data: { email?: string; message?: string } = {}) {
+      return post(`/estimates/${encodeURIComponent(id)}/send-sign`, data) as Promise<{
+        ok?: boolean;
+        sign_url?: string;
+        message?: string;
+      }>;
+    },
+  },
+  changeOrders: {
+    sendSign(id: string, data: { email?: string; message?: string } = {}) {
+      return post(`/change-orders/${encodeURIComponent(id)}/send-sign`, data) as Promise<{
+        ok?: boolean;
+        sign_url?: string;
+        message?: string;
+      }>;
+    },
+  },
+  invoices: {
+    fromJob(jobId: string) {
+      return post('/invoices/from-job', { job_id: jobId }) as Promise<Invoice>;
+    },
+  },
+  documents: {
+    void(entityName: string, id: string) {
+      return post(`/documents/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}/void`, {});
+    },
+    revise(entityName: string, id: string) {
+      return post(`/documents/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}/revise`, {});
+    },
+    setStatus(entityName: string, id: string, status: string) {
+      return post(`/documents/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}/status`, {
+        status,
+      });
+    },
   },
   summaries: {
     all: () => request('/summaries') as Promise<AccountSummaries>,
-    job: (id: string) => request(`/jobs/${encodeURIComponent(id)}/summary`),
+    job: (id: string) => request(`/jobs/${encodeURIComponent(id)}/summary`) as Promise<JobSummary>,
+  },
+  jobs: {
+    authorizedTotal(id: string) {
+      return request(`/jobs/${encodeURIComponent(id)}/authorized-total`) as Promise<JobAuthorizedTotal>;
+    },
+  },
+  address: {
+    suggest(q: string) {
+      const params = new URLSearchParams({ q });
+      return request(`/address-suggest?${params}`) as Promise<{
+        items: Array<{
+          id?: string;
+          label: string;
+          parsed?: {
+            address?: string;
+            address_line2?: string;
+            city?: string;
+            state?: string;
+            zip?: string;
+          };
+        }>;
+      }>;
+    },
   },
   /** Resize → JPEG, then multipart POST /api/files (Bearer). */
   async uploadFile(localUri: string): Promise<{ file_url: string }> {

@@ -1,50 +1,41 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { api, type Client, type Job, type TimelineEntry } from '@/api/client';
+import { JobDocumentsSection } from '@/components/JobDocumentsSection';
+import { JobFinancialSection } from '@/components/JobFinancialSection';
+import { JobMaterialsSection } from '@/components/JobMaterialsSection';
 import { JobPhotosSection } from '@/components/JobPhotosSection';
+import { JobTasksSection } from '@/components/JobTasksSection';
 import { BRAND_HEX } from '@/lib/brand';
+import { jobDetailQueryKey, loadJobDetail } from '@/lib/jobDetail';
+import { deriveMaterialsStatus, materialsStatusColor } from '@/lib/jobMaterials';
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [job, setJob] = useState<Job | null>(null);
-  const [client, setClient] = useState<Client | null>(null);
-  const [entries, setEntries] = useState<TimelineEntry[]>([]);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    setError('');
-    try {
-      const next = await api.entities.Job.get(id);
-      const timeline = await api.entities.TimelineEntry.filter({ job_id: id }, '-created_date', 500);
-      setJob(next);
-      setEntries(timeline);
-      if (next.client_id) {
-        try {
-          setClient(await api.entities.Client.get(next.client_id));
-        } catch {
-          setClient(null);
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load job');
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  const { data, error, isLoading, isFetching, refetch } = useQuery({
+    queryKey: jobDetailQueryKey(id || ''),
+    queryFn: () => loadJobDetail(id!),
+    enabled: !!id,
+  });
 
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load]),
+      if (!id) return;
+      void refetch();
+    }, [id, refetch]),
   );
 
-  if (loading && !job) {
+  const onChanged = useCallback(async () => {
+    if (!id) return;
+    await queryClient.invalidateQueries({ queryKey: jobDetailQueryKey(id) });
+  }, [id, queryClient]);
+
+  if ((isLoading || isFetching) && !data) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={BRAND_HEX.royalBlue} />
@@ -52,18 +43,33 @@ export default function JobDetailScreen() {
     );
   }
 
-  if (error || !job) {
+  const errMsg = error instanceof Error ? error.message : error ? 'Failed to load job' : '';
+  if (errMsg || !data?.job) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.error}>{error || 'Job not found'}</Text>
+        <Text style={styles.error}>{errMsg || 'Job not found'}</Text>
       </View>
     );
   }
+
+  const { job, client, entries, documents, workItems, materialOrders, summary, authorized, payments } =
+    data;
+  const materialsStatus = deriveMaterialsStatus({
+    job,
+    workItems,
+    materialOrders,
+  });
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{job.title}</Text>
       <Text style={styles.badge}>{job.status || '—'}</Text>
+      <Text style={styles.materialsStatus}>
+        Materials ·{' '}
+        <Text style={{ color: materialsStatusColor(materialsStatus.key), fontWeight: '600' }}>
+          {materialsStatus.label}
+        </Text>
+      </Text>
       {job.description ? <Text style={styles.body}>{job.description}</Text> : null}
 
       <Pressable style={styles.editBtn} onPress={() => router.push(`/(app)/jobs/${job.id}/edit`)}>
@@ -80,7 +86,24 @@ export default function JobDetailScreen() {
         ) : null}
       </View>
 
-      <JobPhotosSection jobId={job.id} entries={entries} onChanged={load} />
+      <JobFinancialSection
+        jobId={job.id}
+        summary={summary}
+        authorized={authorized}
+        payments={payments}
+        materialsCost={job.materials_cost}
+        onChanged={onChanged}
+      />
+
+      <JobMaterialsSection
+        jobId={job.id}
+        materials={job.materials || []}
+        onChanged={onChanged}
+      />
+
+      <JobDocumentsSection jobId={job.id} documents={documents} onChanged={onChanged} />
+      <JobTasksSection jobId={job.id} items={workItems} onChanged={onChanged} />
+      <JobPhotosSection jobId={job.id} entries={entries} onChanged={onChanged} />
     </ScrollView>
   );
 }
@@ -102,6 +125,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   body: { fontSize: 15, color: '#444', lineHeight: 22 },
+  materialsStatus: { fontSize: 13, color: '#666' },
   editBtn: {
     alignSelf: 'flex-start',
     borderWidth: 1,
