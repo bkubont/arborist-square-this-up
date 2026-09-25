@@ -13,7 +13,11 @@
     "start": "node server/index.js",
     "test": "node --test server/*.test.js",
     "account": "node server/accounts.js",
-    "data:import": "node server/import.js"
+    "data:import": "node server/import.js",
+    "desktop:dev": "concurrently -k -n api,vite,electron -c blue,green,magenta \"node --watch server/index.js\" \"VITE_DESKTOP=true vite\" \"node desktop/scripts/wait-and-launch.js\"",
+    "desktop:build:ui": "VITE_DESKTOP=true vite build",
+    "desktop:build:win": "node -e \"if(!process.env.VITE_API_URL){console.error('Set VITE_API_URL to your production API origin (e.g. https://jobs.yourdomain.com)');process.exit(1)}\" && npm run desktop:build:ui && npm run pack:win --prefix desktop",
+    "desktop:build:win:dir": "node -e \"if(!process.env.VITE_API_URL){console.error('Set VITE_API_URL to your production API origin (e.g. https://jobs.yourdomain.com)');process.exit(1)}\" && npm run desktop:build:ui && npm run pack:dir --prefix desktop"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^17.0.0",

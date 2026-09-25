@@ -97,6 +97,26 @@ cp .env.example .env
 npm start
 ```
 
+## Desktop (Electron)
+
+Windows-first Electron shell in `desktop/` embeds the same Vite React UI and uses Bearer sessions (`X-Client: desktop`) against the Hostinger API — same pattern as mobile. Online-only for v1; no local DB. See [desktop/README.md](desktop/README.md).
+
+```sh
+cd desktop && npm ci && cd ..
+npm run desktop:dev
+```
+
+Windows site-download artifacts (unsigned by design for MVP):
+
+```sh
+export VITE_API_URL=https://jobs.yourdomain.com
+npm run desktop:build:win          # NSIS + portable (best on Windows)
+# npm run desktop:build:win:dir    # unpacked .exe tree (works without Wine)
+# → desktop/release/
+```
+
+Unsigned builds trigger Windows SmartScreen warnings. Defer paid Authenticode signing until external users or store distribution justify the cost.
+
 ## Checks
 
 ```sh

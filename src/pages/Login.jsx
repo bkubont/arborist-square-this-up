@@ -8,6 +8,7 @@ import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 
 import { safeReturnTo } from "@/lib/authReturnTo";
+import { assignAppPath } from "@/lib/desktopSession";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -24,7 +25,7 @@ export default function Login() {
     setLoading(true);
     try {
       await api.auth.loginViaEmailPassword(email, password);
-      window.location.href = returnTo;
+      assignAppPath(returnTo);
     } catch (err) {
       setError(err.message || "Invalid email or password");
     } finally {

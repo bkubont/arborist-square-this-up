@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/api/client';
 import { DEFAULT_SALES_TAX_RATE } from '@/lib/salesTax';
+import { assignAppPath } from '@/lib/desktopSession';
 
 export default function Register() {
   const [params] = useSearchParams();
@@ -25,7 +26,7 @@ export default function Register() {
     setBusy(true); setError('');
     try {
       await api.auth.register({ email, password, inviteToken, default_tax_rate: tax });
-      window.location.assign('/');
+      assignAppPath('/');
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
   return <AuthLayout icon={UserPlus} title={inviteToken ? 'Create your account' : 'Invitation required'}

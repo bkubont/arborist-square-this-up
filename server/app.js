@@ -99,14 +99,35 @@ export async function createApp(db, env = process.env) {
     const match = /^Bearer\s+(\S+)$/i.exec(header);
     return match?.[1] || null;
   };
-  /** Native / Expo clients: X-Client: mobile or body.client === "mobile". */
-  const isMobileClient = req => req.get('x-client') === 'mobile' || req.body?.client === 'mobile';
+  /** Native clients (Expo / Electron): X-Client header (body may not be parsed yet on CSRF gate). */
+  const isNativeClientHeader = req => {
+    const client = (req.get('x-client') || '').toLowerCase();
+    return client === 'mobile' || client === 'desktop';
+  };
+  /** After JSON parse: header or body.client for Bearer token issuance (no cookie). */
+  const isNativeClient = req => {
+    if (isNativeClientHeader(req)) return true;
+    const bodyClient = req.body?.client;
+    return bodyClient === 'mobile' || bodyClient === 'desktop';
+  };
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    // Browser CSRF: require APP_ORIGIN on mutations. Bearer / mobile clients skip Origin.
+    // Electron (and browsers) need CORS for cross-origin Bearer calls; RN does not.
+    const acrh = (req.get('access-control-request-headers') || '').toLowerCase();
+    const nativePreflight = req.method === 'OPTIONS'
+      && (acrh.includes('x-client') || acrh.includes('authorization'));
+    if (isNativeClientHeader(req) || nativePreflight) {
+      res.set({
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Client',
+        'Access-Control-Allow-Methods': 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+      });
+      if (req.method === 'OPTIONS') return res.sendStatus(204);
+    }
+    // Browser CSRF: require APP_ORIGIN on mutations. Bearer / native clients skip Origin.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)
       && !bearerToken(req)
-      && req.get('x-client') !== 'mobile'
+      && !isNativeClientHeader(req)
       && req.get('origin') !== origin)
       return next(fail(403, 'Invalid request origin'));
     next();
@@ -156,17 +177,17 @@ export async function createApp(db, env = process.env) {
   app.post('/api/auth/login', async (req, res) => {
     const email = emailSchema.parse(req.body.email);
     if (!await limited(`login:${email}`)) throw fail(429, 'Too many attempts. Try again in 15 minutes.');
-    const mobile = isMobileClient(req);
+    const native = isNativeClient(req);
     const user = await db.transaction(async tx => {
       const [user] = await tx.all('SELECT * FROM users WHERE email = ?' + (db.dialect === 'mysql' ? ' FOR UPDATE' : ''), [email]);
       const valid = await verifyPassword(req.body.password, user?.password_hash || dummyHash);
       if (!user || !valid) throw fail(401, 'Invalid email or password');
       if (req.cookies[cookieName]) await tx.run('DELETE FROM sessions WHERE token_hash = ?', [hash(req.cookies[cookieName])]);
-      const sessionToken = await session(res, user.id, tx, { setCookie: !mobile });
+      const sessionToken = await session(res, user.id, tx, { setCookie: !native });
       return { user, sessionToken };
     });
     const payload = { id: user.user.id, email: user.user.email };
-    if (mobile) payload.token = user.sessionToken;
+    if (native) payload.token = user.sessionToken;
     res.json(payload);
   });
   app.post('/api/auth/logout', async (req, res) => {
@@ -200,7 +221,7 @@ export async function createApp(db, env = process.env) {
       : z.number().finite().min(0).max(100).parse(Number(taxRaw));
     const digest = await passwordHash(password);
     const userId = randomUUID();
-    const mobile = isMobileClient(req);
+    const native = isNativeClient(req);
     await db.transaction(async tx => {
       const lock = db.dialect === 'mysql' ? ' FOR UPDATE' : '';
       const [row] = await tx.all('SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND email = ? AND expires_at > ?' + lock, [hash(invite), 'invite', email, Date.now()]);
@@ -214,9 +235,9 @@ export async function createApp(db, env = process.env) {
         default_tax_rate: defaultTaxRate,
       });
     });
-    const sessionToken = await session(res, userId, db, { setCookie: !mobile });
+    const sessionToken = await session(res, userId, db, { setCookie: !native });
     const payload = { id: userId, email, default_tax_rate: defaultTaxRate };
-    if (mobile) payload.token = sessionToken;
+    if (native) payload.token = sessionToken;
     res.status(201).json(payload);
   });
   app.post('/api/auth/forgot-password', async (req, res) => {
