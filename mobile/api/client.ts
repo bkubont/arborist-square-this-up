@@ -51,6 +51,8 @@ export type Job = {
   start_date?: string;
   end_date?: string;
   notes?: string;
+  estimate_amount?: number;
+  invoice_amount?: number;
   created_date?: string;
   updated_date?: string;
 };
@@ -67,17 +69,42 @@ export type TimelineEntry = {
   updated_date?: string;
 };
 
+export type EstimateLine = {
+  id?: string;
+  description?: string;
+  material_amount?: number;
+  labor_amount?: number;
+  equipment_amount?: number;
+  labor_hours?: number;
+  labor_rate?: number;
+  category?: string;
+  notes?: string;
+  tools?: string;
+  catalog_id?: string;
+  steps?: unknown;
+};
+
 export type Estimate = {
   id: string;
   job_id: string;
   number?: string;
   status?: string;
   total?: number;
+  subtotal?: number;
+  tax_amount?: number;
+  tax_rate?: number;
   date?: string;
+  valid_till?: string;
   notes?: string;
+  lines?: EstimateLine[];
+  accepted_snapshot?: Record<string, unknown>;
   created_date?: string;
   updated_date?: string;
 };
+
+export type InvoiceMaterialLine = { description?: string; qty?: number; unit_price?: number };
+export type InvoiceLaborLine = { description?: string; hours?: number; rate?: number };
+export type InvoiceMiscLine = { description?: string; amount?: number };
 
 export type Invoice = {
   id: string;
@@ -86,8 +113,120 @@ export type Invoice = {
   status?: string;
   total?: number;
   balance_due?: number;
+  subtotal?: number;
+  tax_amount?: number;
+  tax_rate?: number;
   date?: string;
   notes?: string;
+  payment_terms?: string;
+  related_estimate_id?: string;
+  material_lines?: InvoiceMaterialLine[];
+  labor_lines?: InvoiceLaborLine[];
+  misc_lines?: InvoiceMiscLine[];
+  materials_total?: number;
+  labor_total?: number;
+  misc_total?: number;
+  deposits_applied?: number;
+  payments_applied?: number;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type ChangeOrderLine = EstimateLine & { amount?: number };
+
+export type ChangeOrder = {
+  id: string;
+  job_id: string;
+  number?: string;
+  status?: string;
+  related_estimate_id?: string;
+  reason?: string;
+  description?: string;
+  added_cost?: number;
+  credit?: number;
+  net_change?: number;
+  added_days?: number;
+  revised_contract_total?: number;
+  tax_rate?: number;
+  notes?: string;
+  lines?: ChangeOrderLine[];
+  accepted_snapshot?: Record<string, unknown>;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type MaterialOrderLine = {
+  description?: string;
+  qty?: number;
+  unit_price?: number;
+  supplier?: string;
+  notes?: string;
+  category?: string;
+  on_hand?: boolean;
+  line_status?: string;
+  source_entity?: string;
+  source_id?: string;
+  source_line_id?: string;
+};
+
+export type MaterialOrder = {
+  id: string;
+  job_id: string;
+  number?: string;
+  status?: string;
+  date?: string;
+  notes?: string;
+  related_estimate_id?: string;
+  lines?: MaterialOrderLine[];
+  subtotal?: number;
+  total?: number;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type WorkItemMaterial = {
+  id?: string;
+  description?: string;
+  qty?: number;
+  unit?: string;
+  unit_price?: number;
+  have?: boolean;
+  notes?: string;
+};
+
+export type WorkItem = {
+  id: string;
+  job_id: string;
+  template_key?: 'prep' | 'materials' | 'final_walkthrough';
+  source_type?: 'Estimate' | 'ChangeOrder';
+  source_id?: string;
+  line_id?: string;
+  amount_cents?: number;
+  description?: string;
+  category?: string;
+  tools?: string;
+  notes?: string;
+  status?: string;
+  done?: boolean;
+  done_at?: string;
+  labor_hours?: number;
+  sort_order?: number;
+  materials?: WorkItemMaterial[];
+  billed_invoice_id?: string;
+  created_date?: string;
+  updated_date?: string;
+};
+
+export type CompanyProfile = {
+  id: string;
+  name?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  logo_url?: string;
+  default_tax_rate?: number;
+  default_payment_terms?: string;
   created_date?: string;
   updated_date?: string;
 };
@@ -269,9 +408,49 @@ export const api = {
     Client: entity<Client>('Client'),
     Job: entity<Job>('Job'),
     TimelineEntry: entity<TimelineEntry>('TimelineEntry'),
+    CompanyProfile: entity<CompanyProfile>('CompanyProfile'),
     Estimate: entity<Estimate>('Estimate'),
+    MaterialOrder: entity<MaterialOrder>('MaterialOrder'),
+    WorkItem: entity<WorkItem>('WorkItem'),
+    ChangeOrder: entity<ChangeOrder>('ChangeOrder'),
     Invoice: entity<Invoice>('Invoice'),
     Expense: entity<Expense>('Expense'),
+  },
+  estimates: {
+    sendSign(id: string, data: { email?: string; message?: string } = {}) {
+      return post(`/estimates/${encodeURIComponent(id)}/send-sign`, data) as Promise<{
+        ok?: boolean;
+        sign_url?: string;
+        message?: string;
+      }>;
+    },
+  },
+  changeOrders: {
+    sendSign(id: string, data: { email?: string; message?: string } = {}) {
+      return post(`/change-orders/${encodeURIComponent(id)}/send-sign`, data) as Promise<{
+        ok?: boolean;
+        sign_url?: string;
+        message?: string;
+      }>;
+    },
+  },
+  invoices: {
+    fromJob(jobId: string) {
+      return post('/invoices/from-job', { job_id: jobId }) as Promise<Invoice>;
+    },
+  },
+  documents: {
+    void(entityName: string, id: string) {
+      return post(`/documents/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}/void`, {});
+    },
+    revise(entityName: string, id: string) {
+      return post(`/documents/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}/revise`, {});
+    },
+    setStatus(entityName: string, id: string, status: string) {
+      return post(`/documents/${encodeURIComponent(entityName)}/${encodeURIComponent(id)}/status`, {
+        status,
+      });
+    },
   },
   summaries: {
     all: () => request('/summaries') as Promise<AccountSummaries>,

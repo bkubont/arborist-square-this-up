@@ -2,9 +2,22 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { api, type Client, type Job, type TimelineEntry } from '@/api/client';
+import {
+  api,
+  type ChangeOrder,
+  type Client,
+  type Estimate,
+  type Invoice,
+  type Job,
+  type MaterialOrder,
+  type TimelineEntry,
+  type WorkItem,
+} from '@/api/client';
+import { JobDocumentsSection } from '@/components/JobDocumentsSection';
 import { JobPhotosSection } from '@/components/JobPhotosSection';
+import { JobTasksSection } from '@/components/JobTasksSection';
 import { BRAND_HEX } from '@/lib/brand';
+import type { JobDoc } from '@/lib/documents';
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -12,6 +25,8 @@ export default function JobDetailScreen() {
   const [job, setJob] = useState<Job | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
+  const [documents, setDocuments] = useState<JobDoc[]>([]);
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -20,10 +35,25 @@ export default function JobDetailScreen() {
     setLoading(true);
     setError('');
     try {
-      const next = await api.entities.Job.get(id);
-      const timeline = await api.entities.TimelineEntry.filter({ job_id: id }, '-created_date', 500);
+      const [next, timeline, estimates, invoices, changeOrders, materialOrders, tasks] =
+        await Promise.all([
+          api.entities.Job.get(id),
+          api.entities.TimelineEntry.filter({ job_id: id }, '-created_date', 500),
+          api.entities.Estimate.filter({ job_id: id }, '-created_date', 50),
+          api.entities.Invoice.filter({ job_id: id }, '-created_date', 50),
+          api.entities.ChangeOrder.filter({ job_id: id }, '-created_date', 100),
+          api.entities.MaterialOrder.filter({ job_id: id }, '-created_date', 100),
+          api.entities.WorkItem.filter({ job_id: id }, '-created_date', 500),
+        ]);
       setJob(next);
       setEntries(timeline);
+      setWorkItems(tasks);
+      setDocuments([
+        ...estimates.map((d: Estimate) => ({ ...d, entity: 'Estimate' as const })),
+        ...invoices.map((d: Invoice) => ({ ...d, entity: 'Invoice' as const })),
+        ...changeOrders.map((d: ChangeOrder) => ({ ...d, entity: 'ChangeOrder' as const })),
+        ...materialOrders.map((d: MaterialOrder) => ({ ...d, entity: 'MaterialOrder' as const })),
+      ]);
       if (next.client_id) {
         try {
           setClient(await api.entities.Client.get(next.client_id));
@@ -80,6 +110,8 @@ export default function JobDetailScreen() {
         ) : null}
       </View>
 
+      <JobDocumentsSection jobId={job.id} documents={documents} onChanged={load} />
+      <JobTasksSection jobId={job.id} items={workItems} />
       <JobPhotosSection jobId={job.id} entries={entries} onChanged={load} />
     </ScrollView>
   );

@@ -109,7 +109,7 @@ export default function MoneyScreen() {
           <Text style={styles.addText}>Add expense</Text>
         </Pressable>
       ) : (
-        <Text style={styles.hint}>Create estimates & invoices from a job (same as web).</Text>
+        <Text style={styles.hint}>Create estimates, invoices, and orders from a job.</Text>
       )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

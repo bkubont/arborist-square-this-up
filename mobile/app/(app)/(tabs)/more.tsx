@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,6 +16,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX, PRODUCT_NAME } from '@/lib/brand';
 
 export default function MoreScreen() {
+  const router = useRouter();
   const { user, logout, deleteAccount } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -69,6 +71,14 @@ export default function MoreScreen() {
         <Text style={styles.value}>{user?.email}</Text>
         <Text style={styles.meta}>API {api.baseUrl}</Text>
       </View>
+
+      <Pressable
+        style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+        onPress={() => router.push('/(app)/company')}
+      >
+        <Text style={styles.linkRowText}>Company profile</Text>
+        <Text style={styles.linkRowHint}>Name, tax %, payment terms</Text>
+      </Pressable>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -139,6 +149,16 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, color: '#666' },
   value: { fontSize: 17, fontWeight: '600', color: BRAND_HEX.black },
   meta: { fontSize: 13, color: '#666' },
+  linkRow: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e4e4ef',
+    gap: 4,
+  },
+  linkRowText: { fontSize: 16, fontWeight: '600', color: BRAND_HEX.royalBlue },
+  linkRowHint: { fontSize: 13, color: '#666' },
   error: { color: '#b00020', fontSize: 14 },
   button: {
     backgroundColor: BRAND_HEX.royalBlue,
