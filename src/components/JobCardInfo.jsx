@@ -13,6 +13,8 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PAYMENT_METHODS } from "@/lib/paymentMethods";
 import { Textarea } from "@/components/ui/textarea";
 import ExpenseFormDialog from "@/components/ExpenseFormDialog";
 import ReceiptCaptureDialog from "@/components/ReceiptCaptureDialog";
@@ -183,12 +185,14 @@ export function JobQuickAdd({ job, onSaved = undefined, className = undefined })
   const ctx = useContext(JobCardDataContext);
   const [mode, setMode] = useState(/** @type {null | "task" | "note" | "payment"} */ (null));
   const [text, setText] = useState("");
+  const [payMethod, setPayMethod] = useState("cash");
   const [saving, setSaving] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
 
   const open = (next) => {
     setText("");
+    setPayMethod("cash");
     setMode(next);
   };
 
@@ -207,7 +211,7 @@ export function JobQuickAdd({ job, onSaved = undefined, className = undefined })
         await api.entities.WorkItem.create({ job_id: job.id, description: value });
         done("Task added");
       } else if (mode === "note") {
-        await api.entities.TimelineEntry.create({ job_id: job.id, type: "note", text: value, category: "note" });
+        await api.entities.TimelineEntry.create({ job_id: job.id, type: "note", text: value, category: "note", job_status: job.status || undefined });
         done("Note saved");
       } else if (mode === "payment") {
         const amount = Number(value);
@@ -216,7 +220,15 @@ export function JobQuickAdd({ job, onSaved = undefined, className = undefined })
           return;
         }
         // Same record the job page's "Log a payment received" writes, so balances agree everywhere.
-        await api.entities.TimelineEntry.create({ job_id: job.id, type: "payment_received", text: "Payment received", category: "financial", amount });
+        await api.entities.TimelineEntry.create({
+          job_id: job.id,
+          type: "payment_received",
+          text: "Payment received",
+          category: "financial",
+          amount,
+          payment_method: payMethod,
+          job_status: job.status || undefined,
+        });
         done("Payment recorded");
       }
       setMode(null);
@@ -280,6 +292,21 @@ export function JobQuickAdd({ job, onSaved = undefined, className = undefined })
                 onKeyDown={(e) => e.key === "Enter" && save()}
                 placeholder={mode === "payment" ? "0.00" : "What needs doing?"}
               />
+              {mode === "payment" && (
+                <div className="mt-2">
+                  <Label>Type of payment</Label>
+                  <Select value={payMethod} onValueChange={setPayMethod}>
+                    <SelectTrigger aria-label="Type of payment">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAYMENT_METHODS.map((method) => (
+                        <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter className="gap-2">

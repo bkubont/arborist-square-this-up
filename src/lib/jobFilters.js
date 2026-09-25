@@ -6,7 +6,7 @@ import {
   STORED_JOB_STATUSES,
 } from "./jobStatus.js";
 
-/** Stored job statuses across Lead, Working, and Payment (excludes Invoiced gate). */
+/** Stored job statuses across Lead, Working, and Payment (Invoiced is a Payment status). */
 export const JOB_STATUSES = STORED_JOB_STATUSES;
 
 /** Statuses still in play on working lists (non-terminal). */

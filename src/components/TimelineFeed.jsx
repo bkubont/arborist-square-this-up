@@ -2,6 +2,8 @@ import React from "react";
 import { Image as ImageIcon, Receipt, FileText, DollarSign, StickyNote, CheckSquare, RefreshCw, PenLine, Wrench, Send, PlusCircle, Ban } from "lucide-react";
 import { Image } from "@/components/ui/image";
 import { dateTime, money, timeAgo } from "@/lib/format";
+import { paymentMethodLabel } from "@/lib/paymentMethods";
+import { statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
 const ICONS = {
@@ -61,7 +63,13 @@ const LABELS = {
   document_voided: "Document voided",
 };
 
-/** @param {{ entries: Array<{ id: string, at?: string, created_date?: string, type: string, text?: string, amount?: number, photo_url?: string }> }} props */
+function statusOnEntry(entry) {
+  if (entry?.job_status) return entry.job_status;
+  const match = /^Status changed to .* · (.+?)(?:\s+\(|$)/.exec(entry?.text || "");
+  return match?.[1] || "";
+}
+
+/** @param {{ entries: Array<{ id: string, at?: string, created_date?: string, type: string, text?: string, amount?: number, photo_url?: string, payment_method?: string, job_status?: string }> }} props */
 export default function TimelineFeed({ entries }) {
   if (!entries?.length) {
     return (
@@ -77,15 +85,22 @@ export default function TimelineFeed({ entries }) {
       {entries.map((e) => {
         const Icon = ICONS[e.type] || StickyNote;
         const at = e.at || e.created_date;
+        const status = statusOnEntry(e);
+        const colors = status ? statusColors(status) : null;
+        const method = paymentMethodLabel(e.payment_method);
         return (
           <div key={e.id} className="flex gap-3">
-            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0", TINT[e.type] || TINT.note)}>
+            <div className={cn(
+              "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 border",
+              colors ? colors.badge : (TINT[e.type] || TINT.note),
+            )}>
               <Icon className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0 pb-4 border-b border-slate-100 last:border-0">
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-medium text-slate-800">
                   {LABELS[e.type] || String(e.type || "note").replace(/_/g, " ")}
+                  {method ? <span className="font-normal text-muted-foreground"> · {method}</span> : null}
                 </span>
                 <div className="text-right shrink-0">
                   <div className="text-xs text-slate-600 whitespace-nowrap" title={at || undefined}>

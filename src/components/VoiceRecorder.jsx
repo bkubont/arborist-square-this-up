@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Square } from 'lucide-react';
 import { api } from '@/api/client';
-export default function VoiceRecorder({ jobId, onTranscribed }) {
+export default function VoiceRecorder({ jobId, onTranscribed, jobStatus }) {
   const recognition = useRef(null);
   const [recording, setRecording] = useState(false);
   const [draft, setDraft] = useState('');
@@ -24,7 +24,7 @@ export default function VoiceRecorder({ jobId, onTranscribed }) {
   };
   const save = async () => {
     setSaving(true);
-    try { await api.entities.TimelineEntry.create({ job_id: jobId, type: 'note', text: draft.trim(), category: 'note' }); setDraft(''); onTranscribed?.(); }
+    try { await api.entities.TimelineEntry.create({ job_id: jobId, type: 'note', text: draft.trim(), category: 'note', job_status: jobStatus || undefined }); setDraft(''); onTranscribed?.(); }
     catch (err) { setError(err.message); } finally { setSaving(false); }
   };
   if (!SpeechRecognition) return <p className="text-xs text-slate-500">To dictate a note, use the microphone on your phone keyboard.</p>;

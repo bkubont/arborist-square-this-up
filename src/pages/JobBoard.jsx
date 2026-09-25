@@ -201,6 +201,7 @@ export default function JobBoard() {
           type: "status_change",
           text: `Status changed to ${phaseLabel} · ${nextFields.status}${gateNote}`,
           category: "note",
+          job_status: nextFields.status,
         });
       } catch {
         /* non-blocking */

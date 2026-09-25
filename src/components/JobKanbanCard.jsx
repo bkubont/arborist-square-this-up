@@ -6,6 +6,8 @@ import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PAYMENT_METHODS } from "@/lib/paymentMethods";
 import { googleMapsUrl } from "@/lib/address";
 import { money } from "@/lib/format";
 import { jobEstimateRollup } from "@/lib/jobCardRollups";
@@ -41,6 +43,7 @@ export default function JobKanbanCard({
   const cameraRef = useRef(null);
   const [payOpen, setPayOpen] = useState(false);
   const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("cash");
   const [busy, setBusy] = useState(false);
 
   const customerName = client?.name || job.client_name || "—";
@@ -85,9 +88,12 @@ export default function JobKanbanCard({
         text: "Payment received",
         category: "financial",
         amount,
+        payment_method: payMethod,
+        job_status: job.status || undefined,
       });
       setPayOpen(false);
       setPayAmount("");
+      setPayMethod("cash");
       onChanged?.();
     } catch {
       alert("Could not log payment.");
@@ -250,6 +256,16 @@ export default function JobKanbanCard({
             onChange={(e) => setPayAmount(e.target.value)}
             autoFocus
           />
+          <Select value={payMethod} onValueChange={setPayMethod}>
+            <SelectTrigger aria-label="Type of payment">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAYMENT_METHODS.map((method) => (
+                <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={() => setPayOpen(false)}>Cancel</Button>
             <Button

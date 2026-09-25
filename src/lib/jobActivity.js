@@ -17,6 +17,8 @@ export function composeJobActivity({ entries = [], documents = [] } = {}) {
     amount: e.amount,
     photo_url: e.photo_url,
     category: e.category,
+    payment_method: e.payment_method,
+    job_status: e.job_status,
   }));
 
   const textHas = (item, needle) => {
