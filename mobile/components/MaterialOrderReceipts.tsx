@@ -11,6 +11,7 @@ import {
 import { api, type TimelineEntry } from '@/api/client';
 import { AuthenticatedImage } from '@/components/AuthenticatedImage';
 import { BRAND_HEX } from '@/lib/brand';
+import { uploadOrEnqueue } from '@/lib/offlinePhotoQueue';
 import { pickImage, type ImageSource } from '@/lib/pickImage';
 
 function isMoReceipt(entry: TimelineEntry, materialOrderId: string) {
@@ -45,6 +46,7 @@ export function MaterialOrderReceipts({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [queuedNote, setQueuedNote] = useState('');
 
   const load = useCallback(async () => {
     if (!jobId) {
@@ -72,6 +74,7 @@ export function MaterialOrderReceipts({
   const upload = async (source: ImageSource) => {
     if (!jobId || readOnly) return;
     setError('');
+    setQueuedNote('');
     const picked = await pickImage(source);
     if (!picked) return;
     if ('error' in picked) {
@@ -80,12 +83,24 @@ export function MaterialOrderReceipts({
     }
     setBusy(true);
     try {
-      const { file_url } = await api.uploadFile(picked.uri);
+      const text = `Receipt · Material Order ${orderNumber || ''}`.trim();
+      const result = await uploadOrEnqueue({
+        sourceUri: picked.uri,
+        kind: 'job_receipt',
+        jobId,
+        category: 'receipt',
+        text,
+        materialOrderId,
+      });
+      if (result.queued) {
+        setQueuedNote('Saved offline — will upload when you are back online.');
+        return;
+      }
       await api.entities.TimelineEntry.create({
         job_id: jobId,
         type: 'receipt',
-        text: `Receipt · Material Order ${orderNumber || ''}`.trim(),
-        photo_url: file_url,
+        text,
+        photo_url: result.file_url,
         category: 'receipt',
         related_material_order_id: materialOrderId,
       });
@@ -154,6 +169,7 @@ export function MaterialOrderReceipts({
       ) : null}
 
       {busy || loading ? <ActivityIndicator color={BRAND_HEX.royalBlue} /> : null}
+      {queuedNote ? <Text style={styles.queued}>{queuedNote}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {!loading && receipts.length === 0 ? (
@@ -203,6 +219,7 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: '600' },
   buttonOutlineText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
   dim: { opacity: 0.6 },
+  queued: { color: BRAND_HEX.royalBlue, fontSize: 13 },
   error: { color: '#b00020', fontSize: 13 },
   empty: { color: '#666', fontSize: 14 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

@@ -20,6 +20,7 @@ import {
   photoCategoryMeta,
   type PhotoCategoryKey,
 } from '@/lib/photoCategories';
+import { uploadOrEnqueue } from '@/lib/offlinePhotoQueue';
 import { pickImage } from '@/lib/pickImage';
 
 type Mode = 'photos' | 'receipts';
@@ -45,6 +46,7 @@ export function JobPhotosSection({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [queuedNote, setQueuedNote] = useState('');
 
   const photos = entries.filter(e => {
     if (!isPhotoEntry(e)) return false;
@@ -59,6 +61,7 @@ export function JobPhotosSection({
 
   const pick = async (source: 'camera' | 'library') => {
     setError('');
+    setQueuedNote('');
     const picked = await pickImage(source);
     if (!picked) return;
     if ('error' in picked) {
@@ -70,12 +73,22 @@ export function JobPhotosSection({
     const meta = photoCategoryMeta(uploadCategory);
     setBusy(true);
     try {
-      const { file_url } = await api.uploadFile(picked.uri);
+      const result = await uploadOrEnqueue({
+        sourceUri: picked.uri,
+        kind: uploadCategory === 'receipt' ? 'job_receipt' : 'job_photo',
+        jobId,
+        category: meta.key,
+        text: `${meta.label} photo`,
+      });
+      if (result.queued) {
+        setQueuedNote('Saved offline — will upload when you are back online.');
+        return;
+      }
       await api.entities.TimelineEntry.create({
         job_id: jobId,
         type: meta.type,
         text: `${meta.label} photo`,
-        photo_url: file_url,
+        photo_url: result.file_url,
         category: meta.key,
       });
       onChanged();
@@ -173,6 +186,7 @@ export function JobPhotosSection({
       </View>
 
       {busy ? <ActivityIndicator color={BRAND_HEX.royalBlue} style={{ marginTop: 8 }} /> : null}
+      {queuedNote ? <Text style={styles.queued}>{queuedNote}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {photos.length === 0 ? (
@@ -257,6 +271,7 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: '600' },
   buttonOutlineText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
   dim: { opacity: 0.6 },
+  queued: { color: BRAND_HEX.royalBlue, fontSize: 13 },
   error: { color: '#b00020', fontSize: 13 },
   empty: { color: '#666', fontSize: 14 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

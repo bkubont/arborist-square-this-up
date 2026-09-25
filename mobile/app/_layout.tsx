@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX } from '@/lib/brand';
 import { queryClient, setupReactQueryFocus } from '@/lib/queryClient';
+import { OfflinePhotoQueueProvider } from '@/components/OfflinePhotoQueueProvider';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -25,7 +26,9 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RootNavigator />
+        <OfflinePhotoQueueProvider>
+          <RootNavigator />
+        </OfflinePhotoQueueProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

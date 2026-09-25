@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -14,6 +15,7 @@ import { api, type Job } from '@/api/client';
 import { AuthenticatedImage } from '@/components/AuthenticatedImage';
 import { BRAND_HEX } from '@/lib/brand';
 import { todayIso } from '@/lib/expenseCategories';
+import { enqueuePhoto, isLikelyNetworkError, isNetworkOnline } from '@/lib/offlinePhotoQueue';
 import { pickImage, type ImageSource } from '@/lib/pickImage';
 
 type Props = {
@@ -30,6 +32,7 @@ type Props = {
 /**
  * Field-fast receipt capture (web ReceiptCaptureDialog / Scan Receipt).
  * Photo → optional amount → optional job → Expense inbox and/or job timeline.
+ * Offline: keeps a local preview and queues upload on Save.
  */
 export function ReceiptCaptureModal({
   visible,
@@ -41,18 +44,22 @@ export function ReceiptCaptureModal({
 }: Props) {
   const [jobs, setJobs] = useState<Job[]>(jobsProp || []);
   const [photoUrl, setPhotoUrl] = useState('');
+  const [localUri, setLocalUri] = useState('');
   const [amount, setAmount] = useState('');
   const [jobId, setJobId] = useState(defaultJobId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [queuedNote, setQueuedNote] = useState('');
   const [didAutoCamera, setDidAutoCamera] = useState(false);
 
   useEffect(() => {
     if (!visible) {
       setPhotoUrl('');
+      setLocalUri('');
       setAmount('');
       setJobId(defaultJobId || '');
       setError('');
+      setQueuedNote('');
       setBusy(false);
       setDidAutoCamera(false);
       return;
@@ -76,8 +83,9 @@ export function ReceiptCaptureModal({
     };
   }, [visible, defaultJobId, jobsProp]);
 
-  const upload = async (source: ImageSource) => {
+  const capture = async (source: ImageSource) => {
     setError('');
+    setQueuedNote('');
     const picked = await pickImage(source);
     if (!picked) return;
     if ('error' in picked) {
@@ -86,8 +94,26 @@ export function ReceiptCaptureModal({
     }
     setBusy(true);
     try {
-      const { file_url } = await api.uploadFile(picked.uri);
-      setPhotoUrl(file_url);
+      const online = await isNetworkOnline();
+      if (!online) {
+        setLocalUri(picked.uri);
+        setPhotoUrl('');
+        setQueuedNote('Offline — photo kept on device until you save.');
+        return;
+      }
+      try {
+        const { file_url } = await api.uploadFile(picked.uri);
+        setPhotoUrl(file_url);
+        setLocalUri('');
+      } catch (err) {
+        if (isLikelyNetworkError(err)) {
+          setLocalUri(picked.uri);
+          setPhotoUrl('');
+          setQueuedNote('Offline — photo kept on device until you save.');
+          return;
+        }
+        throw err;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Photo upload failed');
     } finally {
@@ -96,33 +122,17 @@ export function ReceiptCaptureModal({
   };
 
   useEffect(() => {
-    if (!visible || !cameraFirst || didAutoCamera || photoUrl) return;
+    if (!visible || !cameraFirst || didAutoCamera || photoUrl || localUri) return;
     setDidAutoCamera(true);
     const t = setTimeout(() => {
-      void (async () => {
-        setError('');
-        const picked = await pickImage('camera');
-        if (!picked) return;
-        if ('error' in picked) {
-          setError(picked.error);
-          return;
-        }
-        setBusy(true);
-        try {
-          const { file_url } = await api.uploadFile(picked.uri);
-          setPhotoUrl(file_url);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Photo upload failed');
-        } finally {
-          setBusy(false);
-        }
-      })();
+      void capture('camera');
     }, 350);
     return () => clearTimeout(t);
-  }, [visible, cameraFirst, didAutoCamera, photoUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-open once per modal show
+  }, [visible, cameraFirst, didAutoCamera, photoUrl, localUri]);
 
   const save = async () => {
-    if (!photoUrl) {
+    if (!photoUrl && !localUri) {
       setError('Capture a receipt photo first.');
       return;
     }
@@ -133,7 +143,21 @@ export function ReceiptCaptureModal({
     }
     setBusy(true);
     setError('');
+    setQueuedNote('');
     try {
+      if (!photoUrl && localUri) {
+        await enqueuePhoto({
+          sourceUri: localUri,
+          kind: 'expense_receipt',
+          jobId: jobId || undefined,
+          amount: n,
+        });
+        setQueuedNote('Queued — will upload when you are back online.');
+        onClose();
+        onSaved?.();
+        return;
+      }
+
       if (jobId) {
         await api.entities.TimelineEntry.create({
           job_id: jobId,
@@ -165,11 +189,28 @@ export function ReceiptCaptureModal({
       onClose();
       onSaved?.();
     } catch (err) {
+      if (localUri && isLikelyNetworkError(err)) {
+        try {
+          await enqueuePhoto({
+            sourceUri: localUri,
+            kind: 'expense_receipt',
+            jobId: jobId || undefined,
+            amount: n,
+          });
+          onClose();
+          onSaved?.();
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
       setError(err instanceof Error ? err.message : 'Could not save receipt');
     } finally {
       setBusy(false);
     }
   };
+
+  const hasPhoto = Boolean(photoUrl || localUri);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={() => !busy && onClose()}>
@@ -182,14 +223,14 @@ export function ReceiptCaptureModal({
             <Pressable
               style={[styles.camBtn, busy && styles.dim]}
               disabled={busy}
-              onPress={() => void upload('camera')}
+              onPress={() => void capture('camera')}
             >
               <Text style={styles.camBtnText}>Camera</Text>
             </Pressable>
             <Pressable
               style={[styles.libBtn, busy && styles.dim]}
               disabled={busy}
-              onPress={() => void upload('library')}
+              onPress={() => void capture('library')}
             >
               <Text style={styles.libBtnText}>Library</Text>
             </Pressable>
@@ -197,6 +238,8 @@ export function ReceiptCaptureModal({
 
           {photoUrl ? (
             <AuthenticatedImage fileUrl={photoUrl} style={styles.preview} />
+          ) : localUri ? (
+            <Image source={{ uri: localUri }} style={styles.preview} />
           ) : (
             <Text style={styles.hint}>Take or choose a receipt photo.</Text>
           )}
@@ -246,6 +289,7 @@ export function ReceiptCaptureModal({
             })}
           </ScrollView>
 
+          {queuedNote ? <Text style={styles.queued}>{queuedNote}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {busy ? <ActivityIndicator color={BRAND_HEX.royalBlue} style={{ marginTop: 4 }} /> : null}
 
@@ -254,11 +298,13 @@ export function ReceiptCaptureModal({
               <Text style={styles.cancel}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[styles.saveBtn, (!photoUrl || busy) && styles.dim]}
+              style={[styles.saveBtn, (!hasPhoto || busy) && styles.dim]}
               onPress={() => void save()}
-              disabled={!photoUrl || busy}
+              disabled={!hasPhoto || busy}
             >
-              <Text style={styles.saveText}>{busy ? 'Saving…' : 'Save'}</Text>
+              <Text style={styles.saveText}>
+                {busy ? 'Saving…' : localUri && !photoUrl ? 'Queue' : 'Save'}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -335,6 +381,7 @@ const styles = StyleSheet.create({
   chipActive: { borderColor: BRAND_HEX.royalBlue, backgroundColor: '#e8e8f8' },
   chipText: { fontSize: 13, color: '#333' },
   chipTextActive: { color: BRAND_HEX.royalBlue, fontWeight: '700' },
+  queued: { color: BRAND_HEX.royalBlue, fontSize: 13 },
   error: { color: '#b00020', fontSize: 13 },
   footer: {
     flexDirection: 'row',
