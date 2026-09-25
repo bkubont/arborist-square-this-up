@@ -19,6 +19,7 @@ import {
   type Job,
 } from '@/api/client';
 import { AuthenticatedImage } from '@/components/AuthenticatedImage';
+import { ScreenMessage } from '@/components/ScreenMessage';
 import { BRAND_HEX } from '@/lib/brand';
 import { money, moneyCents, shortDate } from '@/lib/format';
 
@@ -81,6 +82,35 @@ export default function MoneyScreen() {
     );
   }
 
+  if (error && !summaries && data.length === 0) {
+    return (
+      <View style={[styles.screen, styles.centered]}>
+        <ScreenMessage
+          variant="error"
+          title="Couldn’t load money"
+          detail={error}
+          onRetry={() => void load()}
+        />
+      </View>
+    );
+  }
+
+  const emptyCopy =
+    segment === 'estimates'
+      ? {
+          title: 'No estimates yet',
+          detail: 'Open a job and create an estimate from Documents.',
+        }
+      : segment === 'invoices'
+        ? {
+            title: 'No invoices yet',
+            detail: 'Invoices appear here after you create them from a job.',
+          }
+        : {
+            title: 'No expenses yet',
+            detail: 'Log a purchase or scan a receipt to track job costs.',
+          };
+
   return (
     <View style={styles.screen}>
       <View style={styles.summaryRow}>
@@ -118,14 +148,27 @@ export default function MoneyScreen() {
         <Text style={styles.hint}>Create estimates, invoices, and orders from a job.</Text>
       )}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Pressable onPress={() => void load(true)}>
+          <Text style={styles.error}>{error} · Tap to retry</Text>
+        </Pressable>
+      ) : null}
 
       <FlatList
         data={data as Array<{ id: string }>}
         keyExtractor={item => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
         contentContainerStyle={data.length ? styles.listPad : styles.centered}
-        ListEmptyComponent={<Text style={styles.empty}>Nothing here yet</Text>}
+        ListEmptyComponent={
+          <ScreenMessage
+            title={emptyCopy.title}
+            detail={emptyCopy.detail}
+            actionLabel={segment === 'expenses' ? 'Add expense' : 'Go to Jobs'}
+            onAction={() =>
+              router.push(segment === 'expenses' ? '/(app)/expenses/new' : '/(app)/(tabs)/jobs')
+            }
+          />
+        }
         renderItem={({ item }) => {
           if (segment === 'estimates') {
             const est = item as Estimate;
@@ -285,6 +328,5 @@ const styles = StyleSheet.create({
   pressed: { backgroundColor: '#f0f0f8' },
   title: { fontSize: 15, fontWeight: '600', color: BRAND_HEX.black },
   meta: { fontSize: 13, color: '#666' },
-  empty: { color: '#777' },
   error: { color: '#b00020', paddingHorizontal: 12, marginBottom: 8 },
 });

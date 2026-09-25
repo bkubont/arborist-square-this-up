@@ -90,6 +90,8 @@ export function JobTimelineSection({ jobId, entries, onChanged }: Props) {
           placeholderTextColor="#999"
           multiline
           editable={!busy}
+          returnKeyType="default"
+          blurOnSubmit={false}
         />
         <Pressable
           style={[styles.addBtn, (busy || !text.trim()) && styles.dim]}
@@ -102,7 +104,7 @@ export function JobTimelineSection({ jobId, entries, onChanged }: Props) {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {feed.length === 0 ? (
-        <Text style={styles.empty}>No activity yet.</Text>
+        <Text style={styles.empty}>No notes or activity yet — post a field note above.</Text>
       ) : (
         <View style={styles.list}>
           {feed.map(entry => (

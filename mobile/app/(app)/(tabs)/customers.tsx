@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { api, type Client } from '@/api/client';
+import { ScreenMessage } from '@/components/ScreenMessage';
 import { BRAND_HEX } from '@/lib/brand';
 import { shortDate } from '@/lib/format';
 import { isArchivedClient } from '@/lib/jobStatus';
@@ -89,14 +90,31 @@ export default function CustomersListScreen() {
         </View>
       }
       ListEmptyComponent={
-        <Text style={styles.empty}>
-          {error ||
-            (showArchived
-              ? 'No archived customers.'
-              : clients.length === 0
-                ? 'No customers yet'
-                : 'No active customers.')}
-        </Text>
+        error && clients.length === 0 ? (
+          <ScreenMessage
+            variant="error"
+            title="Couldn’t load customers"
+            detail={error}
+            onRetry={() => void load()}
+          />
+        ) : (
+          <ScreenMessage
+            title={
+              showArchived
+                ? 'No archived customers'
+                : clients.length === 0
+                  ? 'No customers yet'
+                  : 'No active customers'
+            }
+            detail={
+              showArchived
+                ? 'Declined contacts show up here when archived.'
+                : 'Add a customer before creating their first job.'
+            }
+            actionLabel={showArchived ? undefined : 'Add customer'}
+            onAction={showArchived ? undefined : () => router.push('/(app)/customers/new')}
+          />
+        )
       }
       renderItem={({ item }) => (
         <Pressable
@@ -126,7 +144,6 @@ const styles = StyleSheet.create({
   headerBlock: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
   count: { fontSize: 13, color: '#666' },
   toggle: { fontSize: 14, fontWeight: '600', color: BRAND_HEX.royalBlue },
-  empty: { color: '#666', fontSize: 15 },
   error: { color: '#b00020', padding: 12, backgroundColor: '#fde8ea' },
   headerAdd: { color: BRAND_HEX.royalBlue, fontWeight: '700', fontSize: 16, paddingHorizontal: 4 },
   row: {

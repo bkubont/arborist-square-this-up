@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/lib/AuthContext';
 import { authStyles as styles } from '@/lib/authStyles';
@@ -62,92 +63,94 @@ export default function RegisterScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: '#f7f7fb' }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <View style={styles.hero}>
-          <View style={styles.mark} />
-          <Text style={styles.brand}>{PRODUCT_NAME}</Text>
-          <Text style={styles.subtitle}>
-            {inviteToken ? 'Create your account' : 'Invitation required'}
-          </Text>
-          <Text style={styles.hint}>
-            {inviteToken
-              ? 'Your clients and jobs stay private to your account.'
-              : 'Open the invitation link from the app owner, or paste invite details below if you have them.'}
-          </Text>
-        </View>
-
-        {!inviteToken ? (
-          <View style={styles.form}>
-            <Text style={styles.error}>
-              Contact the app owner for an invitation. Links look like …/register?invite=…&email=…
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f7f7fb' }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: '#f7f7fb' }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.hero}>
+            <View style={styles.mark} />
+            <Text style={styles.brand}>{PRODUCT_NAME}</Text>
+            <Text style={styles.subtitle}>
+              {inviteToken ? 'Create your account' : 'Invitation required'}
             </Text>
-            <Link href="/login" style={styles.link}>
-              Back to log in
-            </Link>
-          </View>
-        ) : (
-          <View style={styles.form}>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              value={email}
-              onChangeText={setEmail}
-              editable={!busy}
-            />
-            <Text style={styles.label}>Password (at least 12 characters)</Text>
-            <TextInput
-              style={styles.input}
-              secureTextEntry
-              autoComplete="new-password"
-              value={password}
-              onChangeText={setPassword}
-              editable={!busy}
-            />
-            <Text style={styles.label}>Confirm password</Text>
-            <TextInput
-              style={styles.input}
-              secureTextEntry
-              autoComplete="new-password"
-              value={confirm}
-              onChangeText={setConfirm}
-              editable={!busy}
-            />
-            <Text style={styles.label}>Sales tax rate (%)</Text>
-            <TextInput
-              style={styles.input}
-              keyboardType="decimal-pad"
-              value={salesTaxRate}
-              onChangeText={setSalesTaxRate}
-              editable={!busy}
-            />
             <Text style={styles.hint}>
-              Default {DEFAULT_SALES_TAX_RATE}%. Used on estimates and invoices; change later in Settings.
+              {inviteToken
+                ? 'Your clients and jobs stay private to your account.'
+                : 'Open the invitation link from the app owner, or paste invite details below if you have them.'}
             </Text>
-            <Pressable
-              style={({ pressed }) => [styles.button, (pressed || busy) && styles.buttonDisabled]}
-              onPress={onSubmit}
-              disabled={busy}
-            >
-              {busy ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Create account</Text>
-              )}
-            </Pressable>
-            <Link href="/login" style={styles.link}>
-              Back to log in
-            </Link>
           </View>
-        )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+          {!inviteToken ? (
+            <View style={styles.form}>
+              <Text style={styles.error}>
+                Contact the app owner for an invitation. Links look like …/register?invite=…&email=…
+              </Text>
+              <Link href="/login" style={styles.link}>
+                Back to log in
+              </Link>
+            </View>
+          ) : (
+            <View style={styles.form}>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <Text style={styles.label}>Email</Text>
+              <TextInput
+                style={styles.input}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                value={email}
+                onChangeText={setEmail}
+                editable={!busy}
+              />
+              <Text style={styles.label}>Password (at least 12 characters)</Text>
+              <TextInput
+                style={styles.input}
+                secureTextEntry
+                autoComplete="new-password"
+                value={password}
+                onChangeText={setPassword}
+                editable={!busy}
+              />
+              <Text style={styles.label}>Confirm password</Text>
+              <TextInput
+                style={styles.input}
+                secureTextEntry
+                autoComplete="new-password"
+                value={confirm}
+                onChangeText={setConfirm}
+                editable={!busy}
+              />
+              <Text style={styles.label}>Sales tax rate (%)</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="decimal-pad"
+                value={salesTaxRate}
+                onChangeText={setSalesTaxRate}
+                editable={!busy}
+              />
+              <Text style={styles.hint}>
+                Default {DEFAULT_SALES_TAX_RATE}%. Used on estimates and invoices; change later in Settings.
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.button, (pressed || busy) && styles.buttonDisabled]}
+                onPress={onSubmit}
+                disabled={busy}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Create account</Text>
+                )}
+              </Pressable>
+              <Link href="/login" style={styles.link}>
+                Back to log in
+              </Link>
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }

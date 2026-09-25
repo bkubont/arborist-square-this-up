@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '@/api/client';
 import { authStyles as styles } from '@/lib/authStyles';
@@ -46,72 +47,79 @@ export default function ResetPasswordScreen() {
 
   if (!resetToken) {
     return (
-      <View style={styles.screen}>
-        <View style={styles.hero}>
-          <View style={styles.mark} />
-          <Text style={styles.brand}>{PRODUCT_NAME}</Text>
-          <Text style={styles.subtitle}>Invalid reset link</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#f7f7fb' }}>
+        <View style={styles.screen}>
+          <View style={styles.hero}>
+            <View style={styles.mark} />
+            <Text style={styles.brand}>{PRODUCT_NAME}</Text>
+            <Text style={styles.subtitle}>Invalid reset link</Text>
+          </View>
+          <Text style={styles.error}>
+            This password reset link is missing or incomplete. Request a new one.
+          </Text>
+          <Link href="/forgot-password" style={styles.link}>
+            Request a new link
+          </Link>
+          <Link href="/login" style={styles.link}>
+            Back to log in
+          </Link>
         </View>
-        <Text style={styles.error}>
-          This password reset link is missing or incomplete. Request a new one.
-        </Text>
-        <Link href="/forgot-password" style={styles.link}>
-          Request a new link
-        </Link>
-        <Link href="/login" style={styles.link}>
-          Back to log in
-        </Link>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.hero}>
-        <View style={styles.mark} />
-        <Text style={styles.brand}>{PRODUCT_NAME}</Text>
-        <Text style={styles.subtitle}>New password</Text>
-        <Text style={styles.hint}>Use at least 12 characters.</Text>
-      </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f7f7fb' }}>
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.hero}>
+          <View style={styles.mark} />
+          <Text style={styles.brand}>{PRODUCT_NAME}</Text>
+          <Text style={styles.subtitle}>New password</Text>
+          <Text style={styles.hint}>Use at least 12 characters.</Text>
+        </View>
 
-      <View style={styles.form}>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Text style={styles.label}>New password</Text>
-        <TextInput
-          style={styles.input}
-          secureTextEntry
-          autoComplete="new-password"
-          value={newPassword}
-          onChangeText={setNewPassword}
-          editable={!busy}
-        />
-        <Text style={styles.label}>Confirm password</Text>
-        <TextInput
-          style={styles.input}
-          secureTextEntry
-          autoComplete="new-password"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          editable={!busy}
-        />
-        <Pressable
-          style={({ pressed }) => [styles.button, (pressed || busy) && styles.buttonDisabled]}
-          onPress={onSubmit}
-          disabled={busy}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Reset password</Text>
-          )}
-        </Pressable>
-        <Link href="/login" style={styles.link}>
-          Back to log in
-        </Link>
-      </View>
-    </KeyboardAvoidingView>
+        <View style={styles.form}>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Text style={styles.label}>New password</Text>
+          <TextInput
+            style={styles.input}
+            secureTextEntry
+            autoComplete="new-password"
+            value={newPassword}
+            onChangeText={setNewPassword}
+            editable={!busy}
+            returnKeyType="next"
+          />
+          <Text style={styles.label}>Confirm password</Text>
+          <TextInput
+            style={styles.input}
+            secureTextEntry
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            editable={!busy}
+            returnKeyType="done"
+            onSubmitEditing={onSubmit}
+          />
+          <Pressable
+            style={({ pressed }) => [styles.button, (pressed || busy) && styles.buttonDisabled]}
+            onPress={onSubmit}
+            disabled={busy}
+          >
+            {busy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Reset password</Text>
+            )}
+          </Pressable>
+          <Link href="/login" style={styles.link}>
+            Back to log in
+          </Link>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }

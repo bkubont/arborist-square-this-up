@@ -10,6 +10,7 @@ import { JobMaterialsSection } from '@/components/JobMaterialsSection';
 import { JobPhotosSection } from '@/components/JobPhotosSection';
 import { JobTasksSection } from '@/components/JobTasksSection';
 import { JobTimelineSection } from '@/components/JobTimelineSection';
+import { ScreenMessage } from '@/components/ScreenMessage';
 import { BRAND_HEX } from '@/lib/brand';
 import { jobDetailQueryKey, loadJobDetail } from '@/lib/jobDetail';
 import { deriveMaterialsStatus, materialsStatusColor } from '@/lib/jobMaterials';
@@ -53,7 +54,14 @@ export default function JobDetailScreen() {
   if (errMsg || !data?.job) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.error}>{errMsg || 'Job not found'}</Text>
+        <ScreenMessage
+          variant="error"
+          title={errMsg ? 'Couldn’t load job' : 'Job not found'}
+          detail={errMsg || 'It may have been deleted, or you may not have access.'}
+          onRetry={errMsg ? () => void refetch() : undefined}
+          actionLabel="Back to jobs"
+          onAction={() => router.push('/(app)/(tabs)/jobs')}
+        />
       </View>
     );
   }
@@ -185,5 +193,4 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, color: '#666' },
   value: { fontSize: 17, fontWeight: '600', color: BRAND_HEX.black },
   link: { color: BRAND_HEX.royalBlue, fontWeight: '600', marginTop: 4 },
-  error: { color: '#b00020' },
 });

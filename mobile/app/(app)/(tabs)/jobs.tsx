@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { api, type Job } from '@/api/client';
+import { ScreenMessage } from '@/components/ScreenMessage';
 import { BRAND_HEX } from '@/lib/brand';
 import { formatJobStatus, isWorkingJob } from '@/lib/jobStatus';
 
@@ -68,7 +69,23 @@ export default function JobsListScreen() {
       data={jobs}
       keyExtractor={item => item.id}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
-      ListEmptyComponent={<Text style={styles.empty}>{error || 'No active jobs'}</Text>}
+      ListEmptyComponent={
+        error ? (
+          <ScreenMessage
+            variant="error"
+            title="Couldn’t load jobs"
+            detail={error}
+            onRetry={() => void load()}
+          />
+        ) : (
+          <ScreenMessage
+            title="No active jobs"
+            detail="Create a job for the next site visit, or check Archive under More for finished work."
+            actionLabel="Add job"
+            onAction={() => router.push('/(app)/jobs/new')}
+          />
+        )
+      }
       ListHeaderComponent={error && jobs.length ? <Text style={styles.error}>{error}</Text> : null}
       renderItem={({ item }) => (
         <Pressable
@@ -91,7 +108,6 @@ export default function JobsListScreen() {
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: '#f7f7fb' },
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  empty: { color: '#666', fontSize: 15 },
   error: { color: '#b00020', padding: 12, backgroundColor: '#fde8ea' },
   headerAdd: { color: BRAND_HEX.royalBlue, fontWeight: '700', fontSize: 16, paddingHorizontal: 4 },
   row: {

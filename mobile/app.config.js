@@ -1,4 +1,8 @@
 const linkHost = process.env.EXPO_PUBLIC_LINK_HOST || 'jobs.yourdomain.com';
+// Store listing / App Review links — leave empty until live HTTPS pages exist.
+// Examples once published: https://squarethisup.com/privacy , https://squarethisup.com
+const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
+const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
 
 /** @type {import('expo/config').ExpoConfig} */
 const expoConfig = {
@@ -84,6 +88,8 @@ const expoConfig = {
       projectId: process.env.EAS_PROJECT_ID || undefined,
     },
     linkHost,
+    privacyPolicyUrl,
+    supportUrl,
   },
 };
 

@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
@@ -35,63 +36,67 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.hero}>
-        <View style={styles.mark} />
-        <Text style={styles.brand}>{PRODUCT_NAME}</Text>
-        <Text style={styles.subtitle}>Sign in to your account</Text>
-        <Text style={styles.apiHint}>API {api.baseUrl}</Text>
-      </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f7f7fb' }}>
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.hero}>
+          <View style={styles.mark} />
+          <Text style={styles.brand}>{PRODUCT_NAME}</Text>
+          <Text style={styles.subtitle}>Sign in to your account</Text>
+          <Text style={styles.apiHint}>API {api.baseUrl}</Text>
+        </View>
 
-      <View style={styles.form}>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          style={styles.input}
-          autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
-          textContentType="username"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          placeholderTextColor="#999"
-          editable={!busy}
-        />
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          secureTextEntry
-          autoComplete="password"
-          textContentType="password"
-          value={password}
-          onChangeText={setPassword}
-          placeholder="••••••••••••"
-          placeholderTextColor="#999"
-          editable={!busy}
-          onSubmitEditing={onSubmit}
-        />
-        <Pressable
-          accessibilityRole="button"
-          onPress={onSubmit}
-          disabled={busy || !email || !password}
-          style={({ pressed }) => [
-            styles.button,
-            (pressed || busy || !email || !password) && styles.buttonDisabled,
-          ]}
-        >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Log in</Text>}
-        </Pressable>
-        <Link href="/forgot-password" style={styles.link}>
-          Forgot password?
-        </Link>
-        <Link href="/register" style={styles.link}>
-          Have an invitation? Create account
-        </Link>
-      </View>
-    </KeyboardAvoidingView>
+        <View style={styles.form}>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            style={styles.input}
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            textContentType="username"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            placeholderTextColor="#999"
+            editable={!busy}
+            returnKeyType="next"
+          />
+          <Text style={styles.label}>Password</Text>
+          <TextInput
+            style={styles.input}
+            secureTextEntry
+            autoComplete="password"
+            textContentType="password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="••••••••••••"
+            placeholderTextColor="#999"
+            editable={!busy}
+            returnKeyType="done"
+            onSubmitEditing={onSubmit}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={onSubmit}
+            disabled={busy || !email || !password}
+            style={({ pressed }) => [
+              styles.button,
+              (pressed || busy || !email || !password) && styles.buttonDisabled,
+            ]}
+          >
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Log in</Text>}
+          </Pressable>
+          <Link href="/forgot-password" style={styles.link}>
+            Forgot password?
+          </Link>
+          <Link href="/register" style={styles.link}>
+            Have an invitation? Create account
+          </Link>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
