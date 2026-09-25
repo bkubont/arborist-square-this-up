@@ -62,6 +62,7 @@ export default function JobDetail() {
   const [entries, setEntries] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [workItems, setWorkItems] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
@@ -91,16 +92,18 @@ export default function JobDetail() {
   };
 
   const load = useCallback(async () => {
-    const [j, e, items, money, ...docLists] = await Promise.all([
+    const [j, e, items, money, jobExpenses, ...docLists] = await Promise.all([
       api.entities.Job.get(id),
       api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 500),
       api.entities.WorkItem.filter({ job_id: id }, "-created_date", 500),
       api.summaries.job(id).catch(() => null),
+      api.entities.Expense.filter({ job_id: id }, "-created_date", 200),
       ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 100)),
     ]);
     setJob(j);
     setEntries(e);
     setWorkItems(items);
+    setExpenses(jobExpenses);
     setSummary(money);
     setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
     if (j?.client_id) {
@@ -299,7 +302,14 @@ export default function JobDetail() {
             <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
               Money
             </div>
-            <FinancialPanel job={job} documents={documents} timeline={entries} onLogPayment={logPayment} />
+            <FinancialPanel
+              job={job}
+              documents={documents}
+              timeline={entries}
+              expenses={expenses}
+              onLogPayment={logPayment}
+              onExpensesChanged={load}
+            />
           </div>
 
           <JobMaterialsPanel jobId={id} materials={job.materials || []} onChanged={load} />
@@ -312,17 +322,6 @@ export default function JobDetail() {
             onChanged={load}
             entities={["Estimate"]}
             title="Estimate"
-          />
-
-          <JobDocuments
-            jobId={id}
-            jobTitle={job.title}
-            client={client}
-            documents={documents}
-            onChanged={load}
-            entities={["Invoice"]}
-            title="Invoice"
-            emptyHint="The invoice unlocks once the estimate is signed. One active invoice per job."
           />
 
           {job.notes ? (
