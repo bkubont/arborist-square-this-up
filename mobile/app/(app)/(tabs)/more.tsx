@@ -85,7 +85,7 @@ export default function MoreScreen() {
         onPress={() => router.push('/(app)/receipts')}
       >
         <Text style={styles.linkRowText}>Receipts inbox</Text>
-        <Text style={styles.linkRowHint}>Unassigned expense photos → assign to a job</Text>
+        <Text style={styles.linkRowHint}>Scan receipts · assign unassigned photos to jobs</Text>
       </Pressable>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

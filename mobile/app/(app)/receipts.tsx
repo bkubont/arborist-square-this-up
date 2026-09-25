@@ -13,11 +13,12 @@ import {
 
 import { api, type Expense, type Job } from '@/api/client';
 import { AuthenticatedImage } from '@/components/AuthenticatedImage';
+import { ReceiptCaptureModal } from '@/components/ReceiptCaptureModal';
 import { BRAND_HEX } from '@/lib/brand';
 import { money, shortDate } from '@/lib/format';
 
 /**
- * Lightweight receipts inbox — unassigned expense photos (web /receipts).
+ * Receipts inbox — unassigned expense photos + Scan Receipt (web /receipts).
  * Tap a card → pick a job to assign (mirrors receipt onto the job gallery).
  */
 export default function ReceiptsScreen() {
@@ -28,6 +29,7 @@ export default function ReceiptsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [assigning, setAssigning] = useState<Expense | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -130,10 +132,20 @@ export default function ReceiptsScreen() {
           />
         }
       >
-        <Text style={styles.title}>Receipts</Text>
-        <Text style={styles.subtitle}>
-          {inbox.length} unassigned · {assignedWithPhoto.length} on jobs
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Receipts</Text>
+            <Text style={styles.subtitle}>
+              {inbox.length} unassigned · {assignedWithPhoto.length} on jobs
+            </Text>
+          </View>
+          <Pressable
+            style={({ pressed }) => [styles.scanBtn, pressed && styles.pressed]}
+            onPress={() => setCaptureOpen(true)}
+          >
+            <Text style={styles.scanBtnText}>Scan Receipt</Text>
+          </Pressable>
+        </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <Text style={styles.section}>Unassigned inbox</Text>
@@ -185,10 +197,20 @@ export default function ReceiptsScreen() {
           </View>
         )}
 
+        <Pressable style={styles.linkBtn} onPress={() => setCaptureOpen(true)}>
+          <Text style={styles.link}>Scan another receipt</Text>
+        </Pressable>
         <Pressable style={styles.linkBtn} onPress={() => router.push('/(app)/expenses/new')}>
           <Text style={styles.link}>+ New expense with receipt</Text>
         </Pressable>
       </ScrollView>
+
+      <ReceiptCaptureModal
+        visible={captureOpen}
+        onClose={() => setCaptureOpen(false)}
+        jobs={jobs}
+        onSaved={() => void load()}
+      />
 
       <Modal
         visible={!!assigning}
@@ -251,8 +273,16 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f7f7fb' },
   content: { padding: 20, gap: 10, paddingBottom: 40 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   title: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.black },
-  subtitle: { fontSize: 13, color: '#666', marginTop: -4 },
+  subtitle: { fontSize: 13, color: '#666', marginTop: 2 },
+  scanBtn: {
+    backgroundColor: BRAND_HEX.royalBlue,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  scanBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   section: {
     fontSize: 12,
     textTransform: 'uppercase',

@@ -78,6 +78,8 @@ export type TimelineEntry = {
   photo_url?: string;
   category?: string;
   amount?: number;
+  /** When set, receipt is linked to a Material Order (web MO editor parity). */
+  related_material_order_id?: string;
   created_date?: string;
   updated_date?: string;
 };

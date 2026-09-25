@@ -141,7 +141,9 @@ export function JobPhotosSection({ jobId, entries, onChanged }: Props) {
             <Pressable key={p.id} onLongPress={() => remove(p)} style={styles.thumbWrap}>
               <AuthenticatedImage fileUrl={p.photo_url} style={styles.thumb} />
               <Text style={styles.cap} numberOfLines={1}>
-                {photoCategoryMeta(p.category || '').label}
+                {p.related_material_order_id
+                  ? `MO · ${photoCategoryMeta(p.category || '').label}`
+                  : photoCategoryMeta(p.category || '').label}
               </Text>
             </Pressable>
           ))}
