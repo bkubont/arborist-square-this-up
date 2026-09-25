@@ -7,7 +7,7 @@ import StatusSelect from "@/components/StatusSelect";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 import TaskNotes from "@/components/TaskNotes";
 import { moneyCents } from "@/lib/format";
-import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining, isTaskCompleted } from "@/lib/tasks";
+import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining, isTaskCompleted, isHiddenBuiltInTask } from "@/lib/tasks";
 import { statusColors, statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -33,10 +33,12 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
   // Optimistic status/position while a board move saves, so the card doesn't snap back.
   const [pending, setPending] = useState(/** @type {Record<string, { status: string, sort_order: number }>} */ ({}));
 
+  const visibleItems = useMemo(() => items.filter((item) => !isHiddenBuiltInTask(item)), [items]);
+
   const shown = useMemo(() => {
-    const merged = items.map((item) => (pending[item.id] ? { ...item, ...pending[item.id] } : item));
+    const merged = visibleItems.map((item) => (pending[item.id] ? { ...item, ...pending[item.id] } : item));
     return view === "list" ? sortTasksForList(merged) : sortTasks(merged);
-  }, [items, pending, view]);
+  }, [visibleItems, pending, view]);
   const doneCount = shown.filter((i) => isTaskCompleted(taskStatus(i))).length;
   const openItem = items.find((i) => i.id === openId) || null;
 
@@ -106,8 +108,8 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
   return (
     <div>
       <div className="text-xs text-slate-500 mb-2">
-        {items.length
-          ? [`${doneCount}/${items.length} done`, formatHours(hoursRemaining(shown)) && `${formatHours(hoursRemaining(shown))} left`].filter(Boolean).join(" · ")
+        {visibleItems.length
+          ? [`${doneCount}/${visibleItems.length} done`, formatHours(hoursRemaining(shown)) && `${formatHours(hoursRemaining(shown))} left`].filter(Boolean).join(" · ")
           : "No tasks yet. Signed estimate and change order lines show up here."}
       </div>
 
@@ -201,6 +203,7 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   const [expanded, setExpanded] = useState(true);
   const status = taskStatus(item);
   const steps = item.steps || [];
+  const materials = item.materials || [];
   const closed = isTaskCompleted(status) || status === "cancelled";
   const done = isTaskCompleted(status);
 
@@ -209,9 +212,26 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
     onStatus(item, done ? "plan" : "completed");
   };
   const toggleStep = (stepId) => onPatch(item, { steps: steps.map((s) => (s.id === stepId ? { ...s, done: !s.done } : s)) });
-  // New steps go up without an id; the server assigns one.
   const addStep = (text) => onPatch(item, { steps: [...steps, { text: text.trim(), done: false }] });
   const removeStep = (stepId) => onPatch(item, { steps: steps.filter((s) => s.id !== stepId) });
+
+  const saveMaterials = (next) => {
+    const num = (v) => (v === "" || v == null ? undefined : Number(v));
+    onPatch(item, {
+      materials: next
+        .filter((m) => m.description?.trim())
+        .map((m) => ({
+          ...m,
+          description: m.description.trim(),
+          qty: num(m.qty),
+          unit: m.unit || undefined,
+          unit_price: num(m.unit_price),
+        })),
+    });
+  };
+  const setMaterial = (index, patch) => saveMaterials(materials.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  const addMaterial = (description) => saveMaterials([...materials, { description: description.trim(), qty: "", unit: "", unit_price: "", have: false }]);
+  const removeMaterial = (index) => saveMaterials(materials.filter((_, i) => i !== index));
 
   return (
     <div data-testid={`task-${item.id}`} className={cn("rounded-lg border p-2.5", statusCardClass(status), closed ? "bg-slate-50/60" : "bg-white")}>
@@ -238,40 +258,76 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
             formatLabel={taskStatusLabel}
             triggerClassName="h-7 text-xs w-auto min-w-[7.5rem] px-2"
           />
-          <button type="button" aria-label={expanded ? "Hide steps" : "Show steps"} className="text-slate-400 hover:text-slate-600 p-1" onClick={() => setExpanded((v) => !v)}>
+          <button type="button" aria-label={expanded ? "Hide details" : "Show details"} className="text-slate-400 hover:text-slate-600 p-1" onClick={() => setExpanded((v) => !v)}>
             {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
-      <TaskNotes item={item} {...note} className="mt-1.5" />
-
       {expanded && (
-        <div className="mt-2 ml-1 space-y-1">
-          {steps.map((step) => (
-            <div key={step.id} className="flex items-center gap-2 group">
-              <button
-                type="button"
-                data-testid={`task-step-${step.id}`}
-                onClick={() => toggleStep(step.id)}
-                disabled={busy}
-                aria-label={step.done ? "Mark step not done" : "Mark step done"}
-                className={cn(
-                  "w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0",
-                  step.done ? "bg-emerald-500 border-emerald-500" : "border-slate-300 hover:border-slate-400"
-                )}
-              >
-                {step.done && <Check className="w-3 h-3 text-white" />}
-              </button>
-              <span className={cn("text-xs flex-1", step.done ? "line-through text-slate-400" : "text-slate-600")}>{step.text}</span>
-              <button type="button" aria-label="Remove step" className="text-slate-300 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100" onClick={() => removeStep(step.id)}>
-                <X className="w-3 h-3" />
-              </button>
+        <div className="mt-3 ml-1 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Steps</div>
+            <div className="space-y-1">
+              {steps.map((step) => (
+                <div key={step.id} className="flex items-center gap-2 group">
+                  <button
+                    type="button"
+                    data-testid={`task-step-${step.id}`}
+                    onClick={() => toggleStep(step.id)}
+                    disabled={busy}
+                    aria-label={step.done ? "Mark step not done" : "Mark step done"}
+                    className={cn(
+                      "w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0",
+                      step.done ? "bg-emerald-500 border-emerald-500" : "border-slate-300 hover:border-slate-400"
+                    )}
+                  >
+                    {step.done && <Check className="w-3 h-3 text-white" />}
+                  </button>
+                  <span className={cn("text-xs flex-1", step.done ? "line-through text-slate-400" : "text-slate-600")}>{step.text}</span>
+                  <button type="button" aria-label="Remove step" className="text-slate-300 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100" onClick={() => removeStep(step.id)}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              <StepAdder disabled={busy} onAdd={addStep} />
             </div>
-          ))}
-          <StepAdder disabled={busy} onAdd={addStep} />
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Materials</div>
+            <div className="space-y-1.5">
+              {materials.map((m, index) => (
+                <div key={m.id || `mat-${index}`} className="flex flex-wrap items-center gap-1.5 group">
+                  <input
+                    value={m.description || ""}
+                    onChange={(e) => setMaterial(index, { description: e.target.value })}
+                    placeholder="Item"
+                    className="flex-1 min-w-[6rem] px-2 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    value={m.qty ?? ""}
+                    onChange={(e) => setMaterial(index, { qty: e.target.value })}
+                    placeholder="Qty"
+                    className="w-12 px-1.5 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  <label className="flex items-center gap-1 text-[10px] text-slate-600 whitespace-nowrap">
+                    <input type="checkbox" checked={!!m.have} onChange={(e) => setMaterial(index, { have: e.target.checked })} />
+                    Have
+                  </label>
+                  <button type="button" aria-label="Remove material" className="text-slate-300 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100" onClick={() => removeMaterial(index)}>
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <MaterialAdder disabled={busy} onAdd={addMaterial} />
+            </div>
+          </div>
         </div>
       )}
+
+      <TaskNotes item={item} {...note} className="mt-2" />
     </div>
   );
 }
@@ -348,7 +404,7 @@ function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobs
   );
 }
 
-function StepAdder({ onAdd, disabled }) {
+function StepAdder({ onAdd, disabled, placeholder = "Add a step…" }) {
   const [text, setText] = useState("");
   const submit = () => {
     if (!text.trim() || disabled) return;
@@ -361,10 +417,33 @@ function StepAdder({ onAdd, disabled }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
-        placeholder="Add a step…"
+        placeholder={placeholder}
         className="flex-1 px-2 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
       />
       <button type="button" onClick={submit} aria-label="Add step" className="text-slate-400 hover:text-primary">
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function MaterialAdder({ onAdd, disabled }) {
+  const [text, setText] = useState("");
+  const submit = () => {
+    if (!text.trim() || disabled) return;
+    onAdd(text);
+    setText("");
+  };
+  return (
+    <div className="flex items-center gap-2 pt-1">
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="Add material…"
+        className="flex-1 px-2 py-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+      />
+      <button type="button" onClick={submit} aria-label="Add material" className="text-slate-400 hover:text-primary">
         <Plus className="w-3.5 h-3.5" />
       </button>
     </div>

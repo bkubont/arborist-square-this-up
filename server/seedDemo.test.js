@@ -83,7 +83,7 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     assert.ok(tasks.some((task) => task.source_type === 'Estimate' && task.status === 'plan'));
     assert.ok(tasks.some((task) => task.source_type === 'ChangeOrder'), 'the approved change order has its tasks');
     assert.equal(tasks.filter((task) => task.template_key === 'prep').length, 14);
-    assert.equal(tasks.filter((task) => task.template_key === 'materials').length, 14);
+    assert.equal(tasks.filter((task) => task.template_key === 'materials').length, 0, 'no built-in Materials tasks');
     const punchLists = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'PunchList'])).map((r) => JSON.parse(r.data));
     assert.equal(punchLists.length, 14);
     assert.ok(jobs.every((j) => JSON.parse(j.data).checklist === undefined), 'no old free-text checklist');

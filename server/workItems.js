@@ -17,10 +17,10 @@ import { toCents } from '../shared/money.js';
 import { JOB_TASK_SORT } from '../shared/taskTemplates.js';
 import { DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 
-/** Scope tasks from signed lines sit between Prep and Materials. */
+/** Scope tasks from signed lines follow Prep by sort_order. */
 function nextScopeSortOrder(existingTasks = []) {
   const scopeOrders = existingTasks
-    .filter((t) => !['prep', 'materials'].includes(t.template_key))
+    .filter((t) => t.template_key !== 'prep')
     .map((t) => t.sort_order)
     .filter((n) => Number.isFinite(n));
   if (scopeOrders.length) return Math.max(...scopeOrders) + 1000;

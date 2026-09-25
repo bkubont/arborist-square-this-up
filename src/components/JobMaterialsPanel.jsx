@@ -58,7 +58,7 @@ export default function JobMaterialsPanel({ jobId, materials = [], onChanged }) 
         <div>
           <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Materials</div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            On the job, not the estimate. Unticked items feed the draft Material Order.
+            Job-level list on Overview — separate from task materials on the Tasks tab. Unticked items feed the draft Material Order.
           </p>
         </div>
         {total > 0 && <span className="text-xs text-muted-foreground tabular-nums">{money(total)} listed</span>}

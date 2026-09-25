@@ -206,8 +206,8 @@ test('accounts cannot read, modify, delete, link or export each other’s data o
   const ownJob = await create('Job', { title: 'B job', client_id: ownClient.id }, b.cookie);
   assert.equal((await request('/entities/TimelineEntry', { method: 'POST', cookie: b.cookie, data: { job_id: ownJob.id, type: 'photo', photo_url: file.data.file_url } })).status, 400);
   const exported = (await request('/export', { cookie: b.cookie })).data;
-  // Client + Job + registration-seeded CompanyProfile + built-in Prep, Materials tasks + punch list
-  assert.equal(exported.records.length, 6); assert.deepEqual(exported.files, []);
+  // Client + Job + registration-seeded CompanyProfile + built-in Prep task + punch list
+  assert.equal(exported.records.length, 5); assert.deepEqual(exported.files, []);
   assert.ok(exported.records.some((r) => r.entity === 'CompanyProfile'));
   assert.equal((await request(`/entities/Client/${client.id}`, { method: 'DELETE', cookie: a.cookie })).status, 409);
   assert.equal((await request(`/entities/Job/${job.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
@@ -2009,7 +2009,7 @@ test('editing a sent estimate withdraws it to draft and invalidates its outstand
   assert.equal((await request(`/estimates/${estimate.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } })).status, 201);
 });
 
-test('creating a job auto-attaches Prep and Materials tasks plus a punch list document', async t => {
+test('creating a job auto-attaches Prep task plus a punch list document', async t => {
   const { request, register } = await fixture(t);
   const a = await register('default-tasks@example.com');
   const create = async (entity, data) => {
@@ -2020,16 +2020,11 @@ test('creating a job auto-attaches Prep and Materials tasks plus a punch list do
   const client = await create('Client', { name: 'Default tasks client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Default tasks job', client_id: client.id });
   const items = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
-  assert.equal(items.length, 2);
+  assert.equal(items.length, 1);
   const prep = items.find((i) => i.template_key === 'prep');
-  const materials = items.find((i) => i.template_key === 'materials');
   assert.ok(prep);
-  assert.ok(materials);
   assert.deepEqual(prep.steps.map((s) => s.text), ['Plan', 'Prep', 'Permits']);
-  assert.deepEqual(materials.steps.map((s) => s.text), ['List', 'Order', 'On hand']);
-  assert.ok(prep.sort_order < materials.sort_order, 'Prep then Materials');
   assert.equal(prep.status, 'plan', 'Prep task starts in plan');
-  assert.equal(materials.status, 'materials', 'Materials task starts in materials');
 
   const punchLists = (await request(`/entities/PunchList?job_id=${job.id}`, { cookie: a.cookie })).data;
   assert.equal(punchLists.length, 1);
@@ -2078,7 +2073,7 @@ test('task cards accept plan, materials, permits, waiting on approval, blocked, 
   const job = await create('Job', { title: 'Status job', client_id: client.id });
   const prep = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.find((i) => i.template_key === 'prep');
   assert.ok(prep);
-  for (const status of ['plan', 'materials', 'permits', 'waiting_on_approval', 'blocked', 'finish', 'completed']) {
+  for (const status of ['plan', 'permits', 'waiting_on_approval', 'blocked', 'finish', 'completed']) {
     const updated = await patch(prep.id, { status });
     assert.equal(updated.status, 200, updated.data?.message);
     assert.equal(updated.data.status, status);
@@ -2107,7 +2102,7 @@ test('signing creates a WorkItem per signed line; blank lines skipped; amount sn
   const items = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
   const sourced = items.find((i) => i.source_type === 'Estimate');
   assert.ok(sourced, 'signed line became a task');
-  assert.equal(items.filter((i) => i.template_key).length, 2, 'Prep and Materials attach on every job');
+  assert.equal(items.filter((i) => i.template_key).length, 1, 'Prep attaches on every job');
   assert.equal(sourced.description, 'Replace faucet');
   assert.equal(sourced.amount_cents, 15800);
   assert.equal(sourced.done, false);
@@ -2179,7 +2174,7 @@ test('WorkItem edits: server-owned fields locked, signed description kept, done_
   assert.ok(completed.data.steps[0].id, 'step id assigned server-side');
   assert.equal(completed.data.amount_cents, 10000);
   const undone = await patch(sourced.id, { status: 'waiting_materials' });
-  assert.equal(undone.data.status, 'materials', 'legacy waiting_materials normalizes to materials on read');
+  assert.equal(undone.data.status, 'blocked', 'legacy waiting_materials normalizes to blocked');
   assert.equal(undone.data.done, false);
   assert.equal(undone.data.done_at, undefined);
   assert.equal(undone.data.steps[0].id, completed.data.steps[0].id, 'existing step ids are kept');
@@ -2247,7 +2242,6 @@ test('carryOverChecklists backfills tasks for documents signed before signing cr
   assert.equal(backfilled.line_id, 'line-1');
   assert.equal(backfilled.amount_cents, 30000);
   assert.ok(items.some((i) => i.template_key === 'prep'));
-  assert.ok(items.some((i) => i.template_key === 'materials'));
   const punchLists = (await request(`/entities/PunchList?job_id=${job.id}`, { cookie: a.cookie })).data;
   assert.equal(punchLists.length, 1);
   assert.equal(await carryOverChecklists(db), 0);
@@ -2361,7 +2355,7 @@ test('job moves to Completed automatically once every task is completed (cancell
   await patch(third.id, { status: 'cancelled' });
   assert.equal(await jobStatus(job.id), 'Blocked', 'one task still open');
   await patch(second.id, { status: 'completed' });
-  assert.equal(await jobStatus(job.id), 'Blocked', 'built-in Prep and Materials still open');
+  assert.equal(await jobStatus(job.id), 'Blocked', 'built-in Prep still open');
   for (const task of builtIn) await patch(task.id, { status: 'completed' });
   assert.equal(await jobStatus(job.id), 'Completed');
   const timeline = (await request(`/entities/TimelineEntry?job_id=${job.id}`, { cookie: a.cookie })).data;
