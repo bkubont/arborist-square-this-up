@@ -14,7 +14,7 @@ import {
 test('loadWorkTypes returns Brittany + Tess work-type list in order', () => {
   const types = loadWorkTypes();
   assert.deepEqual(types, WORK_TYPES);
-  assert.equal(types.length, 48);
+  assert.equal(types.length, 51);
   assert.equal(types[0], 'propane');
   assert.equal(types[types.length - 1], 'unknown');
   assert.ok(types.includes('doors'));

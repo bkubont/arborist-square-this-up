@@ -46,6 +46,9 @@ export const WORK_TYPES = [
   'foundation',
   'landscaping',
   'irrigation',
+  'closet',
+  'electronics',
+  'theater',
   'general',
   'unknown',
 ];

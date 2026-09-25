@@ -4,10 +4,11 @@ import { searchCatalog, catalogItemToEstimateLine, loadCatalog, getWorkTypes } f
 
 test('getWorkTypes exposes Brittany + Tess work-type list', () => {
   const types = getWorkTypes();
-  assert.equal(types.length, 48);
+  assert.equal(types.length, 51);
   assert.deepEqual(types.slice(0, 3), ['propane', 'bathroom', 'stairs']);
   assert.ok(types.includes('inside doors'));
   assert.ok(types.includes('fencing'));
+  assert.deepEqual(types.slice(-5), ['closet', 'electronics', 'theater', 'general', 'unknown']);
   assert.equal(types[types.length - 1], 'unknown');
 });
 
