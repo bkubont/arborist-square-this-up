@@ -16,6 +16,7 @@ import { estimateLineAmount, changeOrderLineAmount } from './mapping.js';
 import { toCents } from '../shared/money.js';
 import { JOB_TASK_SORT } from '../shared/taskTemplates.js';
 import { DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
+import { foldStoredTaskMaterials } from './jobMaterialList.js';
 
 /** Scope tasks from signed lines follow Prep by sort_order. */
 function nextScopeSortOrder(existingTasks = []) {
@@ -199,6 +200,8 @@ export async function carryOverChecklists(db) {
         }
         await saveRecord(tx, ownerId, 'Job', { checklist: undefined }, job.id);
       }
+
+      await foldStoredTaskMaterials(tx, ownerId);
 
       for (const [entity, signedStatus] of [['Estimate', 'accepted'], ['ChangeOrder', 'approved']]) {
         for (const doc of (await ownerRows(tx, ownerId, entity)).map(decode)) {

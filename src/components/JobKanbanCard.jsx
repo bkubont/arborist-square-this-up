@@ -12,6 +12,7 @@ import { googleMapsUrl } from "@/lib/address";
 import { money } from "@/lib/format";
 import { jobEstimateRollup } from "@/lib/jobCardRollups";
 import { jobBalance } from "@/lib/jobFilters";
+import { jobHasOpenMaterials } from "@/lib/jobMaterials";
 import { photoCategoryMeta } from "@/lib/photoCategories";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -200,6 +201,11 @@ export default function JobKanbanCard({
             {job.title?.trim() && (
               <div className="text-xs font-medium text-foreground leading-snug line-clamp-2 mb-1">
                 {job.title}
+              </div>
+            )}
+            {jobHasOpenMaterials(job) && (
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-attention-materials-foreground mb-1">
+                Waiting on materials
               </div>
             )}
 

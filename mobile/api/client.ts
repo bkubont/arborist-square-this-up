@@ -40,7 +40,10 @@ export type JobMaterial = {
   unit?: string;
   unit_price?: number;
   have?: boolean;
+  status?: string;
   notes?: string;
+  /** Set when this buy-list line is tagged to a task. */
+  task_id?: string;
 };
 
 export type Job = {

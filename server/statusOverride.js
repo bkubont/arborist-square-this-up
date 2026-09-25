@@ -64,8 +64,10 @@ export async function overrideScopeStatus(tx, ownerId, entity, recordId, status)
   const reopening = record.status === signed || !!record.accepted_snapshot;
   if (reopening) {
     await assertNothingBuiltOn(tx, ownerId, entity, record);
+    const job = await getRecord(tx, ownerId, 'Job', record.job_id);
+    const tagged = new Set((job.materials || []).filter((row) => row.task_id).map((row) => row.task_id));
     for (const task of await listJobDocuments(tx, ownerId, 'WorkItem', record.job_id)) {
-      if (task.source_id === recordId && !taskStarted(task)) {
+      if (task.source_id === recordId && !taskStarted(task) && !tagged.has(task.id)) {
         await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [ownerId, task.id]);
       }
     }

@@ -319,20 +319,26 @@ export function materialOrderClaimIdentity(line = {}) {
 }
 
 /**
- * Task materials still needed (not on hand) → MO lines. Cancelled tasks contribute nothing, and
- * ticking an item "have" drops it from the draft on the next sync.
+ * Job buy-list lines still not on hand → MO lines.
+ * A line tagged to a task keeps a WorkItem source key (so an existing order still claims it).
+ * Untagged lines use the job. Cancelled tasks contribute nothing.
  */
-export function materialLinesFromJob(job) {
+export function materialLinesFromJob(job, workItems = []) {
   if (!job?.id) return [];
+  const tasks = new Map((workItems || []).filter((item) => item?.id).map((item) => [item.id, item]));
   return (job.materials || []).flatMap((material, index) => {
     if (isMaterialOnHand(material) || !String(material.description || '').trim()) return [];
+    const task = material.task_id ? tasks.get(material.task_id) : null;
+    if (task?.status === 'cancelled') return [];
+    const tagged = !!(material.task_id && task);
     return [{
       description: material.description,
       qty: num(material.qty),
       unit_price: num(material.unit_price),
+      category: task?.category || undefined,
       notes: [material.unit, material.notes].filter(Boolean).join(' · ') || undefined,
-      source_entity: 'Job',
-      source_id: job.id,
+      source_entity: tagged ? 'WorkItem' : 'Job',
+      source_id: tagged ? task.id : job.id,
       source_line_index: index,
       source_line_id: material.id,
       on_hand: false,
@@ -362,12 +368,15 @@ export function materialLinesFromWorkItems(workItems = []) {
 }
 
 /**
- * Collect job materials for MO autofill: the material lists on the job's tasks, items not yet on
- * hand. Estimates and change orders no longer feed Material Orders directly.
+ * Collect the job buy list for MO autofill. Tagged lines live on the job; legacy task rows that
+ * have not been folded in yet are still included once. Estimates do not feed Material Orders.
  * @param {{ job?: object, workItems?: object[] }} [args]
  */
 export function collectJobMaterialLines({ job, workItems = [] } = {}) {
-  return [...materialLinesFromJob(job), ...materialLinesFromWorkItems(workItems)];
+  const fromJob = materialLinesFromJob(job, workItems);
+  const seen = new Set(fromJob.map((line) => line.source_line_id).filter(Boolean));
+  const legacy = materialLinesFromWorkItems(workItems).filter((line) => !line.source_line_id || !seen.has(line.source_line_id));
+  return [...fromJob, ...legacy];
 }
 
 /**

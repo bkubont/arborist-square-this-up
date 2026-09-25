@@ -9,8 +9,10 @@ export type MaterialItem = {
   unit?: string;
   unit_price?: number;
   have?: boolean;
+  status?: string;
   notes?: string;
   id?: string;
+  task_id?: string;
 };
 
 export function collectJobMaterialItems(
@@ -22,17 +24,16 @@ export function collectJobMaterialItems(
     description?: string;
   }> = [],
 ): Array<MaterialItem & { source: 'job' | 'task'; taskDescription?: string }> {
+  const tasks = new Map((workItems || []).filter(task => task?.id).map(task => [task.id, task]));
   const items: Array<MaterialItem & { source: 'job' | 'task'; taskDescription?: string }> = [];
   for (const material of job?.materials || []) {
     if (!String(material?.description || '').trim()) continue;
-    items.push({ ...material, source: 'job' });
-  }
-  for (const task of workItems || []) {
-    if (!task?.id || task.status === 'cancelled') continue;
-    for (const material of task.materials || []) {
-      if (!String(material?.description || '').trim()) continue;
-      items.push({ ...material, source: 'task', taskDescription: task.description });
-    }
+    const task = material.task_id ? tasks.get(material.task_id) : undefined;
+    items.push({
+      ...material,
+      source: material.task_id ? 'task' : 'job',
+      ...(task?.description ? { taskDescription: task.description } : {}),
+    });
   }
   return items;
 }

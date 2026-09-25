@@ -45,6 +45,7 @@ import { applyJobStatusFields, normalizeJobRecord } from './jobStatus.js';
 import { normalizeWorkItemRecord } from './taskStatus.js';
 import { assertScopeUpdatable, assertScopeDeletable, assertJobHasActiveEstimate } from './lifecycle.js';
 import { prepareWorkItemCreate, prepareWorkItemUpdate, assertWorkItemDeletable, completeJobWhenTasksDone } from './workItems.js';
+import { absorbWorkItemMaterials, attachSharedMaterials, dropMaterialsForTask } from './jobMaterialList.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { attachDefaultPunchList } from './defaultPunchList.js';
 import { preparePunchListUpdate, completePunchList } from './punchList.js';
@@ -54,7 +55,7 @@ import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { jobSummary, accountSummaries } from './summary.js';
 import { fromCents } from '../shared/money.js';
 
-/** Saving these re-syncs the job's draft Material Order: only task material lists feed it. */
+/** Saving these re-syncs the job's draft Material Order from the job buy list. */
 const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem', 'Job']);
 
 async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
@@ -326,12 +327,14 @@ export async function createApp(db, env = process.env) {
       `SELECT * FROM records WHERE owner_id = ? AND entity = ?${parent ? ' AND parent_id = ?' : ''} ORDER BY ${sortColumn} ${sortDir}, id ASC LIMIT ${limit} OFFSET ${offset}`,
       [req.user.id, req.params.entity, ...(parent ? [parent] : [])]
     );
-    const records = rows.map(decode);
-    res.json(records.map((record) => normalizeEntityRecord(req.params.entity, record)));
+    let records = rows.map(decode).map((record) => normalizeEntityRecord(req.params.entity, record));
+    if (req.params.entity === 'WorkItem') records = await attachSharedMaterials(db, req.user.id, records);
+    res.json(records);
   });
   app.get('/api/entities/:entity/:id', async (req, res) => {
-    const record = await getRecord(db, req.user.id, req.params.entity, req.params.id);
-    res.json(normalizeEntityRecord(req.params.entity, record));
+    let record = normalizeEntityRecord(req.params.entity, await getRecord(db, req.user.id, req.params.entity, req.params.id));
+    if (req.params.entity === 'WorkItem') record = (await attachSharedMaterials(db, req.user.id, [record]))[0];
+    res.json(record);
   });
   // Lock the owner's row to serialize relationships, deletes, quotas and exports.
   const ownedTransaction = (owner, fn) => db.transaction(async tx => {
@@ -556,6 +559,11 @@ export async function createApp(db, env = process.env) {
         await attachDefaultPunchList(tx, req.user.id, record.id);
       }
       if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, record.job_id);
+      if (entity === 'WorkItem' && req.body && Object.prototype.hasOwnProperty.call(req.body, 'materials')) {
+        const lines = Array.isArray(record.materials) && Array.isArray(req.body.materials) ? record.materials : [];
+        record = await absorbWorkItemMaterials(tx, req.user.id, record, lines);
+      }
+      if (entity === 'WorkItem') record = (await attachSharedMaterials(tx, req.user.id, [record]))[0];
       if (entity === 'MaterialOrder' && record.job_id) {
         const hasLines = Array.isArray(record.lines)
           && record.lines.some((l) => l.description || l.qty || l.unit_price);
@@ -626,7 +634,7 @@ export async function createApp(db, env = process.env) {
       } else if (movingJob && entity === 'Invoice') {
         await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
       }
-      const saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
+      let saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
       if (entity === 'Client' && clientPipelineStatusChanged(req.body, previous, saved)) {
         await syncClientLeadJobs(tx, req.user.id, saved.id, saved.status);
       }
@@ -634,6 +642,11 @@ export async function createApp(db, env = process.env) {
         await syncContactFromJobLead(tx, req.user.id, saved);
       }
       if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, saved.job_id);
+      if (entity === 'WorkItem' && req.body && Object.prototype.hasOwnProperty.call(req.body, 'materials')) {
+        const lines = Array.isArray(saved.materials) && Array.isArray(req.body.materials) ? saved.materials : [];
+        saved = await absorbWorkItemMaterials(tx, req.user.id, saved, lines);
+      }
+      if (entity === 'WorkItem') saved = (await attachSharedMaterials(tx, req.user.id, [saved]))[0];
       if (withdrawingSignLink) await invalidateSignLinks(tx, req.user.id, entity, req.params.id);
       return saved;
     });
@@ -708,8 +721,9 @@ export async function createApp(db, env = process.env) {
         await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);
       }
       await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
-      // A deleted task's still-needed materials leave the draft Material Order with it.
+      // A deleted task's tagged lines leave the buy list and the draft Material Order with it.
       if (req.params.entity === 'WorkItem') {
+        await dropMaterialsForTask(tx, req.user.id, record.job_id, record.id);
         await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
         // Removing the last open task can leave every remaining one completed.
         await completeJobWhenTasksDone(tx, req.user.id, record.job_id);

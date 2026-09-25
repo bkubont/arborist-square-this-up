@@ -2316,6 +2316,10 @@ test('task details: measurements and materials get ids; needed materials feed th
   assert.equal(lines[0].qty, 3);
   assert.equal(lines[0].unit_price, 14.5, 'task material price carries onto the order');
   assert.equal(lines[0].source_line_id, detailed.materials[0].id);
+  const jobList = (await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.materials;
+  assert.equal(jobList.find((m) => m.id === detailed.materials[0].id).task_id, task.id);
+  const storedTask = JSON.parse((await db.all('SELECT data FROM records WHERE id = ?', [task.id]))[0].data);
+  assert.deepEqual(storedTask.materials, [], 'task materials are not a second copy');
 
   // Reordering keeps the same line (keyed by material id, not position).
   await patch(task.id, { materials: [detailed.materials[1], { ...detailed.materials[0], qty: 4 }] });
@@ -2324,12 +2328,17 @@ test('task details: measurements and materials get ids; needed materials feed th
   assert.equal(lines[0].qty, 4);
 
   // Have it now → drops off; cancelled task → contributes nothing; deleted task → gone.
-  await patch(task.id, { materials: detailed.materials.map(m => ({ ...m, have: true })) });
+  await patch(task.id, { materials: detailed.materials.map(m => ({ ...m, status: 'on_hand', have: true })) });
   assert.equal((await draftLines(job.id)).length, 0);
-  await patch(task.id, { materials: detailed.materials.map(m => ({ ...m, have: false })), status: 'cancelled' });
+  await patch(task.id, { materials: detailed.materials.map(m => ({ ...m, status: 'needed', have: false })), status: 'cancelled' });
   assert.equal((await draftLines(job.id)).length, 0);
   await patch(task.id, { status: 'plan' });
   assert.equal((await draftLines(job.id)).length, 2);
+  const currentJob = (await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data;
+  const flipped = currentJob.materials.map((m) => (m.id === detailed.materials[0].id ? { ...m, status: 'waiting' } : m));
+  assert.equal((await request(`/entities/Job/${job.id}`, { method: 'PATCH', cookie: a.cookie, data: { materials: flipped } })).status, 200);
+  const fromTask = (await request(`/entities/WorkItem/${task.id}`, { cookie: a.cookie })).data;
+  assert.equal(fromTask.materials.find((m) => m.id === detailed.materials[0].id).status, 'waiting');
   assert.equal((await request(`/entities/WorkItem/${task.id}`, { method: 'DELETE', cookie: a.cookie })).status, 200);
   assert.equal((await draftLines(job.id)).length, 0);
 

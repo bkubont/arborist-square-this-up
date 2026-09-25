@@ -143,6 +143,20 @@ test('collectJobMaterialLines takes job and task materials; merge preserves user
   assert.equal(collected[0].source_entity, 'WorkItem');
   assert.equal(collectJobMaterialLines({ estimate: { id: 'e', lines: [{ description: 'x', material_amount: 5 }] } }).length, 0, 'estimates are not a source');
 
+  const tagged = collectJobMaterialLines({
+    job: { id: 'j1', materials: [{ id: 'm-1', description: 'From est', qty: 1, unit_price: 22, task_id: 'wi-1' }] },
+    workItems: [{ id: 'wi-1', status: 'plan', category: 'Plumbing', materials: [{ id: 'm-1', description: 'From est', qty: 1, unit_price: 22 }] }],
+  });
+  assert.equal(tagged.length, 1, 'a tagged job line and the same task row are one record');
+  assert.equal(tagged[0].source_entity, 'WorkItem');
+  assert.equal(tagged[0].category, 'Plumbing');
+
+  const cancelled = collectJobMaterialLines({
+    job: { id: 'j1', materials: [{ id: 'm-9', description: 'Skip', task_id: 'wi-x' }] },
+    workItems: [{ id: 'wi-x', status: 'cancelled' }],
+  });
+  assert.equal(cancelled.length, 0, 'a line tagged to a cancelled task is not ordered');
+
   const merged = mergeMaterialOrderLines(
     [{ ...collected[0], supplier: 'Home Depot', on_hand: true, line_status: 'backorder', notes: 'mine' }],
     [{ ...collected[0], description: 'From est updated', notes: 'from source' }],
