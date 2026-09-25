@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import StatusSelect from "@/components/StatusSelect";
+import WorkTypeSelect from "@/components/WorkTypeSelect";
 import { NoteList } from "@/components/TaskNotes";
 import { money, moneyCents } from "@/lib/format";
 import { TASK_STATUSES, taskStatus, taskStatusLabel, taskDeletable, taskSourceVoided } from "@/lib/tasks";
@@ -149,8 +150,8 @@ export default function TaskDetailDialog({ open, onOpenChange, item, documents =
               <Input type="number" min="0" step="0.25" inputMode="decimal" value={draft.labor_hours} onChange={(e) => set("labor_hours", e.target.value)} />
             </div>
             <div>
-              <Label>Category</Label>
-              <Input value={draft.category} onChange={(e) => set("category", e.target.value)} />
+              <Label>Work type</Label>
+              <WorkTypeSelect value={draft.category} onValueChange={(v) => set("category", v)} placeholder="e.g. Plumbing" />
             </div>
             <div className="col-span-2 sm:col-span-1">
               <Label>Tools</Label>

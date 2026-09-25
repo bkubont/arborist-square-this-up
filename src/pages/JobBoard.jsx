@@ -15,6 +15,15 @@ import {
 } from "@/lib/jobFilters";
 import { applyInvoicedGate, statusesForPhase } from "@/lib/jobStatus";
 import { statusColors } from "@/lib/statusColors";
+import { useWorkTypes } from "@/hooks/useWorkTypes";
+import {
+  encodeTypeDroppableId,
+  normalizeWorkType,
+  parseTypeDroppableId,
+  workTypeColumnKeys,
+  workTypeForStorage,
+  workTypeLabel,
+} from "@/lib/workTypes";
 import { cn } from "@/lib/utils";
 
 /** Encode phase + status for cross-board drag targets. */
@@ -25,7 +34,11 @@ function droppableId(phase, status) {
 function parseDroppableId(id) {
   const sep = id.indexOf("::");
   if (sep < 0) return null;
-  return { phase: id.slice(0, sep), status: id.slice(sep + 2) };
+  const phase = id.slice(0, sep);
+  const rest = id.slice(sep + 2);
+  const workType = parseTypeDroppableId(rest);
+  if (workType) return { phase, workType };
+  return { phase, status: rest };
 }
 
 /** Brittany: Working → task board; Lead & Payment → Overview. */
@@ -37,7 +50,19 @@ function jobCardHref(job) {
 export default function JobBoard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const mode = searchParams.get("view") === "tasks" ? "tasks" : "jobs";
-  const setMode = (next) => setSearchParams(next === "tasks" ? { view: "tasks" } : {}, { replace: true });
+  const boardGroupBy = searchParams.get("group") === "type" ? "type" : "stage";
+  const setMode = (next) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "tasks") params.set("view", "tasks");
+    else params.delete("view");
+    setSearchParams(params, { replace: true });
+  };
+  const setBoardGroupBy = (next) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "type") params.set("group", "type");
+    else params.delete("group");
+    setSearchParams(params, { replace: true });
+  };
   const [tasks, setTasks] = useState(null);
   const [scopeDocs, setScopeDocs] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -47,6 +72,7 @@ export default function JobBoard() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
+  const { types: catalogTypes } = useWorkTypes();
   const [activePhase, setActivePhase] = useState(
     () => searchParams.get("phase") || "working",
   );
@@ -125,25 +151,34 @@ export default function JobBoard() {
   const columnsByPhase = useMemo(() => {
     const result = {};
     for (const phase of JOB_PHASE_ORDER) {
-      const statuses = statusesForPhase(phase);
-      const map = Object.fromEntries(statuses.map((s) => [s, []]));
-      for (const job of jobs) {
-        const jobPhase = job.phase || "lead";
-        if (jobPhase !== phase) continue;
-        if (map[job.status]) map[job.status].push(job);
+      const phaseJobs = jobs.filter((job) => (job.phase || "lead") === phase);
+      if (boardGroupBy === "type") {
+        const typeKeys = workTypeColumnKeys(phaseJobs, (job) => job.work_type, catalogTypes);
+        const map = Object.fromEntries(typeKeys.map((t) => [t, []]));
+        for (const job of phaseJobs) {
+          const key = normalizeWorkType(job.work_type);
+          if (map[key]) map[key].push(job);
+        }
+        result[phase] = { mode: "type", columns: map, keys: typeKeys };
+      } else {
+        const statuses = statusesForPhase(phase);
+        const map = Object.fromEntries(statuses.map((s) => [s, []]));
+        for (const job of phaseJobs) {
+          if (map[job.status]) map[job.status].push(job);
+        }
+        result[phase] = { mode: "stage", columns: map, keys: statuses };
       }
-      result[phase] = map;
     }
     return result;
-  }, [jobs]);
+  }, [jobs, boardGroupBy, catalogTypes]);
 
-  const onDragEnd = async (result) => {
+  const onDragEndStage = async (result) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
     if (destination.droppableId === source.droppableId && destination.index === source.index) return;
 
     const target = parseDroppableId(destination.droppableId);
-    if (!target) return;
+    if (!target?.status) return;
 
     const jobId = draggableId;
     const previous = jobs.find((j) => String(j.id) === String(jobId));
@@ -181,16 +216,48 @@ export default function JobBoard() {
     }
   };
 
+  const onDragEndType = async (result) => {
+    const { destination, draggableId } = result;
+    if (!destination) return;
+
+    const target = parseDroppableId(destination.droppableId);
+    if (!target?.workType) return;
+
+    const jobId = draggableId;
+    const previous = jobs.find((j) => String(j.id) === String(jobId));
+    const work_type = workTypeForStorage(target.workType);
+    if (!previous || (previous.phase === target.phase && normalizeWorkType(previous.work_type) === target.workType)) return;
+
+    const nextFields = { phase: target.phase, work_type };
+    setJobs((list) =>
+      list.map((j) => (String(j.id) === String(jobId) ? { ...j, ...nextFields } : j)),
+    );
+    setSavingId(jobId);
+    try {
+      await api.entities.Job.update(jobId, nextFields);
+    } catch {
+      setJobs((list) =>
+        list.map((j) => (String(j.id) === String(jobId) ? { ...j, phase: previous.phase, work_type: previous.work_type } : j)),
+      );
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   return (
     <div className="p-4 lg:p-6 min-h-0">
       <PageHeader
         className="mb-4 shrink-0"
         title="Board"
         description={mode === "tasks"
-          ? "Every job's tasks — drag a task to change its status"
-          : "Lead, Working, and Payment — drag jobs across all three boards"}
+          ? boardGroupBy === "type"
+            ? "Every job's tasks — drag a task to change its work type"
+            : "Every job's tasks — drag a task to change its status"
+          : boardGroupBy === "type"
+            ? "Lead, Working, and Payment — drag jobs by work type within each phase"
+            : "Lead, Working, and Payment — drag jobs across all three boards"}
         secondary={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/60" role="group" aria-label="Board shows">
               {[["jobs", "Jobs"], ["tasks", "Tasks"]].map(([value, label]) => (
                 <button
@@ -201,6 +268,22 @@ export default function JobBoard() {
                   className={cn(
                     "px-3 py-1 text-xs font-medium rounded-md",
                     mode === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/60" role="group" aria-label="Group by">
+              {[["stage", "Stage"], ["type", "Type"]].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={boardGroupBy === value}
+                  onClick={() => setBoardGroupBy(value)}
+                  className={cn(
+                    "px-3 py-1 text-xs font-medium rounded-md",
+                    boardGroupBy === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {label}
@@ -224,12 +307,13 @@ export default function JobBoard() {
             jobsById={jobsById}
             onChanged={() => { loadTasks(); load(); }}
             view="board"
+            boardGroupBy={boardGroupBy}
           />
         )
       ) : loading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : (
-        <DragDropContext onDragEnd={onDragEnd}>
+        <DragDropContext onDragEnd={boardGroupBy === "type" ? onDragEndType : onDragEndStage}>
           <div
             className="lg:hidden mb-4 inline-flex w-full rounded-lg border border-border p-0.5 bg-muted/60"
             role="tablist"
@@ -269,8 +353,7 @@ export default function JobBoard() {
                 <PhaseBoard
                   phase={phase}
                   label={JOB_PHASES[phase].label}
-                  statuses={statusesForPhase(phase)}
-                  columns={columnsByPhase[phase]}
+                  board={columnsByPhase[phase]}
                   clientsById={clientsById}
                   estimates={estimates}
                   savingId={savingId}
@@ -291,8 +374,7 @@ export default function JobBoard() {
 function PhaseBoard({
   phase,
   label,
-  statuses,
-  columns,
+  board,
   clientsById,
   estimates,
   savingId,
@@ -301,7 +383,7 @@ function PhaseBoard({
   invoiceMap,
   onChanged,
 }) {
-  const jobCount = statuses.reduce((sum, s) => sum + (columns[s]?.length || 0), 0);
+  const jobCount = board.keys.reduce((sum, key) => sum + (board.columns[key]?.length || 0), 0);
 
   return (
     <section className="rounded-xl border border-border bg-card/40 p-4">
@@ -310,27 +392,106 @@ function PhaseBoard({
         <span className="text-xs text-muted-foreground tabular-nums">{jobCount} jobs</span>
       </div>
       <div className="flex gap-3 overflow-x-auto pb-1 items-start">
-        {statuses.map((status) => (
-          <BoardColumn
-            key={status}
-            phase={phase}
-            status={status}
-            jobs={columns[status] || []}
-            clientsById={clientsById}
-            estimates={estimates}
-            savingId={savingId}
-            paymentsMap={paymentsMap}
-            depositsMap={depositsMap}
-            invoiceMap={invoiceMap}
-            onChanged={onChanged}
-          />
-        ))}
+        {board.mode === "type"
+          ? board.keys.map((workType) => (
+            <TypeBoardColumn
+              key={workType}
+              phase={phase}
+              workType={workType}
+              jobs={board.columns[workType] || []}
+              clientsById={clientsById}
+              estimates={estimates}
+              savingId={savingId}
+              paymentsMap={paymentsMap}
+              depositsMap={depositsMap}
+              invoiceMap={invoiceMap}
+              onChanged={onChanged}
+            />
+          ))
+          : board.keys.map((status) => (
+            <StageBoardColumn
+              key={status}
+              phase={phase}
+              status={status}
+              jobs={board.columns[status] || []}
+              clientsById={clientsById}
+              estimates={estimates}
+              savingId={savingId}
+              paymentsMap={paymentsMap}
+              depositsMap={depositsMap}
+              invoiceMap={invoiceMap}
+              onChanged={onChanged}
+            />
+          ))}
       </div>
     </section>
   );
 }
 
-function BoardColumn({
+function TypeBoardColumn({
+  phase,
+  workType,
+  jobs,
+  clientsById,
+  estimates,
+  savingId,
+  paymentsMap,
+  depositsMap,
+  invoiceMap,
+  onChanged,
+}) {
+  const dropId = `${phase}::${encodeTypeDroppableId(workType)}`;
+
+  return (
+    <Droppable droppableId={dropId}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.droppableProps}
+          className={cn(
+            "w-64 shrink-0 rounded-xl border-2 border-slate-200 bg-surface-muted/80 flex flex-col max-h-[28rem]",
+            snapshot.isDraggingOver && "ring-2 ring-primary/30 bg-primary/5",
+          )}
+        >
+          <div className="px-3 py-2 border-b sticky top-0 rounded-t-[10px] z-10 bg-slate-100/80">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-foreground leading-snug line-clamp-2">{workTypeLabel(workType)}</span>
+              <span className="text-[11px] font-bold tabular-nums text-foreground shrink-0">{jobs.length}</span>
+            </div>
+          </div>
+          <div className="p-2 space-y-2 overflow-y-auto flex-1 min-h-[4rem]">
+            {jobs.map((job, index) => (
+              <Draggable key={job.id} draggableId={String(job.id)} index={index}>
+                {(dragProvided, dragSnapshot) => (
+                  <JobKanbanCard
+                    job={job}
+                    client={clientsById[job.client_id]}
+                    estimates={estimates}
+                    paymentsLogged={paymentsMap[job.id] || 0}
+                    depositsLogged={depositsMap[job.id] || 0}
+                    activeInvoice={invoiceMap[job.id]}
+                    href={jobCardHref(job)}
+                    dragProvided={dragProvided}
+                    dragSnapshot={dragSnapshot}
+                    saving={savingId === String(job.id)}
+                    onChanged={onChanged}
+                    showStatus
+                  />
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+            {jobs.length === 0 && (
+              <div className="text-[11px] text-muted-foreground text-center py-4 px-1">Drop jobs here</div>
+            )}
+          </div>
+        </div>
+      )}
+    </Droppable>
+  );
+}
+
+function StageBoardColumn({
   phase,
   status,
   jobs,

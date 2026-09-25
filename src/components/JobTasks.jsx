@@ -9,6 +9,15 @@ import TaskNotes from "@/components/TaskNotes";
 import { moneyCents } from "@/lib/format";
 import { TASK_STATUSES, NOTE_PROMPT_STATUSES, taskStatus, taskStatusLabel, sortTasks, sortTasksForList, taskSourceVoided, formatHours, hoursRemaining, isTaskCompleted, isHiddenBuiltInTask } from "@/lib/tasks";
 import { statusColors, statusCardClass } from "@/lib/statusColors";
+import { useWorkTypes } from "@/hooks/useWorkTypes";
+import {
+  encodeTypeDroppableId,
+  normalizeWorkType,
+  parseTypeDroppableId,
+  workTypeColumnKeys,
+  workTypeForStorage,
+  workTypeLabel,
+} from "@/lib/workTypes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,16 +31,17 @@ import { cn } from "@/lib/utils";
  * Without a jobId (the Kanban page's Tasks board) it shows every job's tasks, each card naming its
  * job; new tasks are then added from a job.
  *
- * @param {{ jobId?: string, items: Array, documents?: Array, onChanged: () => void, view?: "list" | "board", jobsById?: Record<string, any> }} props
+ * @param {{ jobId?: string, items: Array, documents?: Array, onChanged: () => void, view?: "list" | "board", boardGroupBy?: "stage" | "type", jobsById?: Record<string, any> }} props
  */
-export default function JobTasks({ jobId = undefined, items = [], documents = [], onChanged, view = "list", jobsById = undefined }) {
+export default function JobTasks({ jobId = undefined, items = [], documents = [], onChanged, view = "list", boardGroupBy = "stage", jobsById = undefined }) {
   const [adding, setAdding] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [openId, setOpenId] = useState(null);
   // The task whose "Add a note…" box gets the cursor (after a move into a status that needs a reason).
   const [noteFocusId, setNoteFocusId] = useState(null);
   // Optimistic status/position while a board move saves, so the card doesn't snap back.
-  const [pending, setPending] = useState(/** @type {Record<string, { status: string, sort_order: number }>} */ ({}));
+  const [pending, setPending] = useState(/** @type {Record<string, Partial<{ status: string, category: string, sort_order: number }>>} */ ({}));
+  const { types: catalogTypes } = useWorkTypes();
 
   const visibleItems = useMemo(() => items.filter((item) => !isHiddenBuiltInTask(item)), [items]);
 
@@ -76,7 +86,12 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
     run("new", () => api.entities.WorkItem.create({ job_id: jobId, description }));
   };
 
-  const onDragEnd = async ({ source, destination, draggableId }) => {
+  const typeColumns = useMemo(
+    () => workTypeColumnKeys(shown, (item) => item.category, catalogTypes),
+    [shown, catalogTypes],
+  );
+
+  const onDragEndStage = async ({ source, destination, draggableId }) => {
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
     const moved = shown.find((i) => i.id === draggableId);
@@ -84,7 +99,6 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
     const status = destination.droppableId;
     const column = shown.filter((i) => taskStatus(i) === status && i.id !== draggableId);
     column.splice(destination.index, 0, { ...moved, status });
-    // Renumber the destination column; only tasks whose position changed are saved.
     const updates = column
       .map((item, index) => ({ item, status, sort_order: (index + 1) * 1000 }))
       .filter(({ item, sort_order }) => item.id === draggableId || item.sort_order !== sort_order);
@@ -105,6 +119,39 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
     }
   };
 
+  const onDragEndType = async ({ source, destination, draggableId }) => {
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+    const moved = shown.find((i) => i.id === draggableId);
+    if (!moved) return;
+    const workType = parseTypeDroppableId(destination.droppableId);
+    if (!workType) return;
+    const category = workTypeForStorage(workType);
+    const inColumn = (item) => normalizeWorkType(item.category) === workType;
+    const column = shown.filter((i) => inColumn(i) && i.id !== draggableId);
+    column.splice(destination.index, 0, { ...moved, category });
+    const updates = column
+      .map((item, index) => ({ item, category: item.id === draggableId ? category : item.category, sort_order: (index + 1) * 1000 }))
+      .filter(({ item, sort_order }) => item.id === draggableId || item.sort_order !== sort_order);
+    setPending((p) => ({ ...p, ...Object.fromEntries(updates.map((u) => [u.item.id, { category: u.category, sort_order: u.sort_order }])) }));
+    setBusyId(draggableId);
+    try {
+      for (const u of updates) {
+        await api.entities.WorkItem.update(
+          u.item.id,
+          u.item.id === draggableId ? { category: u.category, sort_order: u.sort_order } : { sort_order: u.sort_order },
+        );
+      }
+      await onChanged?.();
+    } catch (e) {
+      alert(e?.message || "Could not move the task.");
+      await onChanged?.();
+    } finally {
+      setPending({});
+      setBusyId(null);
+    }
+  };
+
   return (
     <div>
       <div className="text-xs text-slate-500 mb-2">
@@ -114,20 +161,33 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
       </div>
 
       {view === "board" ? (
-        <DragDropContext onDragEnd={onDragEnd}>
+        <DragDropContext onDragEnd={boardGroupBy === "type" ? onDragEndType : onDragEndStage}>
           <div className="flex gap-3 overflow-x-auto pb-3 items-start">
-            {TASK_STATUSES.map((status) => (
-              <BoardColumn
-                key={status}
-                status={status}
-                items={shown.filter((i) => taskStatus(i) === status)}
-                documents={documents}
-                busyId={busyId}
-                onOpen={setOpenId}
-                noteProps={noteProps}
-                jobsById={jobsById}
-              />
-            ))}
+            {boardGroupBy === "type"
+              ? typeColumns.map((workType) => (
+                <TypeBoardColumn
+                  key={workType}
+                  workType={workType}
+                  items={shown.filter((i) => normalizeWorkType(i.category) === workType)}
+                  documents={documents}
+                  busyId={busyId}
+                  onOpen={setOpenId}
+                  noteProps={noteProps}
+                  jobsById={jobsById}
+                />
+              ))
+              : TASK_STATUSES.map((status) => (
+                <StageBoardColumn
+                  key={status}
+                  status={status}
+                  items={shown.filter((i) => taskStatus(i) === status)}
+                  documents={documents}
+                  busyId={busyId}
+                  onOpen={setOpenId}
+                  noteProps={noteProps}
+                  jobsById={jobsById}
+                />
+              ))}
           </div>
         </DragDropContext>
       ) : (
@@ -164,7 +224,7 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
   );
 }
 
-function TaskTags({ item, documents }) {
+function TaskTags({ item, documents, hideWorkType = false }) {
   const steps = item.steps || [];
   const needed = (item.materials || []).filter((m) => !m.have).length;
   return (
@@ -172,6 +232,7 @@ function TaskTags({ item, documents }) {
       {/* Most tasks come from the estimate, so only work added later by a change order is tagged. */}
       {item.source_type === "ChangeOrder" && <Tag tone="brand">Change order</Tag>}
       {taskSourceVoided(item, documents) && <Tag tone="void">Voided</Tag>}
+      {!hideWorkType && item.category?.trim() && <Tag tone="trade">{item.category.trim()}</Tag>}
       {formatHours(item.labor_hours) && <Tag><Clock className="inline w-2.5 h-2.5 mr-0.5 -mt-px" aria-hidden="true" />{formatHours(item.labor_hours)}</Tag>}
       {item.amount_cents != null && <Tag tone="money">{moneyCents(item.amount_cents)}{item.billed_invoice_id ? " · billed" : ""}</Tag>}
       {steps.length > 0 && <Tag>{steps.filter((s) => s.done).length}/{steps.length} steps</Tag>}
@@ -332,7 +393,55 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   );
 }
 
-function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobsById = undefined }) {
+function TypeBoardColumn({ workType, items, documents, busyId, onOpen, noteProps, jobsById = undefined }) {
+  const dropId = encodeTypeDroppableId(workType);
+  return (
+    <Droppable droppableId={dropId}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.droppableProps}
+          data-testid={`task-type-column-${workType}`}
+          className={cn(
+            "w-60 shrink-0 rounded-xl border-2 border-slate-200 bg-surface-muted/80 flex flex-col",
+            snapshot.isDraggingOver && "ring-2 ring-primary/30 bg-primary/5",
+          )}
+        >
+          <div className="px-3 py-2 border-b rounded-t-[10px] bg-slate-100/80">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-foreground leading-snug line-clamp-2">{workTypeLabel(workType)}</span>
+              <span className="text-xs font-bold tabular-nums text-foreground shrink-0">{items.length}</span>
+            </div>
+          </div>
+          <div className="p-2 space-y-2 min-h-[4rem]">
+            {items.map((item, index) => (
+              <Draggable key={item.id} draggableId={item.id} index={index}>
+                {(dragProvided, dragSnapshot) => (
+                  <TaskBoardCard
+                    item={item}
+                    documents={documents}
+                    busyId={busyId}
+                    onOpen={onOpen}
+                    noteProps={noteProps}
+                    jobsById={jobsById}
+                    dragProvided={dragProvided}
+                    dragSnapshot={dragSnapshot}
+                    status={taskStatus(item)}
+                    showStatus
+                  />
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+            {items.length === 0 && <div className="text-xs text-muted-foreground text-center py-4">Drop tasks here</div>}
+          </div>
+        </div>
+      )}
+    </Droppable>
+  );
+}
+
+function StageBoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobsById = undefined }) {
   const colors = statusColors(status);
   return (
     <Droppable droppableId={status}>
@@ -363,35 +472,17 @@ function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobs
             {items.map((item, index) => (
               <Draggable key={item.id} draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
-                  <div
-                    ref={dragProvided.innerRef}
-                    {...dragProvided.draggableProps}
-                    {...dragProvided.dragHandleProps}
-                    data-testid={`task-card-${item.id}`}
-                    onClick={() => onOpen(item.id)}
-                    className={cn(
-                      "bg-card rounded-lg border p-2.5 shadow-sm cursor-pointer",
-                      statusCardClass(status),
-                      dragSnapshot.isDragging && "shadow-md ring-2 ring-primary/40",
-                      busyId === item.id && "opacity-60"
-                    )}
-                  >
-                    {jobsById && (
-                      <Link
-                        to={`/jobs/${item.job_id}?tab=tasks`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="block text-[11px] font-medium text-primary hover:underline truncate mb-0.5"
-                      >
-                        {jobsById[item.job_id]?.title || "Job"}
-                        {jobsById[item.job_id]?.client_name ? ` · ${jobsById[item.job_id].client_name}` : ""}
-                      </Link>
-                    )}
-                    <div className="text-sm font-medium text-foreground leading-snug line-clamp-3">{item.description}</div>
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      <TaskTags item={item} documents={documents} />
-                    </div>
-                    <TaskNotes item={item} {...noteProps(item)} className="mt-1.5" />
-                  </div>
+                  <TaskBoardCard
+                    item={item}
+                    documents={documents}
+                    busyId={busyId}
+                    onOpen={onOpen}
+                    noteProps={noteProps}
+                    jobsById={jobsById}
+                    dragProvided={dragProvided}
+                    dragSnapshot={dragSnapshot}
+                    status={status}
+                  />
                 )}
               </Draggable>
             ))}
@@ -401,6 +492,41 @@ function BoardColumn({ status, items, documents, busyId, onOpen, noteProps, jobs
         </div>
       )}
     </Droppable>
+  );
+}
+
+function TaskBoardCard({ item, documents, busyId, onOpen, noteProps, jobsById, dragProvided, dragSnapshot, status, showStatus = false }) {
+  return (
+    <div
+      ref={dragProvided.innerRef}
+      {...dragProvided.draggableProps}
+      {...dragProvided.dragHandleProps}
+      data-testid={`task-card-${item.id}`}
+      onClick={() => onOpen(item.id)}
+      className={cn(
+        "bg-card rounded-lg border p-2.5 shadow-sm cursor-pointer",
+        statusCardClass(status),
+        dragSnapshot.isDragging && "shadow-md ring-2 ring-primary/40",
+        busyId === item.id && "opacity-60",
+      )}
+    >
+      {jobsById && (
+        <Link
+          to={`/jobs/${item.job_id}?tab=tasks`}
+          onClick={(e) => e.stopPropagation()}
+          className="block text-[11px] font-medium text-primary hover:underline truncate mb-0.5"
+        >
+          {jobsById[item.job_id]?.title || "Job"}
+          {jobsById[item.job_id]?.client_name ? ` · ${jobsById[item.job_id].client_name}` : ""}
+        </Link>
+      )}
+      <div className="text-sm font-medium text-foreground leading-snug line-clamp-3">{item.description}</div>
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {showStatus && <Tag tone="stage">{taskStatusLabel(status)}</Tag>}
+        <TaskTags item={item} documents={documents} hideWorkType={showStatus} />
+      </div>
+      <TaskNotes item={item} {...noteProps(item)} className="mt-1.5" />
+    </div>
   );
 }
 
@@ -457,6 +583,8 @@ function Tag({ children, tone = "slate" }) {
     money: "bg-emerald-100 text-emerald-700",
     materials: "bg-attention-materials-muted text-attention-materials-foreground",
     void: "bg-red-50 text-red-600",
+    trade: "bg-sky-50 text-sky-700",
+    stage: "bg-violet-50 text-violet-700",
   };
   return <span className={cn("text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded", tones[tone])}>{children}</span>;
 }

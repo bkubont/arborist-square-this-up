@@ -131,6 +131,8 @@ export const schemas = {
       notes: text.optional(),
     })).max(500).optional(),
     notes: text.optional(),
+    /** Primary trade for kanban grouping (plumbing, electrical, …). */
+    work_type: text.optional(),
     // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
     // moves them into WorkItems and clears this.
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),

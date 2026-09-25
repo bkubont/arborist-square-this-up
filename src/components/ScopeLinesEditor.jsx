@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import CatalogTypeahead from "@/components/CatalogTypeahead";
-import { WORK_CATEGORIES } from "@/lib/documentMapping";
+import WorkTypeSelect from "@/components/WorkTypeSelect";
 import { money } from "@/lib/format";
 import { catalogItemToFormLine, emptyEstimateLine, isPricedScopeLine, laborAmountFromHours, scopeLineTotal } from "@/lib/estimateMath";
 
@@ -52,21 +52,16 @@ export default function ScopeLinesEditor({ lines, setLines, readOnly = false, de
           <div key={index} className="rounded-lg border border-slate-200 p-3 bg-slate-50/50 space-y-2">
             <div className="grid grid-cols-1 sm:grid-cols-[minmax(7rem,9rem)_1fr_4.5rem_auto] gap-2 items-end">
               <div>
-                <Label className="text-xs">Category</Label>
-                <Input
-                  className={field}
-                  list={readOnly ? undefined : `${idPrefix}-cat-${index}`}
-                  value={line.category}
-                  onChange={(e) => setLine(index, { category: e.target.value })}
-                  placeholder="e.g. Plumbing"
-                  readOnly={readOnly}
-                />
-                {!readOnly && (
-                  <datalist id={`${idPrefix}-cat-${index}`}>
-                    {WORK_CATEGORIES.map((c) => (
-                      <option key={c} value={c} />
-                    ))}
-                  </datalist>
+                <Label className="text-xs">Work type</Label>
+                {readOnly ? (
+                  <Input className="bg-slate-50" value={line.category || ""} readOnly />
+                ) : (
+                  <WorkTypeSelect
+                    value={line.category || ""}
+                    onValueChange={(category) => setLine(index, { category })}
+                    placeholder="e.g. Plumbing"
+                    triggerClassName={field}
+                  />
                 )}
               </div>
               <div>

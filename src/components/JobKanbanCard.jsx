@@ -36,6 +36,7 @@ export default function JobKanbanCard({
   dragSnapshot,
   saving = false,
   onChanged,
+  showStatus = false,
 }) {
   const cameraRef = useRef(null);
   const [payOpen, setPayOpen] = useState(false);
@@ -217,7 +218,7 @@ export default function JobKanbanCard({
             )}
 
             <div className="flex items-center justify-between gap-2">
-              <StatusBadge status={job.status} className="scale-90 origin-left" />
+              {showStatus ? <StatusBadge status={job.status} className="scale-90 origin-left" /> : <span />}
               {balance > 0 && (
                 <span className="text-[10px] font-semibold text-attention tabular-nums">{money(balance)}</span>
               )}

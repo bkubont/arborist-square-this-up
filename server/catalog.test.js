@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchCatalog, catalogItemToEstimateLine, loadCatalog } from './catalog.js';
+import { searchCatalog, catalogItemToEstimateLine, loadCatalog, getWorkTypes } from './catalog.js';
+
+test('getWorkTypes exposes catalog trade list', () => {
+  const types = getWorkTypes();
+  assert.ok(types.length >= 50);
+  assert.ok(types.includes('Plumbing'));
+});
 
 test('handyman catalog loads labor + materials prices', () => {
   const catalog = loadCatalog();
