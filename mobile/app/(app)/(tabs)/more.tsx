@@ -86,6 +86,16 @@ export default function MoreScreen() {
 
       <Text style={styles.groupLabel}>Work</Text>
       <LinkRow
+        title="Board"
+        hint="Lead · Working · Payment — tap Move to change status"
+        onPress={() => router.push('/(app)/jobs/board')}
+      />
+      <LinkRow
+        title="Archive"
+        hint="Paid, declined, and cancelled jobs"
+        onPress={() => router.push('/(app)/jobs/archive')}
+      />
+      <LinkRow
         title="Schedule"
         hint="Day / week / agenda from job start dates"
         onPress={() => router.push('/(app)/schedule')}

@@ -12,6 +12,7 @@ import {
 
 import { api, type Job } from '@/api/client';
 import { BRAND_HEX } from '@/lib/brand';
+import { formatJobStatus, isWorkingJob } from '@/lib/jobStatus';
 
 export default function JobsListScreen() {
   const router = useRouter();
@@ -36,7 +37,8 @@ export default function JobsListScreen() {
     else setLoading(true);
     setError('');
     try {
-      setJobs(await api.entities.Job.list('-updated_date'));
+      const all = await api.entities.Job.listAll('-updated_date');
+      setJobs(all.filter(isWorkingJob));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load jobs');
     } finally {
@@ -66,7 +68,7 @@ export default function JobsListScreen() {
       data={jobs}
       keyExtractor={item => item.id}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
-      ListEmptyComponent={<Text style={styles.empty}>{error || 'No jobs yet'}</Text>}
+      ListEmptyComponent={<Text style={styles.empty}>{error || 'No active jobs'}</Text>}
       ListHeaderComponent={error && jobs.length ? <Text style={styles.error}>{error}</Text> : null}
       renderItem={({ item }) => (
         <Pressable
@@ -76,7 +78,7 @@ export default function JobsListScreen() {
           <View style={styles.rowBody}>
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.sub}>
-              {item.client_name || 'No customer'} · {item.status || '—'}
+              {item.client_name || 'No customer'} · {formatJobStatus(item) || item.status || '—'}
             </Text>
           </View>
           <Text style={styles.chevron}>›</Text>

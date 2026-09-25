@@ -13,6 +13,7 @@ import { JobTimelineSection } from '@/components/JobTimelineSection';
 import { BRAND_HEX } from '@/lib/brand';
 import { jobDetailQueryKey, loadJobDetail } from '@/lib/jobDetail';
 import { deriveMaterialsStatus, materialsStatusColor } from '@/lib/jobMaterials';
+import { formatJobStatus } from '@/lib/jobStatus';
 import { isPhotoEntry, isReceiptEntry } from '@/lib/photoCategories';
 
 export default function JobDetailScreen() {
@@ -70,7 +71,8 @@ export default function JobDetailScreen() {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{job.title}</Text>
-      <Text style={styles.badge}>{job.status || '—'}</Text>
+      <Text style={styles.badge}>{formatJobStatus(job) || job.status || '—'}</Text>
+      {job.archived_at ? <Text style={styles.archived}>Archived</Text> : null}
       <Text style={styles.materialsStatus}>
         Materials ·{' '}
         <Text style={{ color: materialsStatusColor(materialsStatus.key), fontWeight: '600' }}>
@@ -160,6 +162,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  archived: { fontSize: 12, color: '#888' },
   body: { fontSize: 15, color: '#444', lineHeight: 22 },
   materialsStatus: { fontSize: 13, color: '#666' },
   editBtn: {

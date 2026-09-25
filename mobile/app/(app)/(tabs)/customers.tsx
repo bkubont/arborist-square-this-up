@@ -1,5 +1,5 @@
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useLayoutEffect, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,6 +12,8 @@ import {
 
 import { api, type Client } from '@/api/client';
 import { BRAND_HEX } from '@/lib/brand';
+import { shortDate } from '@/lib/format';
+import { isArchivedClient } from '@/lib/jobStatus';
 
 export default function CustomersListScreen() {
   const router = useRouter();
@@ -20,6 +22,7 @@ export default function CustomersListScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -51,6 +54,10 @@ export default function CustomersListScreen() {
     }, [load]),
   );
 
+  const activeClients = useMemo(() => clients.filter(c => !isArchivedClient(c)), [clients]);
+  const archivedClients = useMemo(() => clients.filter(c => isArchivedClient(c)), [clients]);
+  const shown = showArchived ? archivedClients : activeClients;
+
   if (loading && !refreshing) {
     return (
       <View style={styles.centered}>
@@ -62,12 +69,35 @@ export default function CustomersListScreen() {
   return (
     <FlatList
       style={styles.list}
-      contentContainerStyle={clients.length ? undefined : styles.centered}
-      data={clients}
+      contentContainerStyle={shown.length ? undefined : styles.centered}
+      data={shown}
       keyExtractor={item => item.id}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
-      ListEmptyComponent={<Text style={styles.empty}>{error || 'No customers yet'}</Text>}
-      ListHeaderComponent={error && clients.length ? <Text style={styles.error}>{error}</Text> : null}
+      ListHeaderComponent={
+        <View style={styles.headerBlock}>
+          {error && clients.length ? <Text style={styles.error}>{error}</Text> : null}
+          <Text style={styles.count}>
+            {shown.length} {showArchived ? 'archived' : 'active'}
+          </Text>
+          {archivedClients.length > 0 || showArchived ? (
+            <Pressable onPress={() => setShowArchived(v => !v)}>
+              <Text style={styles.toggle}>
+                {showArchived ? 'Show active' : `Archived (${archivedClients.length})`}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      }
+      ListEmptyComponent={
+        <Text style={styles.empty}>
+          {error ||
+            (showArchived
+              ? 'No archived customers.'
+              : clients.length === 0
+                ? 'No customers yet'
+                : 'No active customers.')}
+        </Text>
+      }
       renderItem={({ item }) => (
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.pressed]}
@@ -78,6 +108,10 @@ export default function CustomersListScreen() {
             <Text style={styles.sub}>
               {[item.city, item.state].filter(Boolean).join(', ') || item.phone || item.email || '—'}
             </Text>
+            {item.status ? <Text style={styles.status}>{item.status}</Text> : null}
+            {item.archived_at ? (
+              <Text style={styles.archived}>Archived {shortDate(item.archived_at)}</Text>
+            ) : null}
           </View>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
@@ -89,6 +123,9 @@ export default function CustomersListScreen() {
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: '#f7f7fb' },
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  headerBlock: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+  count: { fontSize: 13, color: '#666' },
+  toggle: { fontSize: 14, fontWeight: '600', color: BRAND_HEX.royalBlue },
   empty: { color: '#666', fontSize: 15 },
   error: { color: '#b00020', padding: 12, backgroundColor: '#fde8ea' },
   headerAdd: { color: BRAND_HEX.royalBlue, fontWeight: '700', fontSize: 16, paddingHorizontal: 4 },
@@ -105,5 +142,7 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, gap: 4 },
   title: { fontSize: 16, fontWeight: '600', color: BRAND_HEX.black },
   sub: { fontSize: 13, color: '#666' },
+  status: { fontSize: 12, color: '#555', fontWeight: '500' },
+  archived: { fontSize: 11, color: '#888' },
   chevron: { fontSize: 22, color: '#aaa', paddingLeft: 8 },
 });

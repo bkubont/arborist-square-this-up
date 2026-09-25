@@ -25,8 +25,4 @@ export function addDays(date: Date, n: number): Date {
   return next;
 }
 
-export function isArchivedJob(job: { status?: string; archived_at?: string } | null | undefined): boolean {
-  if (job?.status === 'Completed') return false;
-  if (job?.archived_at) return true;
-  return job?.status === 'Paid' || job?.status === 'Declined' || job?.status === 'Cancelled';
-}
+export { isArchivedJob } from '@/lib/jobStatus';
