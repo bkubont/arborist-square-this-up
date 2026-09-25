@@ -5,6 +5,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,6 +15,23 @@ import {
 import { api } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
 import { BRAND_HEX, PRODUCT_NAME } from '@/lib/brand';
+
+function LinkRow({
+  title,
+  hint,
+  onPress,
+}: {
+  title: string;
+  hint: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]} onPress={onPress}>
+      <Text style={styles.linkRowText}>{title}</Text>
+      <Text style={styles.linkRowHint}>{hint}</Text>
+    </Pressable>
+  );
+}
 
 export default function MoreScreen() {
   const router = useRouter();
@@ -63,30 +81,46 @@ export default function MoreScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.brand}>{PRODUCT_NAME}</Text>
-      <Text style={styles.heading}>Settings</Text>
+
+      <Text style={styles.groupLabel}>Work</Text>
+      <LinkRow
+        title="Schedule"
+        hint="Day / week / agenda from job start dates"
+        onPress={() => router.push('/(app)/schedule')}
+      />
+      <LinkRow
+        title="All jobs"
+        hint="Full list with status filter · includes archived"
+        onPress={() => router.push('/(app)/jobs/all')}
+      />
+
+      <Text style={styles.groupLabel}>Money</Text>
+      <LinkRow
+        title="Receipts inbox"
+        hint="Scan receipts · assign unassigned photos to jobs"
+        onPress={() => router.push('/(app)/receipts')}
+      />
+
+      <Text style={styles.groupLabel}>Business</Text>
+      <LinkRow
+        title="Reports"
+        hint="Money, status counts, materials rollups"
+        onPress={() => router.push('/(app)/reports')}
+      />
+      <LinkRow
+        title="Company profile"
+        hint="Name, tax %, payment terms"
+        onPress={() => router.push('/(app)/company')}
+      />
+
+      <Text style={styles.groupLabel}>Account</Text>
       <View style={styles.card}>
-        <Text style={styles.label}>Account</Text>
+        <Text style={styles.label}>Signed in</Text>
         <Text style={styles.value}>{user?.email}</Text>
         <Text style={styles.meta}>API {api.baseUrl}</Text>
       </View>
-
-      <Pressable
-        style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-        onPress={() => router.push('/(app)/company')}
-      >
-        <Text style={styles.linkRowText}>Company profile</Text>
-        <Text style={styles.linkRowHint}>Name, tax %, payment terms</Text>
-      </Pressable>
-
-      <Pressable
-        style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-        onPress={() => router.push('/(app)/receipts')}
-      >
-        <Text style={styles.linkRowText}>Receipts inbox</Text>
-        <Text style={styles.linkRowHint}>Unassigned expense photos → assign to a job</Text>
-      </Pressable>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -120,7 +154,13 @@ export default function MoreScreen() {
               editable={!deleting}
             />
             <View style={styles.modalActions}>
-              <Pressable onPress={() => { setDeleteOpen(false); setPassword(''); }} disabled={deleting}>
+              <Pressable
+                onPress={() => {
+                  setDeleteOpen(false);
+                  setPassword('');
+                }}
+                disabled={deleting}
+              >
                 <Text style={styles.link}>Cancel</Text>
               </Pressable>
               <Pressable
@@ -138,13 +178,22 @@ export default function MoreScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, backgroundColor: '#f7f7fb', gap: 14 },
-  brand: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.royalBlue },
+  scroll: { flex: 1, backgroundColor: '#f7f7fb' },
+  container: { padding: 24, gap: 10, paddingBottom: 40 },
+  brand: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.royalBlue, marginBottom: 4 },
+  groupLabel: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    color: '#666',
+    fontWeight: '700',
+    marginTop: 10,
+  },
   heading: { fontSize: 18, fontWeight: '600', color: BRAND_HEX.black },
   card: {
     backgroundColor: '#fff',
@@ -173,6 +222,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',
+    marginTop: 8,
   },
   dangerOutline: {
     borderRadius: 10,
@@ -212,6 +262,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
   },
-  modalActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
   link: { color: BRAND_HEX.royalBlue, fontWeight: '600', fontSize: 16 },
 });

@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 
 import { api, type WorkItem } from '@/api/client';
+import { TaskStatusNotes } from '@/components/TaskStatusNotes';
 import { BRAND_HEX } from '@/lib/brand';
 import { moneyCents } from '@/lib/format';
 import { materialsNeededCount } from '@/lib/jobMaterials';
@@ -40,6 +41,7 @@ export function JobTasksSection({ jobId, items, onChanged }: Props) {
   const [view, setView] = useState<ViewMode>('board');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [adding, setAdding] = useState('');
+  const [noteFocusId, setNoteFocusId] = useState<string | null>(null);
 
   const shown = view === 'board' ? sortTasks(items) : sortTasksForList(items);
   const doneCount = shown.filter(i => isTaskCompleted(taskStatus(i))).length;
@@ -51,11 +53,46 @@ export function JobTasksSection({ jobId, items, onChanged }: Props) {
       try {
         await api.entities.WorkItem.update(item.id, { status });
         if (NOTE_PROMPT_STATUSES.includes(status)) {
-          Alert.alert('Status updated', 'Add a note on the task if you want to explain why.');
+          setNoteFocusId(item.id);
         }
         await onChanged();
       } catch (err) {
         Alert.alert('Could not update', err instanceof Error ? err.message : 'Try again.');
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [onChanged],
+  );
+
+  const addStatusNote = useCallback(
+    async (item: WorkItem, text: string) => {
+      setBusyId(item.id);
+      setNoteFocusId(null);
+      try {
+        await api.entities.WorkItem.update(item.id, {
+          status_notes: [...(item.status_notes || []), { text }],
+        });
+        await onChanged();
+      } catch (err) {
+        Alert.alert('Could not save note', err instanceof Error ? err.message : 'Try again.');
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [onChanged],
+  );
+
+  const removeStatusNote = useCallback(
+    async (item: WorkItem, noteId: string) => {
+      setBusyId(item.id);
+      try {
+        await api.entities.WorkItem.update(item.id, {
+          status_notes: (item.status_notes || []).filter(n => n.id !== noteId),
+        });
+        await onChanged();
+      } catch (err) {
+        Alert.alert('Could not remove note', err instanceof Error ? err.message : 'Try again.');
       } finally {
         setBusyId(null);
       }
@@ -128,8 +165,11 @@ export function JobTasksSection({ jobId, items, onChanged }: Props) {
                       key={item.id}
                       item={item}
                       busy={busyId === item.id}
+                      focusNotes={noteFocusId === item.id}
                       onOpen={() => router.push(`/(app)/work-items/${item.id}`)}
                       onStatus={next => changeStatus(item, next)}
+                      onAddNote={text => addStatusNote(item, text)}
+                      onRemoveNote={noteId => removeStatusNote(item, noteId)}
                     />
                   ))
                 )}
@@ -140,22 +180,23 @@ export function JobTasksSection({ jobId, items, onChanged }: Props) {
       ) : (
         <View style={styles.list}>
           {shown.map(item => (
-            <Pressable
-              key={item.id}
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-              onPress={() => router.push(`/(app)/work-items/${item.id}`)}
-            >
-              <Text style={styles.rowTitle} numberOfLines={2}>
-                {taskTitle(item)}
-              </Text>
-              <Text style={styles.rowMeta}>
-                {taskStatusLabel(taskStatus(item))}
-                {item.amount_cents != null ? ` · ${moneyCents(item.amount_cents)}` : ''}
-                {item.source_type ? ` · from ${item.source_type}` : ''}
-                {materialsNeededCount(item.materials) > 0
-                  ? ` · ${materialsNeededCount(item.materials)} to get`
-                  : ''}
-              </Text>
+            <View key={item.id} style={styles.row}>
+              <Pressable
+                style={({ pressed }) => [pressed && styles.pressed]}
+                onPress={() => router.push(`/(app)/work-items/${item.id}`)}
+              >
+                <Text style={styles.rowTitle} numberOfLines={2}>
+                  {taskTitle(item)}
+                </Text>
+                <Text style={styles.rowMeta}>
+                  {taskStatusLabel(taskStatus(item))}
+                  {item.amount_cents != null ? ` · ${moneyCents(item.amount_cents)}` : ''}
+                  {item.source_type ? ` · from ${item.source_type}` : ''}
+                  {materialsNeededCount(item.materials) > 0
+                    ? ` · ${materialsNeededCount(item.materials)} to get`
+                    : ''}
+                </Text>
+              </Pressable>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statusRow}>
                 {TASK_STATUSES.map(s => {
                   const active = taskStatus(item) === s;
@@ -173,7 +214,15 @@ export function JobTasksSection({ jobId, items, onChanged }: Props) {
                   );
                 })}
               </ScrollView>
-            </Pressable>
+              <TaskStatusNotes
+                item={item}
+                compact
+                focusAdd={noteFocusId === item.id}
+                disabled={busyId === item.id}
+                onAdd={text => void addStatusNote(item, text)}
+                onRemove={noteId => void removeStatusNote(item, noteId)}
+              />
+            </View>
           ))}
         </View>
       )}
@@ -207,13 +256,19 @@ export function JobTasksSection({ jobId, items, onChanged }: Props) {
 function TaskCard({
   item,
   busy,
+  focusNotes,
   onOpen,
   onStatus,
+  onAddNote,
+  onRemoveNote,
 }: {
   item: WorkItem;
   busy: boolean;
+  focusNotes: boolean;
   onOpen: () => void;
   onStatus: (status: TaskStatus) => void;
+  onAddNote: (text: string) => void;
+  onRemoveNote: (noteId: string) => void;
 }) {
   return (
     <View style={[styles.taskCard, busy && styles.disabled]}>
@@ -246,6 +301,14 @@ function TaskCard({
           );
         })}
       </ScrollView>
+      <TaskStatusNotes
+        item={item}
+        compact
+        focusAdd={focusNotes}
+        disabled={busy}
+        onAdd={onAddNote}
+        onRemove={onRemoveNote}
+      />
     </View>
   );
 }
@@ -277,7 +340,7 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: '#666' },
   board: { gap: 10, paddingBottom: 4 },
   column: {
-    width: 220,
+    width: 240,
     backgroundColor: '#f7f7fb',
     borderRadius: 10,
     padding: 10,

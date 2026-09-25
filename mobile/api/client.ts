@@ -66,6 +66,8 @@ export type Job = {
   /** Job-level materials checklist (not estimate lines). Unticked → draft MO. */
   materials?: JobMaterial[];
   materials_cost?: number;
+  deposit_amount?: number;
+  archived_at?: string;
   created_date?: string;
   updated_date?: string;
 };
@@ -78,6 +80,8 @@ export type TimelineEntry = {
   photo_url?: string;
   category?: string;
   amount?: number;
+  /** When set, receipt is linked to a Material Order (web MO editor parity). */
+  related_material_order_id?: string;
   created_date?: string;
   updated_date?: string;
 };
@@ -211,6 +215,13 @@ export type WorkItemMaterial = {
   notes?: string;
 };
 
+export type WorkItemStatusNote = {
+  id?: string;
+  text: string;
+  status?: string;
+  created_at?: string;
+};
+
 export type WorkItem = {
   id: string;
   job_id: string;
@@ -229,6 +240,10 @@ export type WorkItem = {
   labor_hours?: number;
   sort_order?: number;
   materials?: WorkItemMaterial[];
+  /** Card notes stamped with status at write time (web TaskNotes). */
+  status_notes?: WorkItemStatusNote[];
+  /** Legacy single note; prefer status_notes. */
+  status_note?: string;
   billed_invoice_id?: string;
   created_date?: string;
   updated_date?: string;
@@ -428,6 +443,9 @@ const entity = <T extends { id: string }>(name: string) => ({
   },
   list(sort = '-created_date', limit = 200) {
     return this.filter({}, sort, limit);
+  },
+  listAll(sort = '-updated_date') {
+    return this.filter({}, sort, PAGE_SIZE_MAX);
   },
   get(id: string) {
     return request(`/entities/${name}/${encodeURIComponent(id)}`) as Promise<T>;

@@ -11,34 +11,51 @@ import {
   View,
 } from 'react-native';
 
-import { api, type Expense, type Job } from '@/api/client';
+import { api, type Expense, type Job, type TimelineEntry } from '@/api/client';
 import { AuthenticatedImage } from '@/components/AuthenticatedImage';
+import { ReceiptCaptureModal } from '@/components/ReceiptCaptureModal';
 import { BRAND_HEX } from '@/lib/brand';
 import { money, shortDate } from '@/lib/format';
+import { isReceiptEntry } from '@/lib/photoCategories';
+
+type JobReceiptItem = {
+  kind: 'timeline' | 'expense';
+  id: string;
+  photo_url?: string;
+  amount?: number;
+  text?: string;
+  job_id?: string;
+  moId?: string;
+  date?: string;
+};
 
 /**
- * Lightweight receipts inbox — unassigned expense photos (web /receipts).
- * Tap a card → pick a job to assign (mirrors receipt onto the job gallery).
+ * Receipts inbox + by-job gallery (web /receipts).
+ * Tap inbox → assign job; tap by-job card → open job receipts tab.
  */
 export default function ReceiptsScreen() {
   const router = useRouter();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [assigning, setAssigning] = useState<Expense | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const [ex, j] = await Promise.all([
+      const [ex, j, tl] = await Promise.all([
         api.entities.Expense.list('-created_date', 400),
         api.entities.Job.list('-updated_date', 300),
+        api.entities.TimelineEntry.list('-created_date', 500),
       ]);
       setExpenses(ex);
       setJobs(j);
+      setTimeline(tl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load receipts');
     } finally {
@@ -58,17 +75,49 @@ export default function ReceiptsScreen() {
     [expenses],
   );
 
-  const assignedWithPhoto = useMemo(
-    () =>
-      expenses
-        .filter(e => e.photo_url && e.job_id)
-        .sort((a, b) =>
-          String(b.date || b.created_date || '').localeCompare(String(a.date || a.created_date || '')),
-        ),
-    [expenses],
-  );
-
   const jobById = useMemo(() => Object.fromEntries(jobs.map(j => [j.id, j])), [jobs]);
+
+  const jobReceipts = useMemo(() => {
+    const fromTimeline: JobReceiptItem[] = timeline.filter(isReceiptEntry).map(e => ({
+      kind: 'timeline',
+      id: e.id,
+      photo_url: e.photo_url,
+      amount: e.amount,
+      text: e.text,
+      job_id: e.job_id,
+      moId: e.related_material_order_id,
+      date: e.created_date,
+    }));
+    const timelineUrls = new Set(fromTimeline.map(r => r.photo_url).filter(Boolean));
+    const fromExpenses: JobReceiptItem[] = expenses
+      .filter(e => e.photo_url && e.job_id && !timelineUrls.has(e.photo_url))
+      .map(e => ({
+        kind: 'expense',
+        id: e.id,
+        photo_url: e.photo_url,
+        amount: e.amount,
+        text: e.vendor || e.note || e.category,
+        job_id: e.job_id,
+        date: e.date || e.created_date,
+      }));
+    return [...fromTimeline, ...fromExpenses].sort((a, b) =>
+      String(b.date || '').localeCompare(String(a.date || '')),
+    );
+  }, [timeline, expenses]);
+
+  const byJob = useMemo(() => {
+    const map = new Map<string, JobReceiptItem[]>();
+    for (const r of jobReceipts) {
+      if (!r.job_id) continue;
+      if (!map.has(r.job_id)) map.set(r.job_id, []);
+      map.get(r.job_id)!.push(r);
+    }
+    return [...map.entries()].map(([jobId, items]) => ({
+      job: jobById[jobId],
+      jobId,
+      items,
+    }));
+  }, [jobReceipts, jobById]);
 
   const assignToJob = async (jobId: string) => {
     if (!assigning) return;
@@ -107,7 +156,21 @@ export default function ReceiptsScreen() {
     }
   };
 
-  if (loading && !expenses.length) {
+  const openReceipt = (item: JobReceiptItem) => {
+    if (item.moId) {
+      router.push(`/(app)/material-orders/${item.moId}`);
+      return;
+    }
+    if (item.kind === 'expense') {
+      router.push(`/(app)/expenses/${item.id}`);
+      return;
+    }
+    if (item.job_id) {
+      router.push(`/(app)/jobs/${item.job_id}?tab=receipts`);
+    }
+  };
+
+  if (loading && !expenses.length && !timeline.length) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={BRAND_HEX.royalBlue} />
@@ -130,16 +193,26 @@ export default function ReceiptsScreen() {
           />
         }
       >
-        <Text style={styles.title}>Receipts</Text>
-        <Text style={styles.subtitle}>
-          {inbox.length} unassigned · {assignedWithPhoto.length} on jobs
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Receipts</Text>
+            <Text style={styles.subtitle}>
+              {inbox.length} unassigned · {jobReceipts.length} on jobs
+            </Text>
+          </View>
+          <Pressable
+            style={({ pressed }) => [styles.scanBtn, pressed && styles.pressed]}
+            onPress={() => setCaptureOpen(true)}
+          >
+            <Text style={styles.scanBtnText}>Scan Receipt</Text>
+          </Pressable>
+        </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <Text style={styles.section}>Unassigned inbox</Text>
         {inbox.length === 0 ? (
           <Text style={styles.empty}>
-            No unassigned receipts. Add an expense with a photo and leave the job blank.
+            No unassigned receipts. Scan one without a job to park it here.
           </Text>
         ) : (
           <View style={styles.grid}>
@@ -158,37 +231,58 @@ export default function ReceiptsScreen() {
           </View>
         )}
 
-        <Text style={[styles.section, { marginTop: 20 }]}>Recently assigned</Text>
-        {assignedWithPhoto.length === 0 ? (
-          <Text style={styles.empty}>No job-linked receipt photos yet.</Text>
+        <Text style={[styles.section, { marginTop: 20 }]}>By job</Text>
+        {byJob.length === 0 ? (
+          <Text style={styles.empty}>
+            No job receipts yet. Scan with a job, or attach from a Material Order.
+          </Text>
         ) : (
-          <View style={styles.list}>
-            {assignedWithPhoto.slice(0, 24).map(expense => {
-              const job = expense.job_id ? jobById[expense.job_id] : undefined;
-              return (
+          <View style={styles.byJob}>
+            {byJob.map(({ job, jobId, items }) => (
+              <View key={jobId} style={styles.jobBlock}>
                 <Pressable
-                  key={expense.id}
-                  style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                  onPress={() => router.push(`/(app)/expenses/${expense.id}`)}
+                  style={styles.jobHeader}
+                  onPress={() => router.push(`/(app)/jobs/${jobId}?tab=receipts`)}
                 >
-                  <AuthenticatedImage fileUrl={expense.photo_url} style={styles.rowThumb} />
-                  <View style={styles.rowBody}>
-                    <Text style={styles.cardAmount}>{money(expense.amount)}</Text>
-                    <Text style={styles.meta}>
-                      {shortDate(expense.date || expense.created_date)}
-                      {job ? ` · ${job.title}` : ''}
-                    </Text>
-                  </View>
+                  <Text style={styles.jobTitle} numberOfLines={1}>
+                    {job?.title || 'Job'}
+                  </Text>
+                  <Text style={styles.jobCount}>{items.length}</Text>
                 </Pressable>
-              );
-            })}
+                <View style={styles.grid}>
+                  {items.map(item => (
+                    <Pressable
+                      key={`${item.kind}-${item.id}`}
+                      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+                      onPress={() => openReceipt(item)}
+                    >
+                      <AuthenticatedImage fileUrl={item.photo_url} style={styles.thumb} />
+                      <Text style={styles.cardCap} numberOfLines={1}>
+                        {item.moId ? 'MO · ' : ''}
+                        {item.amount != null ? money(item.amount) : shortDate(item.date)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ))}
           </View>
         )}
 
+        <Pressable style={styles.linkBtn} onPress={() => setCaptureOpen(true)}>
+          <Text style={styles.link}>Scan another receipt</Text>
+        </Pressable>
         <Pressable style={styles.linkBtn} onPress={() => router.push('/(app)/expenses/new')}>
           <Text style={styles.link}>+ New expense with receipt</Text>
         </Pressable>
       </ScrollView>
+
+      <ReceiptCaptureModal
+        visible={captureOpen}
+        onClose={() => setCaptureOpen(false)}
+        jobs={jobs}
+        onSaved={() => void load()}
+      />
 
       <Modal
         visible={!!assigning}
@@ -220,10 +314,7 @@ export default function ReceiptsScreen() {
               ))}
             </ScrollView>
             <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setAssigning(null)}
-                disabled={busy}
-              >
+              <Pressable onPress={() => setAssigning(null)} disabled={busy}>
                 <Text style={styles.link}>Cancel</Text>
               </Pressable>
               {assigning ? (
@@ -251,8 +342,16 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f7f7fb' },
   content: { padding: 20, gap: 10, paddingBottom: 40 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   title: { fontSize: 24, fontWeight: '700', color: BRAND_HEX.black },
-  subtitle: { fontSize: 13, color: '#666', marginTop: -4 },
+  subtitle: { fontSize: 13, color: '#666', marginTop: 2 },
+  scanBtn: {
+    backgroundColor: BRAND_HEX.royalBlue,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  scanBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   section: {
     fontSize: 12,
     textTransform: 'uppercase',
@@ -273,21 +372,36 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   thumb: { width: '100%', aspectRatio: 1 },
-  cardAmount: { fontSize: 14, fontWeight: '700', color: BRAND_HEX.black, paddingHorizontal: 10, paddingTop: 8 },
-  cardHint: { fontSize: 11, color: '#a16207', paddingHorizontal: 10, paddingBottom: 10, paddingTop: 2 },
-  list: { gap: 8 },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e4e4ef',
-    padding: 10,
+  cardAmount: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: BRAND_HEX.black,
+    paddingHorizontal: 10,
+    paddingTop: 8,
   },
-  rowThumb: { width: 56, height: 56, borderRadius: 8 },
-  rowBody: { flex: 1, gap: 2 },
+  cardHint: {
+    fontSize: 11,
+    color: '#a16207',
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+    paddingTop: 2,
+  },
+  cardCap: {
+    fontSize: 11,
+    color: '#666',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  byJob: { gap: 16 },
+  jobBlock: { gap: 8 },
+  jobHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  jobTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: BRAND_HEX.royalBlue },
+  jobCount: { fontSize: 12, color: '#888' },
   meta: { fontSize: 13, color: '#666' },
   pressed: { opacity: 0.85 },
   linkBtn: { marginTop: 12 },

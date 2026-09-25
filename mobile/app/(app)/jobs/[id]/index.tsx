@@ -3,19 +3,24 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { JobDocumentsSection } from '@/components/JobDocumentsSection';
 import { JobFinancialSection } from '@/components/JobFinancialSection';
 import { JobMaterialsSection } from '@/components/JobMaterialsSection';
 import { JobPhotosSection } from '@/components/JobPhotosSection';
 import { JobTasksSection } from '@/components/JobTasksSection';
+import { JobTimelineSection } from '@/components/JobTimelineSection';
 import { BRAND_HEX } from '@/lib/brand';
 import { jobDetailQueryKey, loadJobDetail } from '@/lib/jobDetail';
 import { deriveMaterialsStatus, materialsStatusColor } from '@/lib/jobMaterials';
+import { isPhotoEntry, isReceiptEntry } from '@/lib/photoCategories';
 
 export default function JobDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const photosInitialMode = tab === 'receipts' ? 'receipts' : 'photos';
+  const openReceipts = tab === 'receipts';
 
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: jobDetailQueryKey(id || ''),
@@ -59,6 +64,8 @@ export default function JobDetailScreen() {
     workItems,
     materialOrders,
   });
+  const photoCount = entries.filter(e => isPhotoEntry(e) && !isReceiptEntry(e)).length;
+  const receiptCount = entries.filter(isReceiptEntry).length;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -86,24 +93,53 @@ export default function JobDetailScreen() {
         ) : null}
       </View>
 
-      <JobFinancialSection
-        jobId={job.id}
-        summary={summary}
-        authorized={authorized}
-        payments={payments}
-        materialsCost={job.materials_cost}
-        onChanged={onChanged}
-      />
+      <CollapsibleSection title="Money" defaultOpen={!openReceipts}>
+        <JobFinancialSection
+          jobId={job.id}
+          summary={summary}
+          authorized={authorized}
+          payments={payments}
+          materialsCost={job.materials_cost}
+          onChanged={onChanged}
+        />
+      </CollapsibleSection>
 
-      <JobMaterialsSection
-        jobId={job.id}
-        materials={job.materials || []}
-        onChanged={onChanged}
-      />
+      <CollapsibleSection
+        title="Materials checklist"
+        count={(job.materials || []).length}
+        defaultOpen={false}
+      >
+        <JobMaterialsSection
+          jobId={job.id}
+          materials={job.materials || []}
+          onChanged={onChanged}
+        />
+      </CollapsibleSection>
 
-      <JobDocumentsSection jobId={job.id} documents={documents} onChanged={onChanged} />
-      <JobTasksSection jobId={job.id} items={workItems} onChanged={onChanged} />
-      <JobPhotosSection jobId={job.id} entries={entries} onChanged={onChanged} />
+      <CollapsibleSection title="Documents" count={documents.length} defaultOpen={false}>
+        <JobDocumentsSection jobId={job.id} documents={documents} onChanged={onChanged} />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Tasks" count={workItems.length} defaultOpen={!openReceipts}>
+        <JobTasksSection jobId={job.id} items={workItems} onChanged={onChanged} />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Photos & receipts"
+        count={photoCount + receiptCount}
+        defaultOpen
+      >
+        <JobPhotosSection
+          jobId={job.id}
+          entries={entries}
+          onChanged={onChanged}
+          initialMode={photosInitialMode}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Timeline" count={entries.length} defaultOpen={false}>
+        <JobTimelineSection jobId={job.id} entries={entries} onChanged={onChanged} />
+      </CollapsibleSection>
     </ScrollView>
   );
 }

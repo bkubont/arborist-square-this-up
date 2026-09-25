@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { api, type Job, type MaterialOrder } from '@/api/client';
+import { MaterialOrderReceipts } from '@/components/MaterialOrderReceipts';
 import { BRAND_HEX } from '@/lib/brand';
 import { statusLabel } from '@/lib/documents';
 import { materialOrderLineAmount } from '@/lib/estimateMath';
@@ -122,6 +123,15 @@ export default function MaterialOrderDetailScreen() {
       ) : (
         <Text style={styles.empty}>No lines yet</Text>
       )}
+
+      <View style={styles.card}>
+        <MaterialOrderReceipts
+          materialOrderId={doc.id}
+          jobId={doc.job_id}
+          orderNumber={doc.number}
+          readOnly={doc.status === 'void'}
+        />
+      </View>
 
       {job ? (
         <Pressable onPress={() => router.push(`/(app)/jobs/${job.id}`)}>

@@ -111,7 +111,7 @@ export default function MoneyScreen() {
             <Text style={styles.addText}>Add expense</Text>
           </Pressable>
           <Pressable style={styles.inboxBtn} onPress={() => router.push('/(app)/receipts')}>
-            <Text style={styles.inboxText}>Receipts inbox</Text>
+            <Text style={styles.inboxText}>Scan / Receipts</Text>
           </Pressable>
         </View>
       ) : (
