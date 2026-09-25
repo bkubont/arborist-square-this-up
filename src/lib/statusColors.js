@@ -174,6 +174,7 @@ export const STATUS_SEMANTIC_MAP = {
   materials: "attention-materials",
   permits: "sky",
   waiting_on_approval: "attention-approval",
+  waiting_on_materials: "attention-materials",
   blocked: "danger",
   finish: "blue",
   completed: "success",
@@ -181,7 +182,7 @@ export const STATUS_SEMANTIC_MAP = {
   // Legacy task statuses (normalized on read)
   prep: "brand",
   in_progress: "brand",
-  waiting_materials: "danger",
+  waiting_materials: "attention-materials",
   on_hold: "danger",
   done: "success",
 };

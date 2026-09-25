@@ -20,11 +20,18 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
   },
   working: {
     label: 'Working',
-    statuses: ['Prep', 'In progress', 'Blocked', 'Cancelled', 'Completed'],
+    statuses: [
+      'Prep',
+      'In progress',
+      'Waiting on materials',
+      'Blocked',
+      'Completed',
+      'Cancelled',
+    ],
   },
   payment: {
     label: 'Payment',
-    statuses: [INVOICE_GATE_STATUS, PAYMENT_ENTRY_STATUS, 'Partial', 'Paid', 'Late'],
+    statuses: [INVOICE_GATE_STATUS, PAYMENT_ENTRY_STATUS, 'Partial', 'Late', 'Paid'],
   },
 };
 
@@ -38,8 +45,7 @@ export const LEGACY_JOB_STATUS_MAP: Record<string, { phase: JobPhase; status: st
   Estimate: { phase: 'lead', status: 'Plan / draft estimate' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
-  'Waiting on Materials': { phase: 'working', status: 'In progress' },
-  'Waiting on materials': { phase: 'working', status: 'In progress' },
+  'Waiting on Materials': { phase: 'working', status: 'Waiting on materials' },
   'On Hold': { phase: 'working', status: 'Blocked' },
   Completed: { phase: 'working', status: 'Completed' },
   Paid: { phase: 'payment', status: 'Paid' },

@@ -110,11 +110,11 @@ const JOB_BLUEPRINTS = [
   {
     title: 'Master shower valve rebuild',
     phase: 'working',
-    status: 'In progress',
+    status: 'Waiting on materials',
     description: 'Valve on backorder from supplier.',
     jobMaterials: [{ description: 'Shower valve cartridge', qty: 1, unit_price: 85, have: false }],
     estimate: { status: 'accepted', labor: 380, material: 160 },
-    tasks: 'plan',
+    tasks: 'waiting_on_materials',
     materialOrder: { status: 'partial', lineStatus: 'backorder' },
     deposit: 150,
   },

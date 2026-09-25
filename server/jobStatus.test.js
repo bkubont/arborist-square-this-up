@@ -43,28 +43,34 @@ describe('job status model', () => {
     }
   });
 
-  it('working phase excludes Waiting on materials and Invoiced; Blocked stays a column', () => {
+  it('working phase is Prep through Cancelled, with Waiting on materials after In progress', () => {
     assert.deepEqual(JOB_PHASES.working.statuses, [
       'Prep',
       'In progress',
+      'Waiting on materials',
       'Blocked',
-      'Cancelled',
       'Completed',
+      'Cancelled',
     ]);
-    assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on materials'));
+    assert.ok(!JOB_PHASES.working.statuses.includes('Waiting'));
     assert.ok(!JOB_PHASES.working.statuses.includes(INVOICE_GATE_STATUS));
+    assert.ok(JOB_PHASES.working.statuses.includes('Prep'));
     assert.ok(JOB_PHASES.working.statuses.includes('Blocked'));
     assert.deepEqual(JOB_PHASES.payment.statuses, [
       INVOICE_GATE_STATUS,
       'Waiting on payment',
       'Partial',
-      'Paid',
       'Late',
+      'Paid',
     ]);
     const normalized = normalizeJobRecord({ status: 'Waiting on materials' });
-    assert.equal(normalized.status, 'In progress');
+    assert.equal(normalized.status, 'Waiting on materials');
     assert.equal(normalized.phase, 'working');
-    assert.notEqual(normalized.status, 'Blocked');
+    const legacy = normalizeJobRecord({ status: 'Waiting on Materials' });
+    assert.equal(legacy.status, 'Waiting on materials');
+    assert.equal(legacy.phase, 'working');
+    const prep = normalizeJobRecord({ phase: 'working', status: 'Prep' });
+    assert.equal(prep.status, 'Prep');
   });
 
   it('invoiced stays Invoiced on the payment phase and does not clear the lead track', () => {

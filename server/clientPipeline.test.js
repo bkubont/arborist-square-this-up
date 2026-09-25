@@ -20,7 +20,8 @@ describe('contact lead pipeline', () => {
       'Declined',
     ]);
     assert.deepEqual(CLIENT_LEAD_STATUSES, JOB_PHASES.lead.statuses);
-    assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on materials'));
+    assert.ok(JOB_PHASES.working.statuses.includes('Waiting on materials'));
+    assert.ok(!JOB_PHASES.lead.statuses.includes('Waiting on materials'));
   });
 
   it('archives only Declined and leaves other patches alone', () => {

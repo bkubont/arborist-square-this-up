@@ -2210,7 +2210,7 @@ test('WorkItem edits: server-owned fields locked, signed description kept, done_
   assert.ok(completed.data.steps[0].id, 'step id assigned server-side');
   assert.equal(completed.data.amount_cents, 10000);
   const undone = await patch(sourced.id, { status: 'waiting_materials' });
-  assert.equal(undone.data.status, 'blocked', 'legacy waiting_materials normalizes to blocked');
+  assert.equal(undone.data.status, 'waiting_on_materials', 'legacy waiting_materials lands on the waiting on materials column');
   assert.equal(undone.data.done, false);
   assert.equal(undone.data.done_at, undefined);
   assert.equal(undone.data.steps[0].id, completed.data.steps[0].id, 'existing step ids are kept');

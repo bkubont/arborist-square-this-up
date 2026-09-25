@@ -408,7 +408,8 @@ function TypeBoardColumn({ workType, items, documents, busyId, onOpen, noteProps
           {...provided.droppableProps}
           data-testid={`task-type-column-${workType}`}
           className={cn(
-            "w-60 shrink-0 rounded-xl border-2 border-slate-200 bg-surface-muted/80 flex flex-col",
+            items.length === 0 ? "w-40" : "w-60",
+            "shrink-0 rounded-xl border-2 border-slate-200 bg-surface-muted/80 flex flex-col",
             snapshot.isDraggingOver && "ring-2 ring-primary/30 bg-primary/5",
           )}
         >
@@ -456,16 +457,17 @@ function StageBoardColumn({ status, items, documents, busyId, onOpen, noteProps,
           {...provided.droppableProps}
           data-testid={`task-column-${status}`}
           className={cn(
-            "w-60 shrink-0 rounded-xl border-2 bg-surface-muted/80 flex flex-col",
+            items.length === 0 ? "w-40" : "w-60",
+            "shrink-0 rounded-xl border-2 bg-surface-muted/80 flex flex-col",
             colors.column,
             snapshot.isDraggingOver && cn("ring-2", colors.ring, colors.columnHeader)
           )}
         >
           <div className={cn("px-3 py-2 border-b rounded-t-[10px]", colors.columnHeader)}>
             <div className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
-                <span className={cn("w-2 h-2 rounded-full", colors.swatch)} aria-hidden="true" />
-                {taskStatusLabel(status)}
+              <span className="inline-flex items-start gap-1.5 min-w-0 text-xs font-semibold uppercase tracking-wide text-foreground leading-tight">
+                <span className={cn("w-2 h-2 rounded-full mt-0.5 shrink-0", colors.swatch)} aria-hidden="true" />
+                <span className="break-words">{taskStatusLabel(status)}</span>
               </span>
               <span className="text-xs font-bold tabular-nums text-foreground">
                 {items.length}
