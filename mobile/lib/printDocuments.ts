@@ -1,5 +1,15 @@
-import { api, type Client, type CompanyProfile, type Estimate, type Invoice, type Job } from '@/api/client';
-import { estimateLineAmount, estimateTotals, invoiceTotals } from '@/lib/estimateMath';
+import {
+  api,
+  type Client,
+  type CompanyProfile,
+  type Estimate,
+  type Invoice,
+  type Job,
+  type MaterialOrder,
+} from '@/api/client';
+import { statusLabel } from '@/lib/documents';
+import { estimateLineAmount, estimateTotals, invoiceTotals, materialOrderLineAmount } from '@/lib/estimateMath';
+import { money } from '@/lib/format';
 
 function escapeHtml(value: string | number | null | undefined): string {
   return String(value ?? '')
@@ -223,3 +233,53 @@ export async function loadInvoicePrintContext(invoice: Invoice) {
     job?.client_id ? await api.entities.Client.get(job.client_id).catch(() => null) : null;
   return { company: companyRows[0] || null, job, client };
 }
+
+/** Printable material order HTML — mirrors web MaterialOrderEditorDialog.print (no auto-print). */
+export function buildMaterialOrderPrintHtml(order: MaterialOrder, jobTitle?: string): string {
+  const lines = Array.isArray(order.lines) ? order.lines : [];
+  const rows = lines
+    .filter(line => line.description || line.qty || line.unit_price)
+    .map(line => {
+      const total = materialOrderLineAmount(line);
+      return `<tr>
+  <td>${escapeHtml(line.description || '')}</td>
+  <td class="num">${line.qty != null ? escapeHtml(String(line.qty)) : ''}</td>
+  <td class="num">${line.unit_price != null ? escapeHtml(money(line.unit_price)) : ''}</td>
+  <td class="num">${escapeHtml(money(total))}</td>
+  <td>${line.wo_line_number != null ? escapeHtml(String(line.wo_line_number)) : ''}</td>
+  <td>${escapeHtml(line.category || '')}</td>
+  <td class="sub">${escapeHtml(line.notes || '')}</td>
+  <td>${escapeHtml(line.supplier || '')}</td>
+  <td>${line.on_hand ? 'Yes' : ''}</td>
+  <td>${escapeHtml(line.line_status ? statusLabel(line.line_status) : '')}</td>
+</tr>`;
+    })
+    .join('');
+
+  const subtotal = lines.reduce((sum, line) => sum + materialOrderLineAmount(line), 0);
+
+  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Material Order ${escapeHtml(order.number || '')}</title>
+<style>
+  body{font-family:system-ui,sans-serif;padding:24px;color:#111}
+  h1{font-size:18px;margin:0 0 8px}
+  .meta{color:#555;font-size:13px;margin-bottom:16px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:#f5f5f5}
+  .num{text-align:right}
+  .sub{color:#555;font-size:12px}
+  @media print{body{padding:12px}}
+</style></head><body>
+<h1>Material Order ${escapeHtml(order.number || '')}</h1>
+<div class="meta">${jobTitle ? `${escapeHtml(jobTitle)} · ` : ''}Status: ${escapeHtml(statusLabel(order.status) || order.status || '')} · Date: ${escapeHtml(order.date || '')}</div>
+<table>
+<thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Total</th><th>Line#</th><th>Category</th><th>Spec / notes</th><th>Supplier</th><th>On hand</th><th>Status</th></tr></thead>
+<tbody>
+${rows || '<tr><td colspan="10">No lines</td></tr>'}
+</tbody></table>
+<p style="text-align:right;font-weight:600;margin-top:12px">Total ${escapeHtml(money(order.total ?? subtotal))}</p>
+${order.notes ? `<p class="sub">Notes: ${escapeHtml(order.notes)}</p>` : ''}
+</body></html>`;
+}
+

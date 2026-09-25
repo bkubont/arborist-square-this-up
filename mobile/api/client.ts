@@ -180,6 +180,7 @@ export type MaterialOrderLine = {
   category?: string;
   on_hand?: boolean;
   line_status?: string;
+  wo_line_number?: number;
   source_entity?: string;
   source_id?: string;
   source_line_id?: string;

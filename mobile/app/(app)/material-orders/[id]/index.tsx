@@ -7,6 +7,8 @@ import { BRAND_HEX } from '@/lib/brand';
 import { statusLabel } from '@/lib/documents';
 import { materialOrderLineAmount } from '@/lib/estimateMath';
 import { money, shortDate } from '@/lib/format';
+import { buildMaterialOrderPrintHtml } from '@/lib/printDocuments';
+import { sharePrintHtml } from '@/lib/sharePrintDocument';
 
 export default function MaterialOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -15,6 +17,7 @@ export default function MaterialOrderDetailScreen() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -43,6 +46,18 @@ export default function MaterialOrderDetailScreen() {
     }, [load]),
   );
 
+  const sharePrintable = async () => {
+    if (!doc) return;
+    setSharing(true);
+    try {
+      const html = buildMaterialOrderPrintHtml(doc, job?.title);
+      const name = `material-order-${doc.number || doc.id}.html`;
+      await sharePrintHtml(html, name, `Material Order ${doc.number || ''}`.trim());
+    } finally {
+      setSharing(false);
+    }
+  };
+
   if (loading && !doc) {
     return (
       <View style={styles.centered}>
@@ -68,12 +83,25 @@ export default function MaterialOrderDetailScreen() {
       {doc.total != null ? <Text style={styles.amount}>{money(doc.total)}</Text> : null}
       {doc.notes ? <Text style={styles.body}>{doc.notes}</Text> : null}
 
-      <Pressable
-        style={styles.editBtn}
-        onPress={() => router.push(`/(app)/material-orders/${doc.id}/edit`)}
-      >
-        <Text style={styles.editText}>Edit material order</Text>
-      </Pressable>
+      <View style={styles.actions}>
+        <Pressable
+          style={styles.editBtn}
+          onPress={() => router.push(`/(app)/material-orders/${doc.id}/edit`)}
+        >
+          <Text style={styles.editText}>Edit material order</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
+          onPress={() => void sharePrintable()}
+          disabled={sharing}
+        >
+          {sharing ? (
+            <ActivityIndicator color={BRAND_HEX.royalBlue} />
+          ) : (
+            <Text style={styles.shareText}>Share printable</Text>
+          )}
+        </Pressable>
+      </View>
 
       {lines.length ? (
         <View style={styles.card}>
@@ -100,6 +128,9 @@ export default function MaterialOrderDetailScreen() {
           <Text style={styles.link}>Open job · {job.title}</Text>
         </Pressable>
       ) : null}
+      <Text style={styles.hint}>
+        Share printable uses the same HTML layout as web Print (no separate PDF engine).
+      </Text>
     </ScrollView>
   );
 }
@@ -123,6 +154,7 @@ const styles = StyleSheet.create({
   meta: { color: '#666', fontSize: 14 },
   amount: { fontSize: 22, fontWeight: '700', color: BRAND_HEX.black },
   body: { fontSize: 15, color: '#444', lineHeight: 22 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   editBtn: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -132,6 +164,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   editText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
+  shareBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d0d0dc',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  shareBtnDisabled: { opacity: 0.55 },
+  shareText: { color: BRAND_HEX.black, fontWeight: '600' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -146,5 +191,6 @@ const styles = StyleSheet.create({
   lineAmt: { fontSize: 14, fontWeight: '600' },
   empty: { color: '#888', fontSize: 14 },
   link: { color: BRAND_HEX.royalBlue, fontWeight: '600', fontSize: 16 },
+  hint: { marginTop: 8, fontSize: 12, color: '#888' },
   error: { color: '#b00020' },
 });

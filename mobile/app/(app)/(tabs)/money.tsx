@@ -106,9 +106,14 @@ export default function MoneyScreen() {
       </View>
 
       {segment === 'expenses' ? (
-        <Pressable style={styles.addBtn} onPress={() => router.push('/(app)/expenses/new')}>
-          <Text style={styles.addText}>Add expense</Text>
-        </Pressable>
+        <View style={styles.expenseActions}>
+          <Pressable style={styles.addBtn} onPress={() => router.push('/(app)/expenses/new')}>
+            <Text style={styles.addText}>Add expense</Text>
+          </Pressable>
+          <Pressable style={styles.inboxBtn} onPress={() => router.push('/(app)/receipts')}>
+            <Text style={styles.inboxText}>Receipts inbox</Text>
+          </Pressable>
+        </View>
       ) : (
         <Text style={styles.hint}>Create estimates, invoices, and orders from a job.</Text>
       )}
@@ -229,13 +234,30 @@ const styles = StyleSheet.create({
   segText: { fontSize: 13, fontWeight: '600', color: '#555' },
   segTextActive: { color: BRAND_HEX.royalBlue },
   addBtn: {
-    marginHorizontal: 12,
-    marginBottom: 8,
+    flex: 1,
+    marginHorizontal: 0,
+    marginBottom: 0,
     backgroundColor: BRAND_HEX.royalBlue,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
+  expenseActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 12,
+    marginBottom: 8,
+  },
+  inboxBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: BRAND_HEX.royalBlue,
+    backgroundColor: '#fff',
+  },
+  inboxText: { color: BRAND_HEX.royalBlue, fontWeight: '600' },
   addText: { color: '#fff', fontWeight: '600' },
   hint: { marginHorizontal: 12, marginBottom: 8, fontSize: 12, color: '#777' },
   listPad: { paddingBottom: 24 },
