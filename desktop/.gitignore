@@ -1,0 +1,5 @@
+# Keep release artifacts and local Electron caches out of git
+release/
+dist/
+.env
+*.log

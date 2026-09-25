@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
 import { DEFAULT_SALES_TAX_RATE } from "@/lib/salesTax";
+import { assignAppPath } from "@/lib/desktopSession";
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
 export default function CompanySettings() {
@@ -99,7 +100,7 @@ export default function CompanySettings() {
       try {
         await logout();
       } catch {
-        window.location.assign("/login");
+        assignAppPath("/login");
       }
     } catch (err) {
       setDeleteError(err.message || "Could not delete account");

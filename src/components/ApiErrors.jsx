@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
+import { appPathname, assignAppPath } from '@/lib/desktopSession';
+
 export default function ApiErrors() {
   const [error, setError] = useState('');
   useEffect(() => {
     const onError = event => {
-      if (event.detail.status === 401 && !['/login','/register','/forgot-password','/reset-password'].includes(window.location.pathname) && !window.location.pathname.startsWith('/sign/')) {
-        window.location.assign('/login'); return;
+      const path = appPathname();
+      if (event.detail.status === 401 && !['/login','/register','/forgot-password','/reset-password'].includes(path) && !path.startsWith('/sign/')) {
+        assignAppPath('/login'); return;
       }
       if (event.detail.status !== 401) setError(event.detail.message);
     };

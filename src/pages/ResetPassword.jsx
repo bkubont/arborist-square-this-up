@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lock, Loader2, AlertTriangle } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
+import { assignAppPath } from "@/lib/desktopSession";
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -26,7 +27,7 @@ export default function ResetPassword() {
     setLoading(true);
     try {
       await api.auth.resetPassword({ resetToken, newPassword });
-      window.location.href = "/login";
+      assignAppPath("/login");
     } catch (err) {
       setError(err.message || "Failed to reset password");
     } finally {

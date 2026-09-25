@@ -43,6 +43,42 @@ async function fixture(t) {
   };
   return { db, request, register };
 }
+test('Bearer sessions for desktop clients skip Origin and revoke on logout', async t => {
+  const { request, register } = await fixture(t);
+  await register('desktop@example.com');
+  const login = await request('/auth/login', {
+    method: 'POST',
+    origin: null,
+    headers: { 'x-client': 'desktop' },
+    data: { email: 'desktop@example.com', password: 'strong-password-123', client: 'desktop' },
+  });
+  assert.equal(login.status, 200);
+  assert.ok(login.data.token);
+  assert.equal(login.data.email, 'desktop@example.com');
+  assert.equal(login.cookie, undefined);
+  const auth = { authorization: `Bearer ${login.data.token}`, 'x-client': 'desktop' };
+  assert.equal((await request('/auth/me', { origin: null, headers: auth })).data.email, 'desktop@example.com');
+  const client = await request('/entities/Client', {
+    method: 'POST',
+    origin: null,
+    headers: auth,
+    data: { name: 'Desktop Client', ...CLIENT_ADDR },
+  });
+  assert.equal(client.status, 201);
+  // CORS preflight for Electron / browser native clients
+  const preflight = await request('/auth/me', {
+    method: 'OPTIONS',
+    origin: null,
+    headers: {
+      'access-control-request-method': 'GET',
+      'access-control-request-headers': 'authorization,x-client',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal((await request('/auth/logout', { method: 'POST', origin: null, headers: auth, data: {} })).status, 200);
+  assert.equal((await request('/auth/me', { origin: null, headers: auth })).status, 401);
+});
+
 test('Bearer sessions for mobile clients skip Origin and revoke on logout', async t => {
   const { request, register } = await fixture(t);
   await register('mobile@example.com');

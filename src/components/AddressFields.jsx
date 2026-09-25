@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import FieldLabel from "@/components/FieldLabel";
 import { parseGoogleAddressComponents, parsePhotonFeature } from "@/lib/address";
+import { fetchApi } from "@/api/client";
 import { cn } from "@/lib/utils";
 
 const GOOGLE_KEY = typeof import.meta !== "undefined"
@@ -116,7 +117,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/address-suggest?q=${encodeURIComponent(q)}`, { credentials: "same-origin" });
+        const res = await fetchApi(`/address-suggest?q=${encodeURIComponent(q)}`);
         if (!res.ok) {
           if (!cancelled) setSuggestions([]);
           return;
