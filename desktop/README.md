@@ -42,7 +42,28 @@ cd desktop && npm start
 
 Unsigned builds are intentional for MVP (minimize spend). Windows SmartScreen will warn on first run — document that for users until a code-signing certificate is purchased.
 
-**`VITE_API_URL` is required** for packaged builds (absolute Hostinger origin; CORS is enabled for `X-Client: desktop` Bearer calls).
+**`VITE_API_URL` is required** for packaged builds (absolute Hostinger origin; CORS is enabled for `X-Client: desktop` Bearer calls). Packaging scripts exit immediately if it is missing or not `https://`.
+
+Artifact names come from `desktop/package.json` `version` (currently `0.1.0`) via electron-builder:
+
+- NSIS: `Square This Up-<version>-win-x64.exe`
+- Portable: `Square This Up-<version>-portable.exe`
+
+### Recommended: GitHub Actions (no local Windows machine)
+
+Full NSIS + portable `.exe` packaging needs Windows (or Wine32). This cloud Linux environment cannot produce real installers — use the workflow.
+
+1. In GitHub → **Settings → Secrets and variables → Actions → Variables**, add:
+   - **Name:** `VITE_API_URL`
+   - **Value:** your production API origin (same host as `APP_ORIGIN` / README), e.g. `https://jobs.yourdomain.com` — **no trailing slash**
+   - (Optional) use a **secret** with the same name instead; the workflow reads `vars` first, then `secrets`.
+2. Open **Actions → Desktop Windows → Run workflow** (`workflow_dispatch`).
+3. When the run finishes, download the artifact **`square-this-up-windows-<run#>`** (contains the NSIS + portable `.exe` files). Retention: 30 days.
+4. Expect SmartScreen on first launch until you buy Authenticode signing.
+
+Workflow file: `.github/workflows/desktop-windows.yml`.
+
+### Local build (Windows machine)
 
 ```sh
 # From repo root — builds Vite UI for desktop, then packages Windows installer + portable
@@ -50,7 +71,7 @@ export VITE_API_URL=https://jobs.yourdomain.com   # must match production host (
 npm run desktop:build:win
 ```
 
-Run **`desktop:build:win` on a Windows machine** (or Linux with full Wine/i386) for NSIS + portable `.exe` artifacts. On Linux without Wine32, use the unpacked dir target to verify packaging:
+On Linux without Wine32, **`desktop:build:win:dir`** only produces an unpacked tree — that does **not** verify the NSIS installer:
 
 ```sh
 export VITE_API_URL=https://jobs.yourdomain.com
@@ -58,13 +79,7 @@ npm run desktop:build:win:dir
 # → desktop/release/win-unpacked/Square This Up.exe (+ resources/ui)
 ```
 
-Artifacts land in `desktop/release/`:
-
-- NSIS installer: `Square This Up-0.1.0-win-x64.exe` (name may vary slightly)
-- Portable: `Square This Up-0.1.0-portable.exe`
-- Unpacked (dir): `win-unpacked/`
-
-Host the installer/portable file on your business site (Phase 2 download page). **Do not** commit `desktop/release/` or signing keys.
+Artifacts land in `desktop/release/` (gitignored). Host the installer/portable on your business site (Phase 2 download page). **Do not** commit `desktop/release/` or signing keys.
 
 ### When to pay for code signing
 

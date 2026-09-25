@@ -108,11 +108,13 @@ npm run desktop:dev
 
 Windows site-download artifacts (unsigned by design for MVP):
 
+**Preferred:** GitHub Actions → **Desktop Windows** → **Run workflow**. Set repository variable `VITE_API_URL` (production API origin, no trailing slash — same convention as `APP_ORIGIN` / `https://jobs.yourdomain.com`). Download the run’s `square-this-up-windows-*` artifact (NSIS + portable `.exe`). See [desktop/README.md](desktop/README.md).
+
 ```sh
 export VITE_API_URL=https://jobs.yourdomain.com
-npm run desktop:build:win          # NSIS + portable (best on Windows)
-# npm run desktop:build:win:dir    # unpacked .exe tree (works without Wine)
-# → desktop/release/
+npm run desktop:build:win          # NSIS + portable (needs Windows or Wine32)
+# npm run desktop:build:win:dir    # unpacked tree only — does not verify the installer
+# → desktop/release/ (gitignored)
 ```
 
 Unsigned builds trigger Windows SmartScreen warnings. Defer paid Authenticode signing until external users or store distribution justify the cost.
