@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { api, type WorkItem } from '@/api/client';
 import { BRAND_HEX } from '@/lib/brand';
 import { moneyCents } from '@/lib/format';
+import { materialsNeededCount } from '@/lib/jobMaterials';
 import {
   NOTE_PROMPT_STATUSES,
   TASK_STATUSES,
@@ -151,6 +152,9 @@ export function JobTasksSection({ jobId, items, onChanged }: Props) {
                 {taskStatusLabel(taskStatus(item))}
                 {item.amount_cents != null ? ` · ${moneyCents(item.amount_cents)}` : ''}
                 {item.source_type ? ` · from ${item.source_type}` : ''}
+                {materialsNeededCount(item.materials) > 0
+                  ? ` · ${materialsNeededCount(item.materials)} to get`
+                  : ''}
               </Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statusRow}>
                 {TASK_STATUSES.map(s => {
@@ -220,6 +224,9 @@ function TaskCard({
         <Text style={styles.taskMeta}>
           {item.amount_cents != null ? moneyCents(item.amount_cents) : '—'}
           {item.labor_hours != null ? ` · ${item.labor_hours}h` : ''}
+          {materialsNeededCount(item.materials) > 0
+            ? ` · ${materialsNeededCount(item.materials)} to get`
+            : ''}
         </Text>
       </Pressable>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statusRow}>

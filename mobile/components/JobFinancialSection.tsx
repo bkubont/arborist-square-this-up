@@ -18,6 +18,7 @@ type Props = {
   summary: JobSummary | null;
   authorized: JobAuthorizedTotal | null;
   payments: Payment[];
+  materialsCost?: number | null;
   onChanged: () => void | Promise<void>;
 };
 
@@ -26,6 +27,7 @@ export function JobFinancialSection({
   summary,
   authorized,
   payments,
+  materialsCost,
   onChanged,
 }: Props) {
   const [amount, setAmount] = useState('');
@@ -110,10 +112,15 @@ export function JobFinancialSection({
             : ''}
           {depositCents > 0 ? ` · deposits ${moneyCents(depositCents)}` : ''}
           {summary.credit_cents > 0 ? ` · credit ${moneyCents(summary.credit_cents)}` : ''}
+          {materialsCost != null && materialsCost > 0 ? ` · materials ${money(materialsCost)}` : ''}
         </Text>
       ) : (
         <Text style={styles.meta}>Financial summary loads with the job.</Text>
       )}
+
+      {!summary && materialsCost != null && materialsCost > 0 ? (
+        <Text style={styles.meta}>Materials {money(materialsCost)}</Text>
+      ) : null}
 
       {summary?.awaiting_approval?.length ? (
         <Text style={styles.awaiting}>

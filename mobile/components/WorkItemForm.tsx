@@ -10,9 +10,35 @@ import {
   View,
 } from 'react-native';
 
-import { api, type WorkItem } from '@/api/client';
+import { api, type WorkItem, type WorkItemMaterial } from '@/api/client';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
 import { TASK_STATUSES, taskStatus, taskStatusLabel } from '@/lib/tasks';
+
+type MaterialRow = {
+  description: string;
+  qty: string;
+  unit: string;
+  unit_price: string;
+  have: boolean;
+};
+
+const blankMaterial = (): MaterialRow => ({
+  description: '',
+  qty: '',
+  unit: '',
+  unit_price: '',
+  have: false,
+});
+
+function toMaterialRow(m: WorkItemMaterial): MaterialRow {
+  return {
+    description: m.description || '',
+    qty: m.qty != null ? String(m.qty) : '',
+    unit: m.unit || '',
+    unit_price: m.unit_price != null ? String(m.unit_price) : '',
+    have: !!m.have,
+  };
+}
 
 type Props = {
   workItem?: WorkItem | null;
@@ -30,8 +56,16 @@ export function WorkItemForm({ workItem, jobId }: Props) {
     workItem?.labor_hours != null ? String(workItem.labor_hours) : '',
   );
   const [status, setStatus] = useState(taskStatus(workItem));
+  const [materials, setMaterials] = useState<MaterialRow[]>(() => {
+    const existing = Array.isArray(workItem?.materials) ? workItem.materials.map(toMaterialRow) : [];
+    return existing.length ? existing : [blankMaterial()];
+  });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const setMaterial = (index: number, patch: Partial<MaterialRow>) => {
+    setMaterials(rows => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
 
   const submit = async () => {
     if (!workItem && !description.trim()) {
@@ -41,12 +75,24 @@ export function WorkItemForm({ workItem, jobId }: Props) {
     setError('');
     setBusy(true);
     try {
+      const num = (v: string) => (v === '' ? undefined : Number(v));
+      const materialPayload = materials
+        .filter(m => m.description.trim())
+        .map(m => ({
+          description: m.description.trim(),
+          qty: num(m.qty),
+          unit: m.unit.trim() || undefined,
+          unit_price: num(m.unit_price),
+          have: !!m.have,
+        }));
+
       const payload: Partial<WorkItem> = {
         job_id: jobId,
         status,
         notes: notes.trim() || undefined,
         category: category.trim() || undefined,
         labor_hours: laborHours === '' ? undefined : Number(laborHours),
+        materials: materialPayload,
       };
       // Signed / template descriptions are server-owned; free-standing tasks can edit description.
       if (!sourced && !isTemplate) {
@@ -81,7 +127,7 @@ export function WorkItemForm({ workItem, jobId }: Props) {
           <Text style={formStyles.sectionLabel}>
             {sourced
               ? 'Description comes from the signed estimate / change order line.'
-              : 'Built-in task — status and notes only.'}
+              : 'Built-in task — status, notes, and materials.'}
           </Text>
         ) : null}
 
@@ -119,6 +165,64 @@ export function WorkItemForm({ workItem, jobId }: Props) {
             );
           })}
         </View>
+
+        <Text style={formStyles.sectionLabel}>Materials</Text>
+        <Text style={{ fontSize: 11, color: '#888', marginTop: -4 }}>
+          Unticked items feed the job draft Material Order.
+        </Text>
+        {materials.map((m, i) => (
+          <View key={`mat-${i}`} style={{ gap: 8, marginBottom: 4 }}>
+            <FormField
+              label={`Item ${i + 1}`}
+              value={m.description}
+              onChangeText={v => setMaterial(i, { description: v })}
+            />
+            <FormField
+              label="Qty"
+              value={m.qty}
+              onChangeText={v => setMaterial(i, { qty: v })}
+              keyboardType="decimal-pad"
+            />
+            <FormField label="Unit" value={m.unit} onChangeText={v => setMaterial(i, { unit: v })} />
+            <FormField
+              label="Unit price"
+              value={m.unit_price}
+              onChangeText={v => setMaterial(i, { unit_price: v })}
+              keyboardType="decimal-pad"
+            />
+            <View style={formStyles.chipRow}>
+              <Pressable
+                style={[formStyles.chip, m.have && { borderColor: '#047857', backgroundColor: '#ecfdf5' }]}
+                onPress={() => setMaterial(i, { have: !m.have })}
+              >
+                <Text
+                  style={[
+                    formStyles.chipText,
+                    m.have && { color: '#047857', fontWeight: '700' },
+                  ]}
+                >
+                  {m.have ? 'Have it ✓' : 'Have it'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={formStyles.chip}
+                onPress={() => setMaterials(rows => [...rows, blankMaterial()])}
+              >
+                <Text style={formStyles.chipText}>Add item</Text>
+              </Pressable>
+              <Pressable
+                style={formStyles.chip}
+                onPress={() =>
+                  setMaterials(rows =>
+                    rows.length <= 1 ? [blankMaterial()] : rows.filter((_, idx) => idx !== i),
+                  )
+                }
+              >
+                <Text style={[formStyles.chipText, { color: '#b00020' }]}>Remove</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
 
         <Pressable
           style={({ pressed }) => [formStyles.button, (pressed || busy) && formStyles.buttonDisabled]}

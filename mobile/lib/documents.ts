@@ -16,6 +16,15 @@ export const DOCUMENT_STATUSES: Record<DocEntity, string[]> = {
   Invoice: ['draft', 'sent', 'partial', 'paid', 'void'],
 };
 
+/** Optional per-line procurement difficulty on Material Order lines. */
+export const MATERIAL_LINE_STATUSES = [
+  'pricing',
+  'backorder',
+  'unavailable',
+  'canceled',
+  'rebuild',
+] as const;
+
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
   quote: 'Quote',
@@ -29,6 +38,12 @@ const STATUS_LABELS: Record<string, string> = {
   approved: 'Approved',
   rejected: 'Rejected',
   paid: 'Paid',
+  pricing: 'Pricing',
+  backorder: 'Backorder',
+  unavailable: 'Unavailable',
+  canceled: 'Canceled',
+  rebuild: 'Rebuild',
+  ordered: 'Purchased',
 };
 
 export function statusLabel(status: string | null | undefined): string {

@@ -5,10 +5,12 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import { JobDocumentsSection } from '@/components/JobDocumentsSection';
 import { JobFinancialSection } from '@/components/JobFinancialSection';
+import { JobMaterialsSection } from '@/components/JobMaterialsSection';
 import { JobPhotosSection } from '@/components/JobPhotosSection';
 import { JobTasksSection } from '@/components/JobTasksSection';
 import { BRAND_HEX } from '@/lib/brand';
 import { jobDetailQueryKey, loadJobDetail } from '@/lib/jobDetail';
+import { deriveMaterialsStatus, materialsStatusColor } from '@/lib/jobMaterials';
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -50,12 +52,24 @@ export default function JobDetailScreen() {
     );
   }
 
-  const { job, client, entries, documents, workItems, summary, authorized, payments } = data;
+  const { job, client, entries, documents, workItems, materialOrders, summary, authorized, payments } =
+    data;
+  const materialsStatus = deriveMaterialsStatus({
+    job,
+    workItems,
+    materialOrders,
+  });
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{job.title}</Text>
       <Text style={styles.badge}>{job.status || '—'}</Text>
+      <Text style={styles.materialsStatus}>
+        Materials ·{' '}
+        <Text style={{ color: materialsStatusColor(materialsStatus.key), fontWeight: '600' }}>
+          {materialsStatus.label}
+        </Text>
+      </Text>
       {job.description ? <Text style={styles.body}>{job.description}</Text> : null}
 
       <Pressable style={styles.editBtn} onPress={() => router.push(`/(app)/jobs/${job.id}/edit`)}>
@@ -77,6 +91,13 @@ export default function JobDetailScreen() {
         summary={summary}
         authorized={authorized}
         payments={payments}
+        materialsCost={job.materials_cost}
+        onChanged={onChanged}
+      />
+
+      <JobMaterialsSection
+        jobId={job.id}
+        materials={job.materials || []}
         onChanged={onChanged}
       />
 
@@ -104,6 +125,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   body: { fontSize: 15, color: '#444', lineHeight: 22 },
+  materialsStatus: { fontSize: 13, color: '#666' },
   editBtn: {
     alignSelf: 'flex-start',
     borderWidth: 1,

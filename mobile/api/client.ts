@@ -41,6 +41,16 @@ export const JOB_STATUSES: JobStatus[] = [
   'Paid',
 ];
 
+export type JobMaterial = {
+  id?: string;
+  description?: string;
+  qty?: number;
+  unit?: string;
+  unit_price?: number;
+  have?: boolean;
+  notes?: string;
+};
+
 export type Job = {
   id: string;
   title: string;
@@ -53,6 +63,9 @@ export type Job = {
   notes?: string;
   estimate_amount?: number;
   invoice_amount?: number;
+  /** Job-level materials checklist (not estimate lines). Unticked → draft MO. */
+  materials?: JobMaterial[];
+  materials_cost?: number;
   created_date?: string;
   updated_date?: string;
 };

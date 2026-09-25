@@ -88,7 +88,8 @@ export default function WorkItemDetailScreen() {
             <Text key={m.id || `m-${i}`} style={styles.line}>
               {m.description || '—'}
               {m.qty != null ? ` × ${m.qty}` : ''}
-              {m.have ? ' · on hand' : ''}
+              {m.unit ? ` ${m.unit}` : ''}
+              {m.have ? ' · Have' : ' · need'}
             </Text>
           ))}
         </View>

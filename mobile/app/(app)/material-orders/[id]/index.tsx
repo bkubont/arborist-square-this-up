@@ -84,6 +84,8 @@ export default function MaterialOrderDetailScreen() {
                 {line.description || '—'}
                 {line.qty != null ? ` × ${line.qty}` : ''}
                 {line.supplier ? ` · ${line.supplier}` : ''}
+                {line.on_hand ? ' · on hand' : ''}
+                {line.line_status ? ` · ${statusLabel(line.line_status)}` : ''}
               </Text>
               <Text style={styles.lineAmt}>{money(materialOrderLineAmount(line))}</Text>
             </View>

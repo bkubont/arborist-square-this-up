@@ -13,7 +13,7 @@ import {
 import { api, type MaterialOrder, type MaterialOrderLine } from '@/api/client';
 import { CatalogPicker } from '@/components/CatalogPicker';
 import { FormError, FormField, formStyles } from '@/components/FormFields';
-import { DOCUMENT_STATUSES, statusLabel } from '@/lib/documents';
+import { DOCUMENT_STATUSES, MATERIAL_LINE_STATUSES, statusLabel } from '@/lib/documents';
 import { catalogItemToMaterialLine, materialOrderLineAmount, roundMoney } from '@/lib/estimateMath';
 import { money } from '@/lib/format';
 
@@ -23,6 +23,12 @@ type LineForm = {
   unit_price: string;
   supplier: string;
   notes: string;
+  category: string;
+  on_hand: boolean;
+  line_status: string;
+  source_entity?: string;
+  source_id?: string;
+  source_line_id?: string;
 };
 
 const emptyLine = (): LineForm => ({
@@ -31,6 +37,9 @@ const emptyLine = (): LineForm => ({
   unit_price: '',
   supplier: '',
   notes: '',
+  category: '',
+  on_hand: false,
+  line_status: '',
 });
 
 function toForm(line: MaterialOrderLine): LineForm {
@@ -40,6 +49,12 @@ function toForm(line: MaterialOrderLine): LineForm {
     unit_price: line.unit_price != null ? String(line.unit_price) : '',
     supplier: line.supplier || '',
     notes: line.notes || '',
+    category: line.category || '',
+    on_hand: !!line.on_hand,
+    line_status: line.line_status || '',
+    source_entity: line.source_entity,
+    source_id: line.source_id,
+    source_line_id: line.source_line_id,
   };
 }
 
@@ -94,6 +109,12 @@ export function MaterialOrderForm({ materialOrder }: Props) {
           unit_price: line.unit_price === '' ? undefined : Number(line.unit_price),
           supplier: line.supplier.trim() || undefined,
           notes: line.notes.trim() || undefined,
+          category: line.category.trim() || undefined,
+          on_hand: line.on_hand || undefined,
+          line_status: line.line_status || undefined,
+          source_entity: line.source_entity,
+          source_id: line.source_id,
+          source_line_id: line.source_line_id,
         }))
         .filter(line => line.description || line.qty || line.unit_price);
       await api.entities.MaterialOrder.update(materialOrder.id, {
@@ -174,28 +195,89 @@ export function MaterialOrderForm({ materialOrder }: Props) {
               editable={!frozen}
             />
             <FormField
+              label="Category"
+              value={line.category}
+              onChangeText={v => setLine(index, { category: v })}
+              editable={!frozen}
+            />
+            <FormField
               label="Supplier"
               value={line.supplier}
               onChangeText={v => setLine(index, { supplier: v })}
               editable={!frozen}
             />
+            <FormField
+              label="Notes"
+              value={line.notes}
+              onChangeText={v => setLine(index, { notes: v })}
+              editable={!frozen}
+            />
+
             {!frozen ? (
-              <View style={formStyles.chipRow}>
-                <Pressable style={formStyles.chip} onPress={() => setCatalogFor(index)}>
-                  <Text style={formStyles.chipText}>From catalog</Text>
-                </Pressable>
-                <Pressable style={formStyles.chip} onPress={() => setLines(rows => [...rows, emptyLine()])}>
-                  <Text style={formStyles.chipText}>Add line</Text>
-                </Pressable>
-                <Pressable
-                  style={formStyles.chip}
-                  onPress={() =>
-                    setLines(rows => (rows.length <= 1 ? [emptyLine()] : rows.filter((_, i) => i !== index)))
-                  }
-                >
-                  <Text style={formStyles.chipText}>Remove</Text>
-                </Pressable>
-              </View>
+              <>
+                <Text style={formStyles.sectionLabel}>On hand / line status</Text>
+                <View style={formStyles.chipRow}>
+                  <Pressable
+                    style={[
+                      formStyles.chip,
+                      line.on_hand && { borderColor: '#047857', backgroundColor: '#ecfdf5' },
+                    ]}
+                    onPress={() => setLine(index, { on_hand: !line.on_hand })}
+                  >
+                    <Text
+                      style={[
+                        formStyles.chipText,
+                        line.on_hand && { color: '#047857', fontWeight: '700' },
+                      ]}
+                    >
+                      {line.on_hand ? 'On hand ✓' : 'On hand'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[formStyles.chip, !line.line_status && formStyles.chipActive]}
+                    onPress={() => setLine(index, { line_status: '' })}
+                  >
+                    <Text
+                      style={[
+                        formStyles.chipText,
+                        !line.line_status && formStyles.chipTextActive,
+                      ]}
+                    >
+                      None
+                    </Text>
+                  </Pressable>
+                  {MATERIAL_LINE_STATUSES.map(s => {
+                    const active = line.line_status === s;
+                    return (
+                      <Pressable
+                        key={s}
+                        style={[formStyles.chip, active && formStyles.chipActive]}
+                        onPress={() => setLine(index, { line_status: s })}
+                      >
+                        <Text style={[formStyles.chipText, active && formStyles.chipTextActive]}>
+                          {statusLabel(s)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={formStyles.chipRow}>
+                  <Pressable style={formStyles.chip} onPress={() => setCatalogFor(index)}>
+                    <Text style={formStyles.chipText}>From catalog</Text>
+                  </Pressable>
+                  <Pressable style={formStyles.chip} onPress={() => setLines(rows => [...rows, emptyLine()])}>
+                    <Text style={formStyles.chipText}>Add line</Text>
+                  </Pressable>
+                  <Pressable
+                    style={formStyles.chip}
+                    onPress={() =>
+                      setLines(rows => (rows.length <= 1 ? [emptyLine()] : rows.filter((_, i) => i !== index)))
+                    }
+                  >
+                    <Text style={formStyles.chipText}>Remove</Text>
+                  </Pressable>
+                </View>
+              </>
             ) : null}
           </View>
         ))}

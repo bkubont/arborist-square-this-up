@@ -17,6 +17,7 @@ export type JobDetailBundle = {
   entries: TimelineEntry[];
   documents: JobDoc[];
   workItems: WorkItem[];
+  materialOrders: MaterialOrder[];
   summary: JobSummary | null;
   authorized: JobAuthorizedTotal | null;
   payments: Payment[];
@@ -61,6 +62,7 @@ export async function loadJobDetail(jobId: string): Promise<JobDetailBundle> {
     client,
     entries: timeline,
     workItems: tasks,
+    materialOrders,
     summary,
     authorized,
     payments,
