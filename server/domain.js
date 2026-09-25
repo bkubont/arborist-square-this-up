@@ -126,7 +126,7 @@ export const schemas = {
     payment_status: jobPaymentStatus.optional(),
     status: z.enum([
       'Contact', 'Assessment', 'Plan / draft estimate', 'Waiting on approval', 'Approved', 'Declined',
-      'Waiting on materials', 'Prep', 'In progress', 'Blocked', 'Completed', 'Cancelled',
+      'Prep', 'In progress', 'Waiting on materials', 'Blocked', 'Completed', 'Cancelled',
       'Invoiced',
       'Waiting on payment', 'Partial', 'Late', 'Paid',
     ]).default('Contact'),

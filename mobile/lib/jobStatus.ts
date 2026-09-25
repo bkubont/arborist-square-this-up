@@ -21,9 +21,9 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
   working: {
     label: 'Working',
     statuses: [
-      'Waiting on materials',
       'Prep',
       'In progress',
+      'Waiting on materials',
       'Blocked',
       'Completed',
       'Cancelled',

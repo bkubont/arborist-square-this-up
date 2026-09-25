@@ -21,9 +21,9 @@ export const JOB_PHASES = {
   working: {
     label: 'Working',
     statuses: [
-      'Waiting on materials',
       'Prep',
       'In progress',
+      'Waiting on materials',
       'Blocked',
       'Completed',
       'Cancelled',

@@ -43,11 +43,11 @@ describe('job status model', () => {
     }
   });
 
-  it('working phase is Waiting on materials through Cancelled; Invoiced stays payment', () => {
+  it('working phase is Prep through Cancelled, with Waiting on materials after In progress', () => {
     assert.deepEqual(JOB_PHASES.working.statuses, [
-      'Waiting on materials',
       'Prep',
       'In progress',
+      'Waiting on materials',
       'Blocked',
       'Completed',
       'Cancelled',

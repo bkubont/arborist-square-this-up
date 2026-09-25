@@ -9,11 +9,18 @@ import {
 } from './taskStatus.js';
 
 test('task board columns: plan first, waiting on materials, finish | completed | cancelled; no prep or materials column', () => {
-  assert.equal(TASK_STATUSES[0], 'plan');
-  assert.ok(TASK_STATUSES.includes('waiting_on_materials'));
+  assert.deepEqual(TASK_STATUSES, [
+    'plan',
+    'permits',
+    'waiting_on_approval',
+    'waiting_on_materials',
+    'blocked',
+    'finish',
+    'completed',
+    'cancelled',
+  ]);
   assert.ok(!TASK_STATUSES.includes('materials'));
   assert.ok(!TASK_STATUSES.includes('prep'));
-  assert.deepEqual(TASK_STATUSES.slice(-3), ['finish', 'completed', 'cancelled']);
 });
 
 test('normalizeTaskStatus maps legacy values', () => {
