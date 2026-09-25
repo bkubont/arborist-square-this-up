@@ -3,3 +3,5 @@ release/
 dist/
 .env
 *.log
+*.exe
+*.blockmap
