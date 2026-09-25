@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { JOB_PHASES } from './jobStatus.js';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
+import { JOB_PHASES } from './jobStatus.js';
 import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 
 const text = z.string().max(20000);
@@ -113,14 +113,14 @@ export const schemas = {
     phone: text.optional(),
     email: text.optional(),
     notes: text.optional(),
-    /** Lead pipeline — same values as a lead job. Contact profiles and the job header share this. */
+    /** Lead pipeline — same values as a lead job. The contact profile and the job header share this. */
     status: clientLeadStatus.optional(),
-    /** Set when status is Declined so the contact can leave the active customers list. */
+    /** Set when status is Declined so the contact leaves the active customers list. */
     archived_at: date.optional(),
   }),
   Job: z.object({ title: z.string().trim().max(250).optional(), client_id: id, client_name: text.optional(), description: text.optional(),
     phase: z.enum(['lead', 'working', 'payment']).default('lead'),
-    /** Parallel tracks. The board column is still phase + status; these do not replace each other. */
+    /** Parallel tracks. The board column is still phase + status; these do not replace each other. Lead matches Client.status. */
     lead_status: clientLeadStatus.optional(),
     working_status: jobWorkingStatus.optional(),
     payment_status: jobPaymentStatus.optional(),
