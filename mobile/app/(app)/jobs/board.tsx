@@ -94,7 +94,7 @@ export default function JobBoardScreen() {
   const jobsById = useMemo(() => Object.fromEntries(jobs.map(j => [j.id, j])), [jobs]);
 
   const jobColumns = useMemo(() => {
-    const phaseJobs = jobs.filter(j => ((j.phase as JobPhase) || 'lead') === activePhase);
+      const phaseJobs = jobs.filter(j => ((j.phase as JobPhase) || 'working') === activePhase);
     if (groupBy === 'type') {
       const keys = workTypeColumnKeys(phaseJobs, j => j.work_type, catalogTypes);
       const map = Object.fromEntries(keys.map(k => [k, [] as Job[]])) as Record<string, Job[]>;
@@ -194,7 +194,7 @@ export default function JobBoardScreen() {
   const promptMoveJob = (job: Job) => {
     if (groupBy === 'type') {
       const keys = workTypeColumnKeys(
-        jobs.filter(j => ((j.phase as JobPhase) || 'lead') === activePhase),
+        jobs.filter(j => ((j.phase as JobPhase) || 'working') === activePhase),
         j => j.work_type,
         catalogTypes,
       );
@@ -298,15 +298,15 @@ export default function JobBoardScreen() {
     );
   }
 
-  const phaseJobCount = jobs.filter(j => ((j.phase as JobPhase) || 'lead') === activePhase).length;
+  const phaseJobCount = jobs.filter(j => ((j.phase as JobPhase) || 'working') === activePhase).length;
   const subtitle =
     mode === 'tasks'
       ? groupBy === 'type'
         ? "Every job's tasks — Move to change work type"
         : "Every job's tasks — Move to change status"
       : groupBy === 'type'
-        ? 'Lead · Working · Payment — group by work type'
-        : 'Lead · Working · Payment — tap a job to change status';
+        ? 'Working · Payment — group by work type'
+        : 'Working · Payment — tap a job to change status';
 
   return (
     <View style={styles.screen}>

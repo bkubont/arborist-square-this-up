@@ -2,6 +2,7 @@
 
 export const TASK_STATUSES = [
   'plan',
+  'in_progress',
   'permits',
   'waiting_on_approval',
   'waiting_on_materials',
@@ -15,7 +16,6 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 const LEGACY_TASK_STATUS_MAP: Record<string, TaskStatus> = {
   prep: 'plan',
-  in_progress: 'plan',
   materials: 'plan',
   waiting_materials: 'waiting_on_materials',
   on_hold: 'blocked',
@@ -24,6 +24,7 @@ const LEGACY_TASK_STATUS_MAP: Record<string, TaskStatus> = {
 
 const LABELS: Record<string, string> = {
   plan: 'Plan',
+  in_progress: 'In progress',
   materials: 'Plan',
   permits: 'Permits',
   waiting_on_approval: 'Waiting on Approval',
@@ -90,7 +91,7 @@ export function isTaskCompleted(status: string | null | undefined): boolean {
 
 /** Built-in materials checklist task is hidden on the board (web parity). */
 export function isHiddenBuiltInTask(item: { template_key?: string } | null | undefined): boolean {
-  return item?.template_key === 'materials';
+  return item?.template_key === 'materials' || item?.template_key === 'prep';
 }
 
 /** Statuses that usually need a reason note on web. */

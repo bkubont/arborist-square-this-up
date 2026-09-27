@@ -1,4 +1,4 @@
-/** Built-in job task templates — Prep on every job. Job materials live on Overview; punch list is a document. */
+/** Built-in job task templates. Prep is no longer auto-created; existing template_key prep rows stay in the database and are hidden on list/board. */
 
 export const JOB_TASK_TEMPLATE_KEYS = ['prep'];
 
@@ -26,7 +26,5 @@ export const JOB_TASK_TEMPLATES = {
   },
 };
 
-/** Templates in attach order: Prep only. */
-export const DEFAULT_JOB_TASK_TEMPLATES = [
-  JOB_TASK_TEMPLATES.prep,
-];
+/** No auto-created templates. Existing Prep rows are hidden, not deleted. */
+export const DEFAULT_JOB_TASK_TEMPLATES = [];

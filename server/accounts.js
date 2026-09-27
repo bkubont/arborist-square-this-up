@@ -26,7 +26,7 @@ try {
     const result = await wipeAndSeedAccount(db, email, { yes });
     const { visibility: v } = result;
     const phaseSummary = v
-      ? `Lead ${v.boardByPhase.lead} · Working ${v.boardByPhase.working} · Payment ${v.boardByPhase.payment}`
+      ? `Working ${v.boardByPhase.working} · Payment ${v.boardByPhase.payment}`
       : '';
     console.log(
       `Seeded demo data for ${result.email}: `

@@ -99,16 +99,15 @@ describe("payment-aware money helpers", () => {
 describe("board phase counts", () => {
   it("subtotals add to the jobs passed in and follow stored phase", () => {
     const counts = countByPhase([
-      { id: "a", phase: "lead", status: "Contact" },
+      { id: "a", phase: "working", status: "Estimate" },
       { id: "b", phase: "working", status: "In progress" },
       { id: "c", phase: "working", status: "Prep" },
       { id: "d", phase: "payment", status: "Waiting on payment" },
-      { id: "e", status: "Assessment" },
+      { id: "e", status: "Estimate" },
     ]);
-    assert.equal(counts.lead, 2);
-    assert.equal(counts.working, 2);
+    assert.equal(counts.working, 4);
     assert.equal(counts.payment, 1);
-    assert.equal(counts.lead + counts.working + counts.payment, 5);
+    assert.equal(counts.working + counts.payment, 5);
   });
 });
 

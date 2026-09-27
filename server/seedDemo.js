@@ -55,14 +55,14 @@ const JOBS_PER_CLIENT = [1, 1, 1, 1, 2, 2, 3, 3, 0, 0, 0, 0, 0, 0, 0];
 const JOB_BLUEPRINTS = [
   {
     title: 'Guest bath vanity swap',
-    phase: 'lead',
-    status: 'Plan / draft estimate',
+    phase: 'working',
+    status: 'Estimate',
     description: 'Replace vanity, faucet, and mirror.',
     estimate: { status: 'draft', labor: 480, material: 320 },
   },
   {
     title: 'Kitchen faucet + shutoffs',
-    phase: 'lead',
+    phase: 'working',
     status: 'Waiting on approval',
     description: 'Quote sent; waiting on client approval.',
     estimate: { status: 'sent', labor: 220, material: 95 },
@@ -173,8 +173,8 @@ const JOB_BLUEPRINTS = [
   },
   {
     title: 'Half-bath exhaust fan',
-    phase: 'lead',
-    status: 'Plan / draft estimate',
+    phase: 'working',
+    status: 'Approved',
     description: 'New lead; draft estimate only.',
     estimate: { status: 'draft', labor: 180, material: 75 },
   },
@@ -295,7 +295,7 @@ export function summarizeDemoJobVisibility(jobs) {
   const boardByPhase = Object.fromEntries(
     JOB_PHASE_ORDER.map((phase) => [
       phase,
-      board.filter((job) => (job.phase || 'lead') === phase).length,
+      board.filter((job) => (job.phase || 'working') === phase).length,
     ]),
   );
   return {
@@ -345,7 +345,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
   }
   const estimate = await saveRecord(db, ownerId, 'Estimate', estimatePayload);
 
-  // Tasks: built-in Prep + Materials (attachDefaultJobTasks), one per signed estimate line, at the job's stage.
+  // Tasks: one per signed estimate line, at the job's stage. Prep is not auto-created.
   const setTaskStatuses = async (sourceId, status) => {
     const rows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'WorkItem', job.id]);
     for (const item of rows.map(decode)) {
@@ -540,6 +540,7 @@ export async function seedDemoData(db, ownerId) {
     const client = await saveRecord(db, ownerId, 'Client', {
       name: CLIENT_NAMES[i],
       notes: i < 8 ? 'Has demo jobs' : 'Prospect / no jobs yet',
+      status: i < 8 ? 'Active' : 'Prospect',
       ...addressFor(i),
     });
     clients.push(client);

@@ -31,7 +31,7 @@ describe("buildAttentionItems", () => {
       today: "2026-09-21",
       tomorrow: "2026-09-22",
       jobs: [
-        { id: "j1", title: "Kitchen", phase: "lead", status: "Plan / draft estimate" },
+        { id: "j1", title: "Kitchen", phase: "working", status: "Estimate" },
         { id: "j2", title: "Deck", phase: "working", status: "Prep", start_date: "2026-09-21" },
       ],
       estimates: [{ id: "e1", job_id: "j1", status: "sent" }],

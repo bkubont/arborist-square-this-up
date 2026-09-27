@@ -10,7 +10,7 @@ import ClientAddress from "@/components/ClientAddress";
 import StatusSelect from "@/components/StatusSelect";
 import { money, shortDate } from "@/lib/format";
 import { depositsByJobId, invoicesByJobId, jobBalance, paymentsByJobId } from "@/lib/jobFilters";
-import { JOB_PHASES, contactLeadStatus, isArchivedClient } from "@/lib/jobStatus";
+import { CLIENT_LEAD_STATUSES, contactLeadStatus, isArchivedClient } from "@/lib/jobStatus";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
@@ -64,7 +64,7 @@ export default function ClientDetail() {
     load();
   };
 
-  const pipelineStatus = contactLeadStatus(client, jobs);
+  const pipelineStatus = contactLeadStatus(client);
   const archived = isArchivedClient(client);
 
   const changePipelineStatus = async (status) => {
@@ -111,7 +111,7 @@ export default function ClientDetail() {
                 ariaLabel="Lead status"
                 value={pipelineStatus}
                 onValueChange={changePipelineStatus}
-                statuses={JOB_PHASES.lead.statuses}
+                statuses={CLIENT_LEAD_STATUSES}
                 disabled={savingStatus}
                 triggerClassName="w-full"
               />

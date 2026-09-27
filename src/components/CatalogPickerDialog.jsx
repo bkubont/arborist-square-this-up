@@ -8,7 +8,7 @@ import { money } from "@/lib/format";
 
 /**
  * Catalog search → fill for Estimate / Work Order lines (Decision #5).
- * Fills whole-line estimate amounts (materials included) plus hours × rate.
+ * Fills whole-line estimate amounts (labor + materials) plus hours × rate.
  */
 export default function CatalogPickerDialog({ open, onOpenChange, onPick }) {
   const [q, setQ] = useState("");
@@ -53,7 +53,7 @@ export default function CatalogPickerDialog({ open, onOpenChange, onPick }) {
           <DialogTitle>Catalog search</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-slate-500 -mt-1">
-          Search catalog tasks. Fills description, whole-line amount (materials included), and hours × rate.
+          Search catalog tasks. Fills description, whole-line amount (labor + materials), and hours × rate.
         </p>
         <div className="space-y-2">
           <Input

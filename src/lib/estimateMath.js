@@ -1,6 +1,6 @@
 import { addCalendarDays, todayKey } from "./format.js";
 
-/** Estimate line totals — whole-line amount per row (materials included). */
+/** Estimate line totals — whole-line amount per row (labor + materials). */
 
 /** Catalog / fallback labor rate when company profile has none. */
 export const DEFAULT_LABOR_RATE = 55;
@@ -23,7 +23,7 @@ export function roundMoney(n) {
 }
 
 /**
- * Whole-line amount for one estimate row (materials included).
+ * Whole-line amount for one estimate row (labor + materials).
  * Legacy rows may still store material + labor separately; those are summed on read.
  */
 export function estimateLineAmount(line = {}) {

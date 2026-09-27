@@ -186,7 +186,7 @@ export default function JobDocuments({
 
       {showStageHints && !accepted && allowedSet.has("Estimate") && (
         <p className="text-xs text-slate-500 mb-3">
-          The quote is the whole line, materials included. Once the customer signs, each line becomes a job task
+          The quote is the whole line, labor + materials. Once the customer signs, each line becomes a job task
           (see Tasks).
         </p>
       )}

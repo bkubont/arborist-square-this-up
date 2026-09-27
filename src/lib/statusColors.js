@@ -132,10 +132,15 @@ export const STATUS_SEMANTICS = {
  * Use statusColors(status, { entity }) when entity is known.
  */
 export const STATUS_SEMANTIC_MAP = {
-  // Lead
+  // Customer Lead (CRM)
+  Prospect: "brand",
+  Contacted: "sky",
+  "Follow-up": "attention-approval",
+  Active: "success",
   Contact: "brand",
   Assessment: "sky",
   "Plan / draft estimate": "brand",
+  Estimate: "brand",
   "Waiting on approval": "attention-approval",
   Approved: "success",
   Declined: "danger",
@@ -171,6 +176,7 @@ export const STATUS_SEMANTIC_MAP = {
 
   // Job tasks (src/lib/tasks.js)
   plan: "brand",
+  in_progress: "blue",
   materials: "attention-materials",
   permits: "sky",
   waiting_on_approval: "attention-approval",
@@ -181,7 +187,6 @@ export const STATUS_SEMANTIC_MAP = {
   cancelled: "danger",
   // Legacy task statuses (normalized on read)
   prep: "brand",
-  in_progress: "brand",
   waiting_materials: "attention-materials",
   on_hold: "danger",
   done: "success",

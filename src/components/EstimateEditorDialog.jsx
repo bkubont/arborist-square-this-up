@@ -29,7 +29,7 @@ import { isEstimateReadOnly } from "@/lib/documentAvailability";
 import { loadAccountTaxRate } from "@/lib/salesTax";
 
 /**
- * Estimate editor: whole-line amounts (materials included) + catalog typeahead + e-sign.
+ * Estimate editor: whole-line amounts (labor + materials) + catalog typeahead + e-sign.
  * Hours × rate can suggest the line amount; hours kept for Work Order mapping.
  * After client accept: print/view only (no content edits).
  */
@@ -361,7 +361,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           {!readOnly && (
             <p className="text-xs text-slate-500 mb-2">
-              Type in Description to pick from the catalog. Each line is one whole-line amount (materials included). Hrs × rate can suggest the amount.
+              Type in Description to pick from the catalog. Each line is one whole-line amount (labor + materials). Hrs × rate can suggest the amount.
             </p>
           )}
 

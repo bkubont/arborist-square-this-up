@@ -12,7 +12,7 @@ import {
 import { statusColors } from "@/lib/statusColors";
 
 /**
- * Phase-first job status control: pick Lead / Working / Payment, then a status in that phase.
+ * Phase-first job status control: pick Working / Payment, then a status in that phase.
  */
 export default function JobPhaseStatusSelect({
   phase,
@@ -23,7 +23,7 @@ export default function JobPhaseStatusSelect({
   /** Read-only row under the status dropdown (e.g. derived materials status). */
   belowStatus = undefined,
 }) {
-  const resolvedPhase = phase || phaseForStatus(status) || "lead";
+  const resolvedPhase = phase || phaseForStatus(status) || "working";
   const resolvedStatus = statusesForPhase(resolvedPhase).includes(status)
     ? status
     : defaultStatusForPhase(resolvedPhase);

@@ -28,7 +28,7 @@ const SECTIONS = [
   },
   {
     title: "Documents on a job",
-    body: "One Estimate, one Work Order, and one Invoice per job. Accept the estimate before work order; complete the work order before invoicing. Change orders attach when scope shifts.",
+    body: "One Estimate, one Work Order, and one Invoice per job. Each estimate line is a labor + materials amount. Accept the estimate before work order; complete the work order before invoicing. Change orders attach when scope shifts.",
     to: "/estimates",
     linkLabel: "Estimates",
   },

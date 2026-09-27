@@ -1,6 +1,7 @@
 /** Job task (WorkItem) statuses, in board-column order — mirrors shared/taskStatus.js. */
 export const TASK_STATUSES = [
   "plan",
+  "in_progress",
   "permits",
   "waiting_on_approval",
   "waiting_on_materials",
@@ -12,7 +13,6 @@ export const TASK_STATUSES = [
 
 const LEGACY_TASK_STATUS_MAP = {
   prep: "plan",
-  in_progress: "plan",
   materials: "plan",
   waiting_materials: "waiting_on_materials",
   on_hold: "blocked",
@@ -21,6 +21,7 @@ const LEGACY_TASK_STATUS_MAP = {
 
 const LABELS = {
   plan: "Plan",
+  in_progress: "In progress",
   materials: "Plan",
   permits: "Permits",
   waiting_on_approval: "Waiting on Approval",
@@ -31,7 +32,6 @@ const LABELS = {
   cancelled: "Cancelled",
   // Legacy labels (shown only before the server normalizes on save)
   prep: "Plan",
-  in_progress: "Plan",
   waiting_materials: "Waiting on Materials",
   on_hold: "Blocked",
   done: "Completed",
@@ -49,8 +49,8 @@ export const taskStatusLabel = (status) => LABELS[normalizeTaskStatus(status)] |
 /** A task's status; tasks saved before statuses existed fall back to their old done flag. */
 export const taskStatus = (item) => normalizeTaskStatus(item?.status || (item?.done ? "completed" : "plan"));
 
-/** Built-in Materials task removed — job materials live on Overview. */
-export const isHiddenBuiltInTask = (item) => item?.template_key === "materials";
+/** Built-in Materials and Prep tasks are hidden — job materials live on Overview; Prep is a job-board column. */
+export const isHiddenBuiltInTask = (item) => item?.template_key === "materials" || item?.template_key === "prep";
 
 /** Board/list order: by status column, then position, then age. */
 export function sortTasks(items = []) {
@@ -61,12 +61,10 @@ export function sortTasks(items = []) {
     || (a.created_date || "").localeCompare(b.created_date || ""));
 }
 
-/** List view: Prep, then signed scope — regardless of status. */
+/** List view: signed scope and ad-hoc tasks by sort_order. Hidden Prep rows never reach here. */
 export function sortTasksForList(items = []) {
-  const band = (item) => (item?.template_key === "prep" ? 0 : 1);
   return [...items].sort((a, b) =>
-    band(a) - band(b)
-    || (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    (a.sort_order ?? 0) - (b.sort_order ?? 0)
     || (a.created_date || "").localeCompare(b.created_date || ""));
 }
 

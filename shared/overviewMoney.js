@@ -64,23 +64,28 @@ export function overviewFigures({ job, documents = [], timeline = [] } = {}) {
 }
 
 /**
- * Which Overview money slots to show. Lead is quote only.
- * Working shows the quote and a deposit (or collected, once a payment exists) plus job cost.
+ * Which Overview money slots to show.
+ * Estimate / Waiting on approval / Approved is quote only (same idea as the old Lead phase).
+ * Working (Prep and later) shows the quote and a deposit (or collected, once a payment exists) plus job cost.
  * Payment is the bill, collected, and remaining.
  * @param {string | undefined} phase
  * @param {ReturnType<typeof overviewFigures>} figures
+ * @param {string | undefined} status
  */
-export function moneyBlockForPhase(phase, figures) {
-  const resolved = phase === 'working' || phase === 'payment' ? phase : 'lead';
-  if (resolved === 'lead') {
+export function moneyBlockForPhase(phase, figures, status) {
+  const estimateStage = status === 'Estimate'
+    || status === 'Waiting on approval'
+    || status === 'Approved'
+    || (phase !== 'working' && phase !== 'payment');
+  if (estimateStage && phase !== 'payment') {
     return {
-      phase: 'lead',
+      phase: 'estimate',
       slots: [{ key: 'quote', label: 'Quote', value: figures.quote }],
       jobCost: false,
       logPayment: false,
     };
   }
-  if (resolved === 'working') {
+  if (phase === 'working') {
     const slots = [{ key: 'quote', label: 'Quote', value: figures.quote }];
     if (figures.payments > 0) {
       slots.push({ key: 'collected', label: 'Collected', value: figures.collected });

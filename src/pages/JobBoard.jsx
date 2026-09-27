@@ -13,7 +13,7 @@ import {
   JOB_PHASES,
   JOB_PHASE_ORDER,
 } from "@/lib/jobFilters";
-import { applyInvoicedGate, statusesForPhase } from "@/lib/jobStatus";
+import { applyInvoicedGate, isEstimateStageStatus, statusesForPhase } from "@/lib/jobStatus";
 import { statusColors } from "@/lib/statusColors";
 import { useWorkTypes } from "@/hooks/useWorkTypes";
 import {
@@ -41,9 +41,9 @@ function parseDroppableId(id) {
   return { phase, status: rest };
 }
 
-/** Brittany: Working → task board; Lead & Payment → Overview. */
+/** Estimate / Waiting on approval / Approved → Overview; Prep and later → Tasks; Payment → Overview. */
 function jobCardHref(job) {
-  if (job.phase === "working") return `/jobs/${job.id}?tab=tasks`;
+  if (job.phase === "working" && !isEstimateStageStatus(job.status)) return `/jobs/${job.id}?tab=tasks`;
   return `/jobs/${job.id}`;
 }
 
@@ -151,7 +151,7 @@ export default function JobBoard() {
   const columnsByPhase = useMemo(() => {
     const result = {};
     for (const phase of JOB_PHASE_ORDER) {
-      const phaseJobs = jobs.filter((job) => (job.phase || "lead") === phase);
+      const phaseJobs = jobs.filter((job) => (job.phase || "working") === phase);
       if (boardGroupBy === "type") {
         const typeKeys = workTypeColumnKeys(phaseJobs, (job) => job.work_type, catalogTypes);
         const map = Object.fromEntries(typeKeys.map((t) => [t, []]));
@@ -255,8 +255,8 @@ export default function JobBoard() {
             ? "Every job's tasks — drag a task to change its work type"
             : "Every job's tasks — drag a task to change its status"
           : boardGroupBy === "type"
-            ? "Lead, Working, and Payment — drag jobs by work type within each phase"
-            : "Lead, Working, and Payment — drag jobs across all three boards"}
+            ? "Working and Payment — drag jobs by work type within each phase"
+            : "Working and Payment — drag jobs across both boards"}
         secondary={
           <div className="flex flex-wrap items-center gap-3">
             <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/60" role="group" aria-label="Board shows">

@@ -18,7 +18,7 @@ type Props = {
 
 /**
  * Phase-first job status control (mirrors web JobPhaseStatusSelect).
- * Pick Lead / Working / Payment, then a status in that phase.
+ * Pick Working / Payment, then a status in that phase.
  */
 export function JobPhaseStatusSelect({ phase, status, onChange }: Props) {
   const { phase: resolvedPhase, status: resolvedStatus } = resolvePhaseStatus(phase, status);

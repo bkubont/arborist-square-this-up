@@ -62,7 +62,7 @@ export default function ActiveJobs() {
         title="Jobs"
         description={
           loading
-            ? "Lead, working, and payment jobs in play"
+            ? "Working and payment jobs in play"
             : `${jobs.length} active · non-terminal statuses across all phases`
         }
         primaryAction={

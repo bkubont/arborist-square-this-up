@@ -1,26 +1,36 @@
-/** Brittany's three-phase job status model (Lead → Working → Payment). */
+/** Working + Payment job boards. Lead lives on the customer profile only. */
 
-export const JOB_PHASE_ORDER = ['lead', 'working', 'payment'];
+export const JOB_PHASE_ORDER = ['working', 'payment'];
 
 /** Invoiced is a Payment status. It is not a Working column. */
 export const INVOICE_GATE_STATUS = 'Invoiced';
 export const PAYMENT_ENTRY_STATUS = 'Waiting on payment';
 
+/** CRM on the customer profile — not a job-board phase. */
+export const CLIENT_LEAD_STATUSES = [
+  'Prospect',
+  'Contacted',
+  'Assessment',
+  'Follow-up',
+  'Active',
+  'Declined',
+];
+
+/** Old contact pipeline labels → CRM list. */
+export const LEGACY_CLIENT_STATUS_MAP = {
+  Contact: 'Prospect',
+  'Plan / draft estimate': 'Assessment',
+  'Waiting on approval': 'Follow-up',
+  Approved: 'Active',
+};
+
 export const JOB_PHASES = {
-  lead: {
-    label: 'Lead',
-    statuses: [
-      'Contact',
-      'Assessment',
-      'Plan / draft estimate',
-      'Waiting on approval',
-      'Approved',
-      'Declined',
-    ],
-  },
   working: {
     label: 'Working',
     statuses: [
+      'Estimate',
+      'Waiting on approval',
+      'Approved',
       'Prep',
       'In progress',
       'Waiting on materials',
@@ -41,17 +51,22 @@ export const JOB_PHASES = {
   },
 };
 
+/** Estimate pipeline on Working — cards open Overview; money is quote-only. */
+export const ESTIMATE_STAGE_STATUSES = ['Estimate', 'Waiting on approval', 'Approved'];
+
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
 
 export const ALL_JOB_STATUSES = STORED_JOB_STATUSES;
 
 export const LEGACY_JOB_STATUS_MAP = {
-  Estimate: { phase: 'lead', status: 'Plan / draft estimate' },
+  Contact: { phase: 'working', status: 'Estimate' },
+  Assessment: { phase: 'working', status: 'Estimate' },
+  'Plan / draft estimate': { phase: 'working', status: 'Estimate' },
+  Declined: { phase: 'working', status: 'Cancelled' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
   'Waiting on Materials': { phase: 'working', status: 'Waiting on materials' },
-  Completed: { phase: 'working', status: 'Completed' },
-  Paid: { phase: 'payment', status: 'Paid' },
+  'On Hold': { phase: 'working', status: 'Blocked' },
 };
 
 export const ARCHIVE_JOB_STATUSES = new Set([
@@ -62,16 +77,20 @@ export const ARCHIVE_JOB_STATUSES = new Set([
 
 export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));
 
+export function isEstimateStageStatus(status) {
+  return ESTIMATE_STAGE_STATUSES.includes(status);
+}
+
 export function phaseForStatus(status) {
   if (!status) return null;
   for (const phase of JOB_PHASE_ORDER) {
     if (JOB_PHASES[phase].statuses.includes(status)) return phase;
   }
-  return null;
+  return LEGACY_JOB_STATUS_MAP[status]?.phase || null;
 }
 
 export function defaultStatusForPhase(phase) {
-  return JOB_PHASES[phase]?.statuses[0] || 'Contact';
+  return JOB_PHASES[phase]?.statuses[0] || 'Estimate';
 }
 
 /** Invoiced is Payment. Keep the status; put the job on the Payment board. */
@@ -81,13 +100,10 @@ export function applyInvoicedGate(fields) {
 }
 
 /**
- * Header tracks coexist. The board column (phase + status) wins for that track
- * so a contact-profile lead sync (which writes job.status while phase is lead) stays visible.
+ * Header tracks coexist. Working, derived Materials, and Payment — no Lead on the job.
  * @param {object} job
- * @param {object} [client]
  */
-export function headerTracks(job, client) {
-  const leadList = JOB_PHASES.lead.statuses;
+export function headerTracks(job) {
   const workingList = JOB_PHASES.working.statuses;
   const paymentList = JOB_PHASES.payment.statuses;
   const pick = (list, stored, fromBoard) => {
@@ -95,13 +111,7 @@ export function headerTracks(job, client) {
     if (stored && list.includes(stored)) return stored;
     return "";
   };
-  const lead = pick(
-    leadList,
-    job?.lead_status,
-    job?.phase === "lead" ? job?.status : "",
-  ) || (leadList.includes(client?.status) ? client.status : "") || "Contact";
   return {
-    lead,
     working: pick(workingList, job?.working_status, job?.phase === "working" ? job?.status : ""),
     payment: pick(paymentList, job?.payment_status, job?.phase === "payment" ? job?.status : ""),
   };
@@ -126,26 +136,15 @@ export function isArchivedClient(client) {
   return Boolean(client.archived_at);
 }
 
-/**
- * Lead status shown on a contact profile.
- * Stored contact status wins; otherwise a tied lead job's status; otherwise Contact.
- */
-function jobLeadMark(job) {
-  const leadStatuses = JOB_PHASES.lead.statuses;
-  if (leadStatuses.includes(job?.lead_status)) return job.lead_status;
-  if ((job?.phase || phaseForStatus(job?.status)) === 'lead' && leadStatuses.includes(job?.status)) return job.status;
-  return null;
+export function normalizeClientLeadStatus(status) {
+  if (CLIENT_LEAD_STATUSES.includes(status)) return status;
+  if (status && LEGACY_CLIENT_STATUS_MAP[status]) return LEGACY_CLIENT_STATUS_MAP[status];
+  return CLIENT_LEAD_STATUSES[0];
 }
 
-export function contactLeadStatus(client, jobs = []) {
-  const leadStatuses = JOB_PHASES.lead.statuses;
-  if (leadStatuses.includes(client?.status)) return client.status;
-  const marks = jobs.map(jobLeadMark).filter(Boolean);
-  const shared = [...new Set(marks)];
-  if (shared.length === 1) return shared[0];
-  if (marks.length > 1) {
-    const newest = [...jobs].sort((a, b) => String(b.updated_date || '').localeCompare(String(a.updated_date || '')))[0];
-    return jobLeadMark(newest) || defaultStatusForPhase('lead');
-  }
-  return defaultStatusForPhase('lead');
+/**
+ * Lead status shown on a contact profile. Stored contact status only — jobs do not sync.
+ */
+export function contactLeadStatus(client) {
+  return normalizeClientLeadStatus(client?.status);
 }

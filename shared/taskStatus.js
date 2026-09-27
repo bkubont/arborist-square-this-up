@@ -1,6 +1,7 @@
 /** Brittany's task board columns, in order (finish | completed | cancelled at the end). Job materials live on Overview, not the board. */
 export const TASK_STATUSES = [
   'plan',
+  'in_progress',
   'permits',
   'waiting_on_approval',
   'waiting_on_materials',
@@ -13,7 +14,6 @@ export const TASK_STATUSES = [
 /** Pre-status-model values still on older WorkItems — normalized on read/write. */
 export const LEGACY_TASK_STATUS_MAP = {
   prep: 'plan',
-  in_progress: 'plan',
   materials: 'plan',
   waiting_materials: 'waiting_on_materials',
   on_hold: 'blocked',

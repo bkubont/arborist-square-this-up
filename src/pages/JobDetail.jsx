@@ -19,7 +19,6 @@ import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
 import JobMaterialsPanel from "@/components/JobMaterialsPanel";
 import TimelineFeed from "@/components/TimelineFeed";
-import { todayKey } from "@/lib/format";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -151,16 +150,11 @@ export default function JobDetail() {
   };
 
   const changeTrack = async ({ track, status }) => {
-    const shown = headerTracks(job, client);
-    const patch = {
-      lead_status: track === "lead" ? status : shown.lead,
-    };
+    const shown = headerTracks(job);
+    const patch = {};
     if (track === "working" || shown.working) patch.working_status = track === "working" ? status : shown.working;
     if (track === "payment" || shown.payment) patch.payment_status = track === "payment" ? status : shown.payment;
-    if (track === "lead" && (status === "Declined" || job.phase === "lead")) {
-      patch.phase = "lead";
-      patch.status = status;
-    } else if (track === "working") {
+    if (track === "working") {
       patch.phase = "working";
       patch.status = status;
     } else if (track === "payment") {
@@ -168,14 +162,7 @@ export default function JobDetail() {
       patch.status = status;
     }
     await api.entities.Job.update(id, patch);
-    if (track === "lead" && client?.id) {
-      const today = todayKey();
-      await api.entities.Client.update(client.id, {
-        status,
-        archived_at: status === "Declined" ? (client.archived_at || today) : "",
-      });
-    }
-    const phase = track === "working" ? "working" : track === "payment" ? "payment" : "lead";
+    const phase = track === "payment" ? "payment" : "working";
     const phaseLabel = JOB_PHASES[phase]?.label || phase;
     await api.entities.TimelineEntry.create({
       job_id: id,
@@ -356,6 +343,8 @@ export default function JobDetail() {
             title="Estimate"
           />
 
+          <PunchListPanel jobId={id} punchList={punchList} onChanged={load} />
+
           {job.notes ? (
             <div className="bg-card rounded-xl border border-border p-4">
               <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
@@ -367,7 +356,6 @@ export default function JobDetail() {
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-0 space-y-4">
-          <PunchListPanel jobId={id} punchList={punchList} onChanged={load} />
           <div className="bg-card rounded-xl border border-border p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tasks</div>

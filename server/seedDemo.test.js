@@ -55,7 +55,7 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
 
     const statuses = new Set(jobs.map((j) => JSON.parse(j.data).status));
     for (const needed of [
-      'Plan / draft estimate',
+      'Estimate',
       'Waiting on approval',
       'Waiting on materials',
       'Prep',
@@ -71,7 +71,7 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     assert.equal(result.visibility.boardJobs, 12);
     assert.equal(result.visibility.archivedJobs, 2);
     assert.deepEqual(result.visibility.archivedStatuses, ['Paid']);
-    assert.deepEqual(result.visibility.boardByPhase, { lead: 3, working: 7, payment: 2 });
+    assert.deepEqual(result.visibility.boardByPhase, { working: 10, payment: 2 });
 
     const paidJobs = jobs.filter((j) => JSON.parse(j.data).status === 'Paid');
     assert.equal(paidJobs.length, 2);
@@ -98,7 +98,7 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     const tasks = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'WorkItem'])).map((r) => JSON.parse(r.data));
     assert.ok(tasks.some((task) => task.source_type === 'Estimate' && task.status === 'plan'));
     assert.ok(tasks.some((task) => task.source_type === 'ChangeOrder'), 'the approved change order has its tasks');
-    assert.equal(tasks.filter((task) => task.template_key === 'prep').length, 14);
+    assert.equal(tasks.filter((task) => task.template_key === 'prep').length, 0, 'Prep is not auto-created');
     assert.equal(tasks.filter((task) => task.template_key === 'materials').length, 0, 'no built-in Materials tasks');
     const punchLists = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'PunchList'])).map((r) => JSON.parse(r.data));
     assert.equal(punchLists.length, 14);
@@ -144,7 +144,7 @@ test('demo wipe is account-scoped and preserves other accounts', async () => {
     const clientA = await saveRecord(db, a, 'Client', {
       name: 'A client', address: '1 A St', city: 'Springfield', state: 'IL', zip: '62701',
     });
-    await saveRecord(db, a, 'Job', { title: 'A job', client_id: clientA.id, phase: 'lead', status: 'Contact' });
+    await saveRecord(db, a, 'Job', { title: 'A job', client_id: clientA.id, phase: 'working', status: 'Estimate' });
     const clientB = await saveRecord(db, b, 'Client', {
       name: 'B client', address: '2 B St', city: 'Springfield', state: 'IL', zip: '62702',
     });

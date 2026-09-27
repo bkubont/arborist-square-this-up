@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   applyJobStatusFields,
+  ESTIMATE_STAGE_STATUSES,
   INVOICE_GATE_STATUS,
+  JOB_PHASE_ORDER,
   JOB_PHASES,
   migrateLegacyStatus,
   normalizeJobRecord,
@@ -10,17 +12,39 @@ import {
 } from './jobStatus.js';
 
 describe('job status model', () => {
-  it('migrates legacy statuses to phase + status', () => {
-    assert.deepEqual(migrateLegacyStatus('Estimate'), {
-      phase: 'lead',
-      status: 'Plan / draft estimate',
+  it('has working and payment boards only', () => {
+    assert.deepEqual(JOB_PHASE_ORDER, ['working', 'payment']);
+    assert.equal(JOB_PHASES.lead, undefined);
+  });
+
+  it('migrates Contact / Assessment / Plan-draft-estimate to Estimate', () => {
+    assert.deepEqual(migrateLegacyStatus('Contact'), { phase: 'working', status: 'Estimate' });
+    assert.deepEqual(migrateLegacyStatus('Assessment'), { phase: 'working', status: 'Estimate' });
+    assert.deepEqual(migrateLegacyStatus('Plan / draft estimate'), {
+      phase: 'working',
+      status: 'Estimate',
     });
+    for (const status of ['Contact', 'Assessment', 'Plan / draft estimate']) {
+      const normalized = normalizeJobRecord({ title: 'x', phase: 'lead', status });
+      assert.equal(normalized.phase, 'working');
+      assert.equal(normalized.status, 'Estimate');
+    }
+  });
+
+  it('keeps Waiting on approval and Approved on Working', () => {
+    const waiting = normalizeJobRecord({ phase: 'lead', status: 'Waiting on approval' });
+    assert.equal(waiting.phase, 'working');
+    assert.equal(waiting.status, 'Waiting on approval');
+    const approved = normalizeJobRecord({ phase: 'lead', status: 'Approved' });
+    assert.equal(approved.phase, 'working');
+    assert.equal(approved.status, 'Approved');
+    assert.deepEqual(ESTIMATE_STAGE_STATUSES, ['Estimate', 'Waiting on approval', 'Approved']);
+  });
+
+  it('migrates legacy In Progress and keeps phase and status aligned on patch', () => {
     const normalized = normalizeJobRecord({ title: 'x', status: 'In Progress' });
     assert.equal(normalized.phase, 'working');
     assert.equal(normalized.status, 'In progress');
-  });
-
-  it('keeps phase and status aligned on patch', () => {
     const next = applyJobStatusFields(
       { phase: 'payment', status: 'Paid' },
       { phase: 'working', status: 'Completed' },
@@ -31,20 +55,26 @@ describe('job status model', () => {
 
   it('resolves phase from status when only status is sent', () => {
     const next = applyJobStatusFields({ status: 'Waiting on approval' }, null);
-    assert.equal(next.phase, 'lead');
+    assert.equal(next.phase, 'working');
     assert.equal(next.status, 'Waiting on approval');
+    const fresh = applyJobStatusFields({}, null);
+    assert.equal(fresh.phase, 'working');
+    assert.equal(fresh.status, 'Estimate');
   });
 
   it('maps every status to a phase', () => {
     for (const status of [
-      'Contact', 'Prep', INVOICE_GATE_STATUS, 'Paid', 'Completed',
+      'Estimate', 'Prep', INVOICE_GATE_STATUS, 'Paid', 'Completed',
     ]) {
       assert.ok(phaseForStatus(status));
     }
   });
 
-  it('working phase is Prep through Cancelled, with Waiting on materials after In progress', () => {
+  it('working phase is Estimate through Cancelled', () => {
     assert.deepEqual(JOB_PHASES.working.statuses, [
+      'Estimate',
+      'Waiting on approval',
+      'Approved',
       'Prep',
       'In progress',
       'Waiting on materials',
@@ -73,17 +103,22 @@ describe('job status model', () => {
     assert.equal(prep.status, 'Prep');
   });
 
-  it('invoiced stays Invoiced on the payment phase and does not clear the lead track', () => {
+  it('invoiced stays Invoiced on the payment phase', () => {
     const next = applyJobStatusFields(
-      { status: INVOICE_GATE_STATUS, lead_status: 'Approved' },
-      { phase: 'working', status: 'Completed', lead_status: 'Contact' },
+      { status: INVOICE_GATE_STATUS },
+      { phase: 'working', status: 'Completed' },
     );
     assert.equal(next.phase, 'payment');
     assert.equal(next.status, INVOICE_GATE_STATUS);
     assert.equal(next.payment_status, INVOICE_GATE_STATUS);
-    assert.equal(next.lead_status, 'Approved');
     const normalized = normalizeJobRecord({ phase: 'working', status: INVOICE_GATE_STATUS });
     assert.equal(normalized.phase, 'payment');
     assert.equal(normalized.status, INVOICE_GATE_STATUS);
+  });
+
+  it('maps Declined jobs to Cancelled so they stay archived', () => {
+    const declined = normalizeJobRecord({ phase: 'lead', status: 'Declined' });
+    assert.equal(declined.phase, 'working');
+    assert.equal(declined.status, 'Cancelled');
   });
 });

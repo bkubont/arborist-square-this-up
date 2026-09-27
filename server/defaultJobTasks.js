@@ -1,6 +1,6 @@
 /**
- * Attach built-in Prep task to a job. Idempotent: skips templates already present (by template_key,
- * or by legacy description for older rows). Job materials live on Overview; punch list is a document.
+ * Built-in job tasks. Prep is no longer auto-created. Existing template_key prep rows stay
+ * in the database (hidden on list/board) and are not mass-deleted.
  */
 import { saveRecord } from './domain.js';
 import { listJobDocuments } from './documentRules.js';

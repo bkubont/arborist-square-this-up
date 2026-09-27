@@ -40,8 +40,8 @@ function TrackSelect({ label, value, statuses, onChange }) {
 }
 
 /**
- * Job header info box: Lead, Working, derived Materials, Payment.
- * The four live together. Changing one does not clear the others.
+ * Job header info box: Working, derived Materials, Payment.
+ * Changing one does not clear the others. Lead lives on the customer profile.
  */
 export default function JobHeaderStatuses({
   job,
@@ -54,12 +54,6 @@ export default function JobHeaderStatuses({
   const tracks = headerTracks(job, client);
   return (
     <div className={cn("space-y-2 w-full sm:w-72", className)}>
-      <TrackSelect
-        label="Lead"
-        value={tracks.lead}
-        statuses={JOB_PHASES.lead.statuses}
-        onChange={(status) => onChange?.({ track: "lead", status })}
-      />
       <TrackSelect
         label="Working"
         value={tracks.working}

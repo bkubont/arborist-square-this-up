@@ -32,13 +32,8 @@ import {
   refreshInvoicePaymentSync,
 } from './invoiceSync.js';
 import {
-  adoptClientLeadOnNewJob,
   applyClientPipelineFields,
-  applyJobLeadField,
-  clientPipelineStatusChanged,
-  jobLeadChanged,
-  syncClientLeadJobs,
-  syncContactFromJobLead,
+  normalizeClientRecord,
 } from './clientPipeline.js';
 import { applyJobArchiveFields } from './jobArchive.js';
 import { applyJobStatusFields, normalizeJobRecord } from './jobStatus.js';
@@ -69,6 +64,7 @@ async function maybeSyncMaterialOrder(tx, ownerId, jobId, opts = {}) {
 
 function normalizeEntityRecord(entity, record) {
   if (entity === 'Job') return normalizeJobRecord(record);
+  if (entity === 'Client') return normalizeClientRecord(record);
   if (entity === 'WorkItem') return normalizeWorkItemRecord(record);
   return record;
 }
@@ -538,7 +534,6 @@ export async function createApp(db, env = process.env) {
       body = stripJobDerivedMoney(body);
       body = applyJobStatusFields(body);
       body = applyJobArchiveFields(body);
-      body = applyJobLeadField(body, null);
     }
     if (entity === 'Client') body = applyClientPipelineFields(body, null);
     if (entity === 'WorkItem') body = prepareWorkItemCreate(body);
@@ -549,11 +544,7 @@ export async function createApp(db, env = process.env) {
         if (entity === 'Invoice') await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
         if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.user.id, 'Estimate', body.job_id)), 'creating');
       }
-      if (entity === 'Job') body = await adoptClientLeadOnNewJob(tx, req.user.id, body);
       let record = await saveRecord(tx, req.user.id, entity, body);
-      if (entity === 'Job' && jobLeadChanged(null, record)) {
-        await syncContactFromJobLead(tx, req.user.id, record);
-      }
       if (entity === 'Job') {
         await attachDefaultJobTasks(tx, req.user.id, record.id);
         await attachDefaultPunchList(tx, req.user.id, record.id);
@@ -598,7 +589,6 @@ export async function createApp(db, env = process.env) {
       body = stripJobDerivedMoney(body);
       body = applyJobStatusFields(body, previous);
       body = applyJobArchiveFields(body, previous);
-      body = applyJobLeadField(body, previous);
     }
     if (entity === 'Client' && body && typeof body === 'object') {
       body = applyClientPipelineFields(body, previous);
@@ -635,12 +625,6 @@ export async function createApp(db, env = process.env) {
         await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
       }
       let saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
-      if (entity === 'Client' && clientPipelineStatusChanged(req.body, previous, saved)) {
-        await syncClientLeadJobs(tx, req.user.id, saved.id, saved.status);
-      }
-      if (entity === 'Job' && jobLeadChanged(previous, saved)) {
-        await syncContactFromJobLead(tx, req.user.id, saved);
-      }
       if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, saved.job_id);
       if (entity === 'WorkItem' && req.body && Object.prototype.hasOwnProperty.call(req.body, 'materials')) {
         const lines = Array.isArray(saved.materials) && Array.isArray(req.body.materials) ? saved.materials : [];
