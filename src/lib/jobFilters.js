@@ -4,6 +4,7 @@ import {
   JOB_PHASE_ORDER,
   JOB_PHASES,
   STORED_JOB_STATUSES,
+  phaseForStatus,
 } from "./jobStatus.js";
 
 /** Stored job statuses across Lead, Working, and Payment (Invoiced is a Payment status). */
@@ -112,6 +113,22 @@ export function countByStatus(jobs) {
   return counts;
 }
 
+/**
+ * Jobs on each board phase. Same rule as the board: stored `phase`, else the status's phase.
+ * Counts add up to the jobs passed in (one phase per job).
+ * @param {object[]} jobs
+ * @returns {{ lead: number, working: number, payment: number }}
+ */
+export function countByPhase(jobs = []) {
+  const counts = { lead: 0, working: 0, payment: 0 };
+  for (const job of jobs) {
+    const phase = JOB_PHASE_ORDER.includes(job?.phase) ? job.phase : null;
+    const key = phase || phaseForStatus(job?.status) || "lead";
+    counts[key] += 1;
+  }
+  return counts;
+}
+
 /** Estimate / CO awaiting client sign (status `sent`). */
 export function isAwaitingApproval(doc) {
   return doc?.status === "sent";
@@ -186,6 +203,152 @@ export function moneySummary(jobs, estimates = [], changeOrders = [], invoices =
     waitingDocCount: waitingApprovalDocs.length,
     waitingPayment,
     waitingPaymentCount: waitingPaymentDocs.length,
+  };
+}
+
+/** An invoice that has left draft. Void invoices are not issued. */
+export function isIssuedInvoice(invoice) {
+  if (!invoice) return false;
+  const status = invoice.status || "";
+  return status !== "void" && status !== "draft";
+}
+
+function roundMoney(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Quote still not on an issued invoice: accepted estimate, else a live estimate, else the job amount.
+ * @param {object} job
+ * @param {object[]} estimates
+ */
+function unbilledWorkAmount(job, estimates = []) {
+  const docs = estimates.filter((e) => e?.job_id === job?.id && e.status !== "void");
+  const accepted = docs.find((e) => e.status === "accepted");
+  if (accepted) {
+    const snap = accepted.accepted_snapshot?.total;
+    return roundMoney(snap != null ? snap : accepted.total);
+  }
+  const live = docs.find((e) => e.status === "sent" || e.status === "draft");
+  if (live) return roundMoney(live.total);
+  if (Number(job?.estimate_amount)) return roundMoney(job.estimate_amount);
+  if (Number(job?.invoice_amount)) return roundMoney(job.invoice_amount);
+  return 0;
+}
+
+/**
+ * Three labeled money scopes. They are not one equation:
+ * issued invoice billed / applied / remaining stay on the invoice,
+ * uninvoiced deposits are deposits not already applied on an issued invoice,
+ * unbilled work is quoted work with no issued invoice.
+ *
+ * @param {{ jobs?: object[], estimates?: object[], invoices?: object[], timeline?: object[] }} input
+ */
+export function moneyGroups({ jobs = [], estimates = [], invoices = [], timeline = [] } = {}) {
+  const depositsMap = depositsByJobId(timeline);
+  /** @type {Map<string, object>} */
+  const issuedByJob = new Map();
+  for (const invoice of invoices) {
+    if (!isIssuedInvoice(invoice) || !invoice.job_id) continue;
+    if (!issuedByJob.has(invoice.job_id)) issuedByJob.set(invoice.job_id, invoice);
+  }
+
+  const jobById = new Map(jobs.filter((job) => job?.id != null).map((job) => [job.id, job]));
+
+  /** @type {object[]} */
+  const issuedRecords = [];
+  let billed = 0;
+  let applied = 0;
+  let remaining = 0;
+  for (const invoice of invoices) {
+    if (!isIssuedInvoice(invoice)) continue;
+    const invoiceBilled = roundMoney(invoice.total);
+    const invoiceApplied = roundMoney((Number(invoice.deposits_applied) || 0) + (Number(invoice.payments_applied) || 0));
+    const invoiceRemaining = roundMoney(invoiceBalanceDue(invoice));
+    billed += invoiceBilled;
+    applied += invoiceApplied;
+    remaining += invoiceRemaining;
+    const job = invoice.job_id ? jobById.get(invoice.job_id) : null;
+    issuedRecords.push({
+      id: `invoice-${invoice.id}`,
+      kind: "invoice",
+      title: job?.title || invoice.number || "Invoice",
+      detail: invoice.number ? `${invoice.number} · ${invoice.status || "issued"}` : (invoice.status || "issued"),
+      amount: invoiceRemaining,
+      billed: invoiceBilled,
+      applied: invoiceApplied,
+      remaining: invoiceRemaining,
+      to: invoice.job_id ? `/jobs/${invoice.job_id}` : "/jobs/outstanding?group=issued",
+    });
+  }
+
+  const depositJobIds = new Set([
+    ...jobById.keys(),
+    ...Object.keys(depositsMap),
+  ]);
+  /** @type {object[]} */
+  const depositRecords = [];
+  let depositTotal = 0;
+  for (const jobId of depositJobIds) {
+    const job = jobById.get(jobId);
+    const logged = roundMoney((Number(job?.deposit_amount) || 0) + (Number(depositsMap[jobId]) || 0));
+    const invoice = issuedByJob.get(jobId);
+    const alreadyApplied = invoice ? roundMoney(invoice.deposits_applied) : 0;
+    const amount = roundMoney(Math.max(0, logged - alreadyApplied));
+    if (amount <= 0) continue;
+    depositTotal += amount;
+    depositRecords.push({
+      id: `deposit-${jobId}`,
+      kind: "deposit",
+      title: job?.title || "Deposit",
+      detail: invoice ? "Deposit not applied on the issued invoice" : "No issued invoice",
+      amount,
+      to: `/jobs/${jobId}`,
+    });
+  }
+
+  /** @type {object[]} */
+  const unbilledRecords = [];
+  let unbilledTotal = 0;
+  for (const job of jobs) {
+    if (!job?.id || issuedByJob.has(job.id)) continue;
+    const amount = unbilledWorkAmount(job, estimates);
+    if (amount <= 0) continue;
+    unbilledTotal += amount;
+    unbilledRecords.push({
+      id: `unbilled-${job.id}`,
+      kind: "unbilled",
+      title: job.title || "Untitled job",
+      detail: "Quoted work with no issued invoice",
+      amount,
+      to: `/jobs/${job.id}`,
+    });
+  }
+
+  return {
+    issued: {
+      id: "issued",
+      label: "Issued invoices",
+      scope: "Sent, partial, and paid invoices. Billed, applied, and remaining stay on these invoices.",
+      billed: roundMoney(billed),
+      applied: roundMoney(applied),
+      remaining: roundMoney(remaining),
+      records: issuedRecords,
+    },
+    deposits: {
+      id: "deposits",
+      label: "Uninvoiced deposits",
+      scope: "Deposits that are not already applied on an issued invoice.",
+      total: roundMoney(depositTotal),
+      records: depositRecords,
+    },
+    unbilled: {
+      id: "unbilled",
+      label: "Unbilled work",
+      scope: "Quoted or estimated work that has no issued invoice.",
+      total: roundMoney(unbilledTotal),
+      records: unbilledRecords,
+    },
   };
 }
 

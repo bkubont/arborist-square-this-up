@@ -19,6 +19,7 @@ import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
 import JobMaterialsPanel from "@/components/JobMaterialsPanel";
 import TimelineFeed from "@/components/TimelineFeed";
+import { todayKey } from "@/lib/format";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -168,7 +169,7 @@ export default function JobDetail() {
     }
     await api.entities.Job.update(id, patch);
     if (track === "lead" && client?.id) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayKey();
       await api.entities.Client.update(client.id, {
         status,
         archived_at: status === "Declined" ? (client.archived_at || today) : "",

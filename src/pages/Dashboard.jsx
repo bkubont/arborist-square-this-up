@@ -6,18 +6,20 @@ import { Calendar, AlertTriangle, Inbox } from "lucide-react";
 import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMark";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
-import { money, shortDate, timeAgo } from "@/lib/format";
+import MoneyGroups from "@/components/MoneyGroups";
+import { addCalendarDays, money, shortDate, timeAgo, todayKey } from "@/lib/format";
 import { buildAttentionItems } from "@/lib/attentionItems";
 import {
   ACTIVE_STATUSES,
-  countByStatus,
+  countByPhase,
   depositsByJobId,
   invoicesByJobId,
   isWorkingJob,
   jobBalance,
-  moneySummary,
+  moneyGroups,
   paymentsByJobId,
 } from "@/lib/jobFilters";
+import { JOB_PHASE_ORDER, JOB_PHASES } from "@/lib/jobStatus";
 import { NAV_ICONS } from "@/lib/navIcons";
 import { cn } from "@/lib/utils";
 import { statusCardClass } from "@/lib/statusColors";
@@ -89,21 +91,18 @@ function DashboardPage() {
     load();
   }, [load]);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  }, []);
+  const today = todayKey();
+  const tomorrow = useMemo(() => addCalendarDays(today, 1), [today]);
 
   const active = useMemo(() => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)), [jobs]);
-  const statusCounts = useMemo(() => countByStatus(jobs), [jobs]);
+  const phaseCounts = useMemo(() => countByPhase(jobs), [jobs]);
+  const phaseTotal = JOB_PHASE_ORDER.reduce((sum, phase) => sum + (phaseCounts[phase] || 0), 0);
   const paymentsMap = useMemo(() => paymentsByJobId(timeline), [timeline]);
   const depositsMap = useMemo(() => depositsByJobId(timeline), [timeline]);
   const invoiceMap = useMemo(() => invoicesByJobId(invoices), [invoices]);
-  const moneyBuckets = useMemo(
-    () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
-    [jobs, estimates, changeOrders, invoices, timeline]
+  const groups = useMemo(
+    () => moneyGroups({ jobs, estimates, invoices, timeline }),
+    [jobs, estimates, invoices, timeline]
   );
   const unassignedReceipts = useMemo(
     () => expenses.filter((e) => e.photo_url && !e.job_id),
@@ -149,7 +148,7 @@ function DashboardPage() {
         secondary={
           <>
             <Link to="/jobs/action-items" className="text-sm font-medium text-primary hover:underline px-2">
-              Action items
+              Needs Attention
             </Link>
             <Link to="/jobs/board" className="text-sm font-medium text-primary hover:underline px-2">
               Board
@@ -204,42 +203,15 @@ function DashboardPage() {
 
       {/* 2. Summary */}
       <Section title="Summary">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <SummaryLink
-            to="/jobs/outstanding"
-            label="Outstanding"
-            value={loading ? "…" : money(moneyBuckets.outstanding)}
-            hint={loading ? undefined : `${moneyBuckets.waitingPaymentCount} awaiting payment`}
-            attention
-          />
-          <SummaryLink
-            to="/jobs/outstanding"
-            label="Waiting approval"
-            value={loading ? "…" : money(moneyBuckets.waitingApproval)}
-            hint={loading ? undefined : `${moneyBuckets.waitingDocCount} estimate/CO`}
-            attention={moneyBuckets.waitingDocCount > 0}
-            tone="approval"
-          />
+        <MoneyGroups groups={groups} loading={loading} />
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <SummaryLink
             to="/jobs/active"
             label="Active jobs"
             value={loading ? "…" : String(active.length)}
-            hint={loading ? undefined : `${jobs.length} total`}
+            hint={loading ? undefined : `${jobs.length} on the board`}
           />
-          <SummaryLink
-            to="/jobs"
-            label="By status"
-            value={
-              loading
-                ? "…"
-                : String(ACTIVE_STATUSES.reduce((sum, s) => sum + (statusCounts[s] || 0), 0))
-            }
-            hint={
-              loading
-                ? undefined
-                : `Lead ${(statusCounts["Plan / draft estimate"] || 0) + (statusCounts["Waiting on approval"] || 0)} · Work ${statusCounts["In progress"] || 0} · Pay ${statusCounts["Waiting on payment"] || 0}`
-            }
-          />
+          <PhaseSummary loading={loading} phaseCounts={phaseCounts} phaseTotal={phaseTotal} />
         </div>
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <Link to="/jobs/outstanding" className="hover:text-primary hover:underline">
@@ -370,6 +342,24 @@ function AttentionRow({ row }) {
       </div>
       {row.status ? <StatusBadge status={row.status} className="shrink-0" /> : null}
     </Link>
+  );
+}
+
+function PhaseSummary({ loading, phaseCounts, phaseTotal }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-3.5">
+      <Link to="/jobs/board" className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">By status</div>
+        <div className="text-lg font-bold tabular-nums mt-1 text-foreground">{loading ? "…" : String(phaseTotal)}</div>
+      </Link>
+      <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+        {JOB_PHASE_ORDER.map((phase) => (
+          <Link key={phase} to={`/jobs/board?phase=${phase}`} className="hover:text-primary hover:underline">
+            {JOB_PHASES[phase].label} {loading ? "…" : phaseCounts[phase] || 0}
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 

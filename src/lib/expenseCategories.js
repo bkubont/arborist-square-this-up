@@ -1,3 +1,5 @@
+import { todayKey } from "./format.js";
+
 /** Common expense categories for Quick Add / Expenses list. Free text still allowed. */
 export const EXPENSE_CATEGORIES = [
   "Materials",
@@ -10,9 +12,5 @@ export const EXPENSE_CATEGORIES = [
 ];
 
 export function todayIso() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return todayKey();
 }

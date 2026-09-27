@@ -7,34 +7,18 @@ import BrokenSquareMark, { BrokenSquareEmpty } from "@/components/BrokenSquareMa
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { shortDate } from "@/lib/format";
+import { addCalendarDays, dateKey, parseDateOnly, shortDate, todayKey } from "@/lib/format";
 import { statusCardClass, statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
-function dayKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function parseDay(key) {
-  const [y, m, d] = String(key).split("-").map(Number);
-  const date = new Date(y, m - 1, d, 12, 0, 0, 0);
-  return date;
-}
-
 function startOfWeek(fromDate) {
-  const date = new Date(fromDate);
-  date.setHours(12, 0, 0, 0);
+  const date = parseDateOnly(fromDate) || parseDateOnly(new Date());
   date.setDate(date.getDate() - date.getDay());
   return date;
 }
 
 function addDays(date, n) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + n);
-  return next;
+  return parseDateOnly(addCalendarDays(date, n));
 }
 
 /**
@@ -95,7 +79,7 @@ function SchedulePage() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("week"); // day | week | agenda
-  const [focusKey, setFocusKey] = useState(() => dayKey(new Date()));
+  const [focusKey, setFocusKey] = useState(() => todayKey());
 
   useEffect(() => {
     api.entities.Job.listAll("-updated_date")
@@ -103,7 +87,7 @@ function SchedulePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const focusDate = useMemo(() => parseDay(focusKey), [focusKey]);
+  const focusDate = useMemo(() => parseDateOnly(focusKey), [focusKey]);
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(focusDate);
@@ -128,10 +112,10 @@ function SchedulePage() {
     [jobs]
   );
 
-  const todayKey = dayKey(new Date());
+  const today = todayKey();
   const dayJobs = jobsByDay[focusKey] || [];
   const weekLabel = weekDays.length
-    ? `${shortDate(dayKey(weekDays[0]))} – ${shortDate(dayKey(weekDays[6]))}`
+    ? `${shortDate(dateKey(weekDays[0]))} – ${shortDate(dateKey(weekDays[6]))}`
     : "";
 
   const dayLabel = focusDate.toLocaleDateString(undefined, {
@@ -147,11 +131,11 @@ function SchedulePage() {
       : `${scheduled.length} dated job${scheduled.length === 1 ? "" : "s"} · ${weekLabel}`;
 
   function goToday() {
-    setFocusKey(todayKey);
+    setFocusKey(today);
   }
 
   function shiftFocus(days) {
-    setFocusKey(dayKey(addDays(focusDate, days)));
+    setFocusKey(dateKey(addDays(focusDate, days)));
   }
 
   function openDay(key) {
@@ -219,7 +203,7 @@ function SchedulePage() {
       ) : view === "day" ? (
         <DayView
           focusKey={focusKey}
-          todayKey={todayKey}
+          todayKey={today}
           dayLabel={dayLabel}
           dayJobs={dayJobs}
           onBackToWeek={() => setView("week")}
@@ -228,7 +212,7 @@ function SchedulePage() {
         <WeekView
           days={weekDays}
           jobsByDay={jobsByDay}
-          todayKey={todayKey}
+          todayKey={today}
           focusKey={focusKey}
           onOpenDay={openDay}
           empty={scheduled.length === 0}
@@ -279,7 +263,7 @@ function WeekView({ days, jobsByDay, todayKey, focusKey, onOpenDay, empty }) {
     <>
       <div className="grid gap-3 md:grid-cols-7">
         {days.map((date) => {
-          const key = dayKey(date);
+          const key = dateKey(date);
           const dayJobs = jobsByDay[key] || [];
           const isToday = key === todayKey;
           const isFocus = key === focusKey;
