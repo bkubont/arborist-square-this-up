@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/lib/AuthContext";
 import { buildAttentionItems } from "@/lib/attentionItems";
+import { isWorkingJob } from "@/lib/jobFilters";
+import { addCalendarDays, todayKey } from "@/lib/format";
 import {
   clearDismissals,
   dismissItem,
@@ -38,14 +40,14 @@ export default function NotificationsMenu() {
   const refresh = useCallback(() => {
     setLoading(true);
     return Promise.all([
-      api.entities.Job.list("-updated_date", 300),
+      api.entities.Job.listAll("-updated_date"),
       api.entities.Estimate.list("-updated_date", 300),
       api.entities.ChangeOrder.list("-updated_date", 300),
       api.entities.Invoice.list("-updated_date", 300),
       api.entities.Expense.list("-created_date", 400),
     ])
       .then(([j, e, c, inv, ex]) => {
-        setJobs(j);
+        setJobs(j.filter(isWorkingJob));
         setEstimates(e);
         setChangeOrders(c);
         setInvoices(inv);
@@ -65,12 +67,8 @@ export default function NotificationsMenu() {
     return undefined;
   }, [open, refresh]);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  }, []);
+  const today = todayKey();
+  const tomorrow = useMemo(() => addCalendarDays(today, 1), [today]);
 
   const allItems = useMemo(
     () =>
@@ -225,7 +223,7 @@ export default function NotificationsMenu() {
             className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
           >
             <Check className="w-3 h-3" strokeWidth={2} />
-            Action items
+            Needs Attention
           </Link>
           <Link
             to="/receipts"

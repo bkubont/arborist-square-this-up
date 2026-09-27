@@ -3,6 +3,7 @@
  * Assistive only — all values remain editable after carryover.
  */
 
+import { todayKey } from './format.js';
 import { resolveSalesTaxRate } from './salesTax.js';
 
 function num(v) {
@@ -275,7 +276,7 @@ export function buildInvoiceAutofill({
   const invoice = {
     job_id: job?.id,
     number,
-    date: new Date().toISOString().slice(0, 10),
+    date: todayKey(),
     status: 'draft',
     notes: source.notes || job?.notes || '',
     payment_terms: company?.default_payment_terms || '',

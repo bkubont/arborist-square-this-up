@@ -1,4 +1,4 @@
-import { money } from "./format.js";
+import { addCalendarDays, money, todayKey } from "./format.js";
 import { collectActionItems, invoiceBalanceDue } from "./jobFilters.js";
 
 /**
@@ -35,16 +35,10 @@ export function buildAttentionItems({
   changeOrders = [],
   invoices = [],
   expenses = [],
-  today = new Date().toISOString().slice(0, 10),
+  today = todayKey(),
   tomorrow,
 } = {}) {
-  const tomorrowIso =
-    tomorrow ||
-    (() => {
-      const d = new Date(`${today}T12:00:00`);
-      d.setDate(d.getDate() + 1);
-      return d.toISOString().slice(0, 10);
-    })();
+  const tomorrowIso = tomorrow || addCalendarDays(today, 1);
 
   const actionItems = collectActionItems(jobs, estimates, changeOrders);
   const unassignedReceipts = expenses.filter((e) => e.photo_url && !e.job_id);

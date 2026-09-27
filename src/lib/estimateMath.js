@@ -1,3 +1,5 @@
+import { addCalendarDays, todayKey } from "./format.js";
+
 /** Estimate line totals — whole-line amount per row (materials included). */
 
 /** Catalog / fallback labor rate when company profile has none. */
@@ -8,16 +10,11 @@ export const ESTIMATE_VALID_DAYS = 10;
 
 /** @param {string} isoDate YYYY-MM-DD @param {number} days */
 export function addDaysIso(isoDate, days = ESTIMATE_VALID_DAYS) {
-  const base = String(isoDate || "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return "";
-  const d = new Date(`${base}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return "";
-  d.setDate(d.getDate() + Number(days));
-  return d.toISOString().slice(0, 10);
+  return addCalendarDays(isoDate, days);
 }
 
 export function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return todayKey();
 }
 
 /** Round money to cents. */

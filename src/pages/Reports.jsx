@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
+import MoneyGroups from "@/components/MoneyGroups";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { money } from "@/lib/format";
 import {
+  countByPhase,
   countByStatus,
   JOB_STATUSES,
-  moneySummary,
+  moneyGroups,
 } from "@/lib/jobFilters";
+import { JOB_PHASE_ORDER, JOB_PHASES } from "@/lib/jobStatus";
 import { NAV_ICONS } from "@/lib/navIcons";
 
 const ReportsIcon = NAV_ICONS.reports;
@@ -19,7 +22,6 @@ const ReportsIcon = NAV_ICONS.reports;
 export default function Reports() {
   const [jobs, setJobs] = useState([]);
   const [estimates, setEstimates] = useState([]);
-  const [changeOrders, setChangeOrders] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -29,15 +31,13 @@ export default function Reports() {
     Promise.all([
       api.entities.Job.list("-updated_date", 400),
       api.entities.Estimate.list("-updated_date", 300),
-      api.entities.ChangeOrder.list("-updated_date", 300),
       api.entities.Invoice.list("-updated_date", 300),
       api.entities.TimelineEntry.list("-created_date", 500),
       api.entities.Expense.list("-created_date", 400),
     ])
-      .then(([j, e, c, inv, tl, ex]) => {
+      .then(([j, e, inv, tl, ex]) => {
         setJobs(j);
         setEstimates(e);
-        setChangeOrders(c);
         setInvoices(inv);
         setTimeline(tl);
         setExpenses(ex);
@@ -45,12 +45,14 @@ export default function Reports() {
       .finally(() => setLoading(false));
   }, []);
 
-  const buckets = useMemo(
-    () => moneySummary(jobs, estimates, changeOrders, invoices, timeline),
-    [jobs, estimates, changeOrders, invoices, timeline]
+  const groups = useMemo(
+    () => moneyGroups({ jobs, estimates, invoices, timeline }),
+    [jobs, estimates, invoices, timeline]
   );
 
   const statusCounts = useMemo(() => countByStatus(jobs), [jobs]);
+  const phaseCounts = useMemo(() => countByPhase(jobs), [jobs]);
+  const phaseTotal = JOB_PHASE_ORDER.reduce((sum, phase) => sum + (phaseCounts[phase] || 0), 0);
 
   const materialsCost = useMemo(
     () => jobs.reduce((sum, j) => sum + (Number(j.materials_cost) || 0), 0),
@@ -92,27 +94,33 @@ export default function Reports() {
         <>
           <section className="mb-8">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Money</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-              <StatCard label="Received" value={loading ? "…" : money(buckets.received)} />
-              <StatCard label="Outstanding" value={loading ? "…" : money(buckets.outstanding)} attention />
-              <StatCard label="Invoiced" value={loading ? "…" : money(buckets.invoiced)} />
-              <StatCard
-                label="Waiting for approval"
-                value={loading ? "…" : money(buckets.waitingApproval)}
-                hint={loading ? undefined : `${buckets.waitingDocCount} estimate/CO`}
-                tone="approval"
-              />
-              <StatCard
-                label="Waiting on payment"
-                value={loading ? "…" : money(buckets.waitingPayment)}
-                hint={loading ? undefined : `${buckets.waitingPaymentCount} invoice${buckets.waitingPaymentCount === 1 ? "" : "s"}`}
-                tone="payment"
-              />
+            <MoneyGroups groups={groups} loading={loading} />
+            <div className="mt-3">
               <StatCard
                 label="Logged expenses"
                 value={loading ? "…" : money(expenseTotal)}
-                hint={loading ? undefined : `${expenses.length} record${expenses.length === 1 ? "" : "s"}`}
+                hint={loading ? undefined : `${expenses.length} record${expenses.length === 1 ? "" : "s"} · separate from invoice totals`}
               />
+            </div>
+          </section>
+
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Jobs by phase</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Link to="/jobs/board" className="rounded-xl border border-border bg-card p-3 hover:border-primary/40">
+                <div className="text-xs text-muted-foreground">On the board</div>
+                <div className="text-lg font-bold tabular-nums">{loading ? "…" : phaseTotal}</div>
+              </Link>
+              {JOB_PHASE_ORDER.map((phase) => (
+                <Link
+                  key={phase}
+                  to={`/jobs/board?phase=${phase}`}
+                  className="rounded-xl border border-border bg-card p-3 hover:border-primary/40"
+                >
+                  <div className="text-xs text-muted-foreground">{JOB_PHASES[phase].label}</div>
+                  <div className="text-lg font-bold tabular-nums">{loading ? "…" : phaseCounts[phase] || 0}</div>
+                </Link>
+              ))}
             </div>
           </section>
 
