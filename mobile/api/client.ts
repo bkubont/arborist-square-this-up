@@ -19,19 +19,19 @@ export type Client = {
   state?: string;
   zip?: string;
   notes?: string;
-  /** Lead pipeline status (Contact … Declined). */
+  /** CRM Lead status (Prospect … Declined). */
   status?: string;
   archived_at?: string;
   created_date?: string;
   updated_date?: string;
 };
 
-/** Three-phase stored statuses (Lead → Working → Payment). Legacy labels still appear on old rows. */
+/** Working + Payment stored statuses. Legacy labels still appear on old rows. */
 export type JobStatus = (typeof STORED_JOB_STATUSES)[number] | string;
 
 export const JOB_STATUSES: string[] = [...STORED_JOB_STATUSES];
 
-export type JobPhase = 'lead' | 'working' | 'payment';
+export type JobPhase = 'working' | 'payment';
 
 export type JobMaterial = {
   id?: string;

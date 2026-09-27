@@ -142,6 +142,7 @@ const JOB_FINISHED_STATUSES = new Set(['Completed', 'Paid']);
  */
 export async function completeJobWhenTasksDone(tx, ownerId, jobId) {
   const tasks = (await listJobDocuments(tx, ownerId, 'WorkItem', jobId))
+    .filter((task) => task.template_key !== 'prep' && task.template_key !== 'materials')
     .filter(task => normalizeTaskStatus(task.status ?? (task.done ? 'completed' : DEFAULT_TASK_STATUS)) !== 'cancelled');
   if (!tasks.length || !tasks.every(task => isTaskCompleted(task.status ?? (task.done ? 'completed' : DEFAULT_TASK_STATUS)))) return null;
   const job = await getRecord(tx, ownerId, 'Job', jobId);

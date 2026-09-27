@@ -56,7 +56,7 @@ function catalogNotes(item) {
   return parts.join(' · ');
 }
 
-/** Map a catalog row into an editable Estimate line (whole-line amount, materials included). */
+/** Map a catalog row into an editable Estimate line (whole-line amount, labor + materials). */
 export function catalogItemToEstimateLine(item) {
   const hours = item.hours_mid ?? null;
   const rate = item.labor_rate ?? 55;

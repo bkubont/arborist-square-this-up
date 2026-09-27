@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
-import { JOB_PHASES } from './jobStatus.js';
+import { JOB_PHASES, normalizeJobRecord } from './jobStatus.js';
+import { CLIENT_LEAD_STATUSES, normalizeClientRecord } from './clientPipeline.js';
 import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 import { materialRowForStorage } from '../shared/materialStatus.js';
 
 const text = z.string().max(20000);
-const [leadStatusHead, ...leadStatusTail] = JOB_PHASES.lead.statuses;
+const [leadStatusHead, ...leadStatusTail] = CLIENT_LEAD_STATUSES;
 const clientLeadStatus = z.enum(/** @type {[string, ...string[]]} */ ([leadStatusHead, ...leadStatusTail]));
 const [workingStatusHead, ...workingStatusTail] = JOB_PHASES.working.statuses;
 const jobWorkingStatus = z.enum(/** @type {[string, ...string[]]} */ ([workingStatusHead, ...workingStatusTail]));
@@ -114,23 +115,22 @@ export const schemas = {
     phone: text.optional(),
     email: text.optional(),
     notes: text.optional(),
-    /** Lead pipeline — same values as a lead job. The contact profile and the job header share this. */
+    /** CRM Lead on the customer profile only — not synced with jobs. */
     status: clientLeadStatus.optional(),
     /** Set when status is Declined so the contact leaves the active customers list. */
     archived_at: date.optional(),
   }),
   Job: z.object({ title: z.string().trim().max(250).optional(), client_id: id, client_name: text.optional(), description: text.optional(),
-    phase: z.enum(['lead', 'working', 'payment']).default('lead'),
-    /** Parallel tracks. The board column is still phase + status; these do not replace each other. Lead matches Client.status. */
-    lead_status: clientLeadStatus.optional(),
+    phase: z.enum(['working', 'payment']).default('working'),
+    /** Parallel tracks. The board column is still phase + status; these do not replace each other. */
     working_status: jobWorkingStatus.optional(),
     payment_status: jobPaymentStatus.optional(),
     status: z.enum([
-      'Contact', 'Assessment', 'Plan / draft estimate', 'Waiting on approval', 'Approved', 'Declined',
+      'Estimate', 'Waiting on approval', 'Approved',
       'Prep', 'In progress', 'Waiting on materials', 'Blocked', 'Completed', 'Cancelled',
       'Invoiced',
       'Waiting on payment', 'Partial', 'Late', 'Paid',
-    ]).default('Contact'),
+    ]).default('Estimate'),
     start_date: date.optional(), end_date: date.optional(),
     /** Set when a job reaches a terminal status — hides it from working lists; view under Archive. */
     archived_at: date.optional(),
@@ -437,6 +437,16 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
   if (!schemas[entity]) throw fail(404, 'Unknown record type');
   const previous = recordId ? await getRecord(db, owner, entity, recordId) : {};
   const merged = { ...previous, ...input };
+  if (entity === 'Job') {
+    const normalized = normalizeJobRecord(merged);
+    merged.phase = normalized.phase;
+    merged.status = normalized.status;
+  }
+  if (entity === 'Client') {
+    const normalized = normalizeClientRecord(merged);
+    merged.status = normalized.status;
+    if (normalized.archived_at) merged.archived_at = normalized.archived_at;
+  }
   if (entity === 'WorkItem') {
     if (merged.status !== undefined) {
       const parsed = parseTaskStatusForWrite(merged.status);

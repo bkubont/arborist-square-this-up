@@ -106,7 +106,7 @@ export default function Reports() {
 
           <section className="mb-8">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Jobs by phase</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Link to="/jobs/board" className="rounded-xl border border-border bg-card p-3 hover:border-primary/40">
                 <div className="text-xs text-muted-foreground">On the board</div>
                 <div className="text-lg font-bold tabular-nums">{loading ? "…" : phaseTotal}</div>

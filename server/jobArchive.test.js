@@ -28,13 +28,13 @@ describe('job archive', () => {
 
   it('archives Paid, Declined, and Cancelled but not Completed', () => {
     assert.ok(applyJobArchiveFields({ status: 'Paid' }, { status: 'In progress' }).archived_at);
-    assert.ok(applyJobArchiveFields({ status: 'Declined' }, { status: 'Contact' }).archived_at);
+    assert.ok(applyJobArchiveFields({ status: 'Declined' }, { status: 'Estimate' }).archived_at);
     assert.ok(applyJobArchiveFields({ status: 'Cancelled' }, { status: 'In progress' }).archived_at);
     assert.equal(applyJobArchiveFields({ status: 'Completed' }, { status: 'In progress' }).archived_at, undefined);
   });
 
   it('does not archive in-play jobs', () => {
-    const next = applyJobArchiveFields({ status: 'Prep' }, { status: 'Contact' });
+    const next = applyJobArchiveFields({ status: 'Prep' }, { status: 'Estimate' });
     assert.equal(next.archived_at, undefined);
     assert.equal(isArchivedJob(next), false);
   });

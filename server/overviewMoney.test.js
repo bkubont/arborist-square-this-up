@@ -50,13 +50,15 @@ test('remaining can go negative; it is not clamped into a status', () => {
   assert.equal(figures.remaining, -40);
 });
 
-test('lead shows quote only', () => {
+test('estimate stage shows quote only', () => {
   const figures = overviewFigures({ job: { estimate_amount: 500, deposit_amount: 80 } });
-  const block = moneyBlockForPhase('lead', figures);
+  const block = moneyBlockForPhase('working', figures, 'Estimate');
   assert.deepEqual(block.slots.map((s) => s.label), ['Quote']);
   assert.equal(block.jobCost, false);
   assert.equal(block.logPayment, false);
-  assert.equal(moneyBlockForPhase(undefined, figures).phase, 'lead');
+  assert.equal(moneyBlockForPhase(undefined, figures).phase, 'estimate');
+  assert.equal(moneyBlockForPhase('working', figures, 'Waiting on approval').phase, 'estimate');
+  assert.equal(moneyBlockForPhase('working', figures, 'Approved').phase, 'estimate');
 });
 
 test('working shows quote, a deposit when one exists, and job cost', () => {

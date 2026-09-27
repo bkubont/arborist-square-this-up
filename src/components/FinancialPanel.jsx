@@ -93,7 +93,7 @@ function JobCostList({ job, expenses, onChanged }) {
 
 /**
  * Phase-aware Overview money. Quote / Collected / Remaining — not an invoice ledger.
- * Lead: quote only. Working: quote, any deposit, job cost. Payment: bill, collected, remaining.
+ * Estimate: quote only. Working (Prep+): quote, any deposit, job cost. Payment: bill, collected, remaining.
  */
 export default function FinancialPanel({
   job,
@@ -110,8 +110,8 @@ export default function FinancialPanel({
     [job, documents, timeline],
   );
   const block = useMemo(
-    () => moneyBlockForPhase(job?.phase, figures),
-    [job?.phase, figures],
+    () => moneyBlockForPhase(job?.phase, figures, job?.status),
+    [job?.phase, job?.status, figures],
   );
   const sortedExpenses = useMemo(
     () => [...expenses].sort((a, b) => String(b.date || b.created_date || "").localeCompare(String(a.date || a.created_date || ""))),

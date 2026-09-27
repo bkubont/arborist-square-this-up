@@ -140,7 +140,7 @@ export default function MoreScreen() {
       <Text style={styles.groupLabel}>Work</Text>
       <LinkRow
         title="Board"
-        hint="Lead · Working · Payment — tap Move to change status"
+        hint="Working · Payment — tap Move to change status"
         onPress={() => router.push('/(app)/jobs/board')}
       />
       <LinkRow

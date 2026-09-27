@@ -1,26 +1,18 @@
-/** Brittany's three-phase job status model (Lead → Working → Payment). */
+/** Working + Payment job boards. Lead lives on the customer profile only. */
 
-export const JOB_PHASE_ORDER = ['lead', 'working', 'payment'];
+export const JOB_PHASE_ORDER = ['working', 'payment'];
 
 /** Invoiced is a Payment status. It is not a Working column. */
 export const INVOICE_GATE_STATUS = 'Invoiced';
 export const PAYMENT_ENTRY_STATUS = 'Waiting on payment';
 
 export const JOB_PHASES = {
-  lead: {
-    label: 'Lead',
-    statuses: [
-      'Contact',
-      'Assessment',
-      'Plan / draft estimate',
-      'Waiting on approval',
-      'Approved',
-      'Declined',
-    ],
-  },
   working: {
     label: 'Working',
     statuses: [
+      'Estimate',
+      'Waiting on approval',
+      'Approved',
       'Prep',
       'In progress',
       'Waiting on materials',
@@ -41,19 +33,24 @@ export const JOB_PHASES = {
   },
 };
 
+/** Estimate pipeline on Working — cards open Overview; money is quote-only. */
+export const ESTIMATE_STAGE_STATUSES = ['Estimate', 'Waiting on approval', 'Approved'];
+
 /** Statuses that may appear on stored jobs. Invoiced is a real Payment status. */
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
 
 export const ALL_JOB_STATUSES = STORED_JOB_STATUSES;
 
-/** Pre–three-phase job.status values → phase + status. */
+/** Pre–working-board job.status values → phase + status. */
 export const LEGACY_JOB_STATUS_MAP = {
-  Estimate: { phase: 'lead', status: 'Plan / draft estimate' },
+  Contact: { phase: 'working', status: 'Estimate' },
+  Assessment: { phase: 'working', status: 'Estimate' },
+  'Plan / draft estimate': { phase: 'working', status: 'Estimate' },
+  Declined: { phase: 'working', status: 'Cancelled' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
   'Waiting on Materials': { phase: 'working', status: 'Waiting on materials' },
-  Completed: { phase: 'working', status: 'Completed' },
-  Paid: { phase: 'payment', status: 'Paid' },
+  'On Hold': { phase: 'working', status: 'Blocked' },
 };
 
 /** Terminal statuses — job leaves working lists and lands in archive. */
@@ -65,16 +62,20 @@ export const ARCHIVE_JOB_STATUSES = new Set([
 
 export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));
 
+export function isEstimateStageStatus(status) {
+  return ESTIMATE_STAGE_STATUSES.includes(status);
+}
+
 export function phaseForStatus(status) {
   if (!status) return null;
   for (const phase of JOB_PHASE_ORDER) {
     if (JOB_PHASES[phase].statuses.includes(status)) return phase;
   }
-  return null;
+  return LEGACY_JOB_STATUS_MAP[status]?.phase || null;
 }
 
 export function defaultStatusForPhase(phase) {
-  return JOB_PHASES[phase]?.statuses[0] || 'Contact';
+  return JOB_PHASES[phase]?.statuses[0] || 'Estimate';
 }
 
 export function isLegacyJobStatus(status) {
@@ -110,7 +111,7 @@ export function normalizeJobRecord(job) {
   }
 
   if (!phase || !JOB_PHASES[phase]) {
-    phase = phaseForStatus(status) || 'lead';
+    phase = phaseForStatus(status) || 'working';
   }
 
   const allowed = JOB_PHASES[phase].statuses;
@@ -119,11 +120,7 @@ export function normalizeJobRecord(job) {
   }
 
   const changed = phase !== job.phase || status !== job.status || !job.phase;
-  const next = changed ? { ...job, phase, status } : job;
-  if (!next.lead_status && JOB_PHASES.lead.statuses.includes(next.status)) {
-    return { ...next, lead_status: next.status };
-  }
-  return next;
+  return changed ? { ...job, phase, status } : job;
 }
 
 /** Apply phase/status on create or patch; keeps phase and status consistent. */
@@ -150,13 +147,28 @@ export function applyJobStatusFields(body, previous) {
   const movesBoard = Object.prototype.hasOwnProperty.call(body, 'status')
     || Object.prototype.hasOwnProperty.call(body, 'phase');
   const track = movesBoard
-    ? (merged.phase === 'lead'
-      ? { lead_status: merged.status }
-      : merged.phase === 'working'
-        ? { working_status: merged.status }
-        : merged.phase === 'payment'
-          ? { payment_status: merged.status }
-          : {})
+    ? (merged.phase === 'working'
+      ? { working_status: merged.status }
+      : merged.phase === 'payment'
+        ? { payment_status: merged.status }
+        : {})
     : {};
   return { ...next, ...track, phase: merged.phase, status: merged.status };
+}
+
+/** Persist Contact / Assessment / Plan-draft-estimate jobs onto Estimate so they stay on Working. */
+export async function backfillJobStatuses(db) {
+  const rows = await db.all("SELECT id, owner_id, data FROM records WHERE entity = 'Job'");
+  let updated = 0;
+  for (const row of rows) {
+    const data = JSON.parse(row.data);
+    const next = normalizeJobRecord(data);
+    if (next.phase === data.phase && next.status === data.status) continue;
+    await db.run(
+      'UPDATE records SET data = ? WHERE id = ? AND owner_id = ?',
+      [JSON.stringify({ ...data, phase: next.phase, status: next.status }), row.id, row.owner_id],
+    );
+    updated += 1;
+  }
+  return updated;
 }

@@ -23,7 +23,7 @@ test('handyman catalog loads labor + materials prices', () => {
   assert.ok(withMats.length >= 180);
 });
 
-test('search→fill maps whole-line amount (materials included)', () => {
+test('search→fill maps whole-line amount (labor + materials)', () => {
   const { items } = searchCatalog({ q: 'toilet fill valve', limit: 5 });
   assert.ok(items.length >= 1);
   const hit = items[0];

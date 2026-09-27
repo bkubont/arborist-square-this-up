@@ -1,26 +1,27 @@
-/** Brittany's three-phase job status model (Lead → Working → Payment). Port of src/lib/jobStatus.js */
+/** Working + Payment job boards. Lead lives on the customer profile only. Port of src/lib/jobStatus.js */
 
-export const JOB_PHASE_ORDER = ['lead', 'working', 'payment'] as const;
+export const JOB_PHASE_ORDER = ['working', 'payment'] as const;
 export type JobPhase = (typeof JOB_PHASE_ORDER)[number];
 
 export const INVOICE_GATE_STATUS = 'Invoiced';
 export const PAYMENT_ENTRY_STATUS = 'Waiting on payment';
 
+export const CLIENT_LEAD_STATUSES = [
+  'Prospect',
+  'Contacted',
+  'Assessment',
+  'Follow-up',
+  'Active',
+  'Declined',
+] as const;
+
 export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }> = {
-  lead: {
-    label: 'Lead',
-    statuses: [
-      'Contact',
-      'Assessment',
-      'Plan / draft estimate',
-      'Waiting on approval',
-      'Approved',
-      'Declined',
-    ],
-  },
   working: {
     label: 'Working',
     statuses: [
+      'Estimate',
+      'Waiting on approval',
+      'Approved',
       'Prep',
       'In progress',
       'Waiting on materials',
@@ -35,6 +36,8 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
   },
 };
 
+export const ESTIMATE_STAGE_STATUSES = ['Estimate', 'Waiting on approval', 'Approved'] as const;
+
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap(phase => JOB_PHASES[phase].statuses);
 
 export const ARCHIVE_JOB_STATUSES = new Set(['Paid', 'Declined', 'Cancelled']);
@@ -42,14 +45,19 @@ export const ARCHIVE_JOB_STATUSES = new Set(['Paid', 'Declined', 'Cancelled']);
 export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter(s => !ARCHIVE_JOB_STATUSES.has(s));
 
 export const LEGACY_JOB_STATUS_MAP: Record<string, { phase: JobPhase; status: string }> = {
-  Estimate: { phase: 'lead', status: 'Plan / draft estimate' },
+  Contact: { phase: 'working', status: 'Estimate' },
+  Assessment: { phase: 'working', status: 'Estimate' },
+  'Plan / draft estimate': { phase: 'working', status: 'Estimate' },
+  Declined: { phase: 'working', status: 'Cancelled' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
   'Waiting on Materials': { phase: 'working', status: 'Waiting on materials' },
   'On Hold': { phase: 'working', status: 'Blocked' },
-  Completed: { phase: 'working', status: 'Completed' },
-  Paid: { phase: 'payment', status: 'Paid' },
 };
+
+export function isEstimateStageStatus(status: string | null | undefined): boolean {
+  return (ESTIMATE_STAGE_STATUSES as readonly string[]).includes(status || '');
+}
 
 export function phaseForStatus(status: string | null | undefined): JobPhase | null {
   if (!status) return null;
@@ -61,7 +69,7 @@ export function phaseForStatus(status: string | null | undefined): JobPhase | nu
 }
 
 export function defaultStatusForPhase(phase: JobPhase | string): string {
-  return JOB_PHASES[phase as JobPhase]?.statuses[0] || 'Contact';
+  return JOB_PHASES[phase as JobPhase]?.statuses[0] || 'Estimate';
 }
 
 export function statusesForPhase(phase: JobPhase | string): string[] {
@@ -112,7 +120,7 @@ export function resolvePhaseStatus(
     (JOB_PHASE_ORDER.includes(phase as JobPhase) ? (phase as JobPhase) : null) ||
     phaseForStatus(status) ||
     legacy?.phase ||
-    'lead';
+    'working';
   const candidate = status || legacy?.status || defaultStatusForPhase(resolvedPhase);
   const resolvedStatus = statusesForPhase(resolvedPhase).includes(candidate)
     ? candidate

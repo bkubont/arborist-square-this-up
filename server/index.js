@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { openDatabase, migrate } from './db.js';
 import { createApp } from './app.js';
 import { backfillJobArchive } from './jobArchive.js';
+import { backfillJobStatuses } from './jobStatus.js';
+import { backfillClientLeadStatuses } from './clientPipeline.js';
 import { carryOverChecklists } from './workItems.js';
 // Hostinger's LiteSpeed loader requires this module synchronously. Keep the
 // imported module graph free of top-level await; initialize asynchronously here.
@@ -10,6 +12,10 @@ async function start() {
   try {
     await migrate(db);
     await backfillJobArchive(db);
+    const remappedJobs = await backfillJobStatuses(db);
+    if (remappedJobs) console.log(`Remapped ${remappedJobs} jobs onto the Working board.`);
+    const remappedClients = await backfillClientLeadStatuses(db);
+    if (remappedClients) console.log(`Remapped ${remappedClients} customer Lead statuses.`);
     const carried = await carryOverChecklists(db);
     if (carried) console.log(`Carried ${carried} tasks into job checklists.`);
     const app = await createApp(db);

@@ -8,7 +8,7 @@ import {
 } from "./jobStatus.js";
 import { jobHasOpenMaterials } from "./jobMaterials.js";
 
-/** Stored job statuses across Lead, Working, and Payment (Invoiced is a Payment status). */
+/** Stored job statuses across Working and Payment (Invoiced is a Payment status). */
 export const JOB_STATUSES = STORED_JOB_STATUSES;
 
 /** Statuses still in play on working lists (non-terminal). */
@@ -118,14 +118,15 @@ export function countByStatus(jobs) {
  * Jobs on each board phase. Same rule as the board: stored `phase`, else the status's phase.
  * Counts add up to the jobs passed in (one phase per job).
  * @param {object[]} jobs
- * @returns {{ lead: number, working: number, payment: number }}
+ * @returns {{ working: number, payment: number }}
  */
 export function countByPhase(jobs = []) {
-  const counts = { lead: 0, working: 0, payment: 0 };
+  const counts = { working: 0, payment: 0 };
   for (const job of jobs) {
     const phase = JOB_PHASE_ORDER.includes(job?.phase) ? job.phase : null;
-    const key = phase || phaseForStatus(job?.status) || "lead";
-    counts[key] += 1;
+    const key = phase || phaseForStatus(job?.status) || "working";
+    if (key === "payment") counts.payment += 1;
+    else counts.working += 1;
   }
   return counts;
 }

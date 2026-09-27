@@ -6,7 +6,7 @@ import { passwordHash } from './security.js';
 import { saveRecord } from './domain.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
 import { createWorkItemsForLines } from './workItems.js';
-import { PREP_TASK_STEPS } from '../shared/taskTemplates.js';
+import { DEFAULT_JOB_TASK_TEMPLATES } from '../shared/taskTemplates.js';
 import { normalizeTaskStatus } from '../shared/taskStatus.js';
 
 async function createUser(db, email) {
@@ -26,7 +26,7 @@ const CLIENT_ADDR = {
   zip: '62701',
 };
 
-test('attachDefaultJobTasks adds Prep with template steps only', async () => {
+test('attachDefaultJobTasks does not auto-create Prep', async () => {
   const db = await openDatabase({ SQLITE_PATH: ':memory:' });
   try {
     await migrate(db);
@@ -34,25 +34,22 @@ test('attachDefaultJobTasks adds Prep with template steps only', async () => {
     const client = await saveRecord(db, ownerId, 'Client', { name: 'Task client', ...CLIENT_ADDR });
     const job = await saveRecord(db, ownerId, 'Job', { title: 'Task job', client_id: client.id });
 
-    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 1);
+    assert.deepEqual(DEFAULT_JOB_TASK_TEMPLATES, []);
+    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 0);
     assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 0);
 
     const rows = (await db.all(
       'SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?',
       [ownerId, 'WorkItem', job.id],
-    )).map((r) => JSON.parse(r.data)).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    )).map((r) => JSON.parse(r.data));
 
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].template_key, 'prep');
-    assert.equal(rows[0].description, 'Prep');
-    assert.deepEqual(rows[0].steps.map((s) => s.text), PREP_TASK_STEPS.map((s) => s.text));
-    assert.equal(rows[0].status, 'plan');
+    assert.equal(rows.length, 0);
   } finally {
     await db.close();
   }
 });
 
-test('attachDefaultJobTasks keeps signed scope tasks after Prep by sort_order', async () => {
+test('attachDefaultJobTasks leaves signed scope as the first tasks', async () => {
   const db = await openDatabase({ SQLITE_PATH: ':memory:' });
   try {
     await migrate(db);
@@ -76,8 +73,9 @@ test('attachDefaultJobTasks keeps signed scope tasks after Prep by sort_order', 
       'SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?',
       [ownerId, 'WorkItem', job.id],
     )).map((r) => JSON.parse(r.data)).sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity));
-    assert.equal(rows[0].template_key, 'prep');
-    assert.equal(rows[1].description, 'Install cabinets', 'signed scope sits after Prep');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].description, 'Install cabinets');
+    assert.equal(rows[0].template_key, undefined);
   } finally {
     await db.close();
   }
@@ -96,7 +94,7 @@ test('attachDefaultJobTasks does not adopt legacy Materials rows as built-in tas
       status: 'materials',
     });
 
-    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 1);
+    assert.equal(await attachDefaultJobTasks(db, ownerId, job.id), 0);
 
     const rows = (await db.all(
       'SELECT id, data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?',
