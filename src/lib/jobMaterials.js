@@ -1,4 +1,29 @@
-export { collectJobMaterialItems, deriveMaterialsStatus } from "../../shared/jobMaterials.js";
+import { materialRowForStorage } from "./materialStatus.js";
+
+export {
+  collectJobMaterialItems,
+  deriveMaterialsStatus,
+  jobHasOpenMaterials,
+  materialLineOpen,
+  materialsForTask,
+  taskHasOpenMaterials,
+} from "../../shared/jobMaterials.js";
+
+/** Persist job buy-list rows. Blank descriptions are dropped. `task_id` tags a line to a task. */
+export function serializeMaterialRows(rows = []) {
+  const num = (v) => (v === "" || v == null ? undefined : Number(v));
+  return rows
+    .filter((m) => String(m?.description || "").trim())
+    .map((m) => materialRowForStorage({
+      ...m,
+      description: String(m.description).trim(),
+      qty: num(m.qty),
+      unit: m.unit || undefined,
+      unit_price: num(m.unit_price),
+      notes: m.notes?.trim() || undefined,
+      task_id: m.task_id || undefined,
+    }));
+}
 
 /** Tailwind classes for derived materials status (read-only — not a job status dropdown). */
 export function materialsStatusClass(key) {

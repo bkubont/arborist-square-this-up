@@ -1,30 +1,80 @@
 /**
- * Job-level materials: list lives on the job (and task rows); header status is derived — never a second dropdown.
+ * One buy list per job. A line may be tagged to a task (`task_id`) or left untagged.
+ * The task T-chart filters this same list. Header status is derived — never a second dropdown.
  */
 
 import { isMaterialOnHand, normalizeMaterialStatus } from './materialStatus.js';
 
-/** @typedef {{ description?: string, qty?: number, unit?: string, unit_price?: number, have?: boolean, status?: string, notes?: string, id?: string }} MaterialItem */
+/** @typedef {{ description?: string, qty?: number, unit?: string, unit_price?: number, have?: boolean, status?: string, notes?: string, id?: string, task_id?: string }} MaterialItem */
+
+/** Needed, ordered, or waiting — not on hand yet. */
+export function materialLineOpen(material = {}) {
+  const status = normalizeMaterialStatus(material);
+  return status === 'needed' || status === 'ordered' || status === 'waiting';
+}
+
+/** Lines with a description. This is the only materials store. */
+export function jobMaterialLines(job) {
+  return (job?.materials || []).filter((material) => String(material?.description || '').trim());
+}
+
+/** Same records as the job list, filtered to one task. */
+export function materialsForTask(job, taskId) {
+  if (!taskId) return [];
+  return jobMaterialLines(job).filter((material) => material.task_id === taskId);
+}
+
+/** Job board "Waiting on materials": any line is still needed, ordered, or waiting. */
+export function jobHasOpenMaterials(job) {
+  return jobMaterialLines(job).some(materialLineOpen);
+}
+
+/** Task board "Waiting on materials": any line tagged to this task is still open. */
+export function taskHasOpenMaterials(job, taskId) {
+  return materialsForTask(job, taskId).some(materialLineOpen);
+}
 
 /**
- * Flatten job.materials plus every task material row (cancelled tasks skipped).
+ * Replace one task's tagged lines inside the job list. Other lines stay put.
+ * @param {MaterialItem[]} materials
+ * @param {string} taskId
+ * @param {MaterialItem[]} nextLines
+ */
+export function replaceTaskMaterialLines(materials = [], taskId, nextLines = []) {
+  const incoming = (nextLines || [])
+    .filter((material) => String(material?.description || '').trim())
+    .map((material) => ({ ...material, task_id: taskId }));
+  const kept = [];
+  let inserted = false;
+  for (const row of materials || []) {
+    if (row?.task_id === taskId) {
+      if (!inserted) {
+        kept.push(...incoming);
+        inserted = true;
+      }
+      continue;
+    }
+    kept.push(row);
+  }
+  if (!inserted) kept.push(...incoming);
+  return kept;
+}
+
+/**
+ * The job buy list. `workItems` only supplies task names for tagged lines.
  * @param {{ materials?: MaterialItem[] }} [job]
- * @param {Array<{ id?: string, status?: string, materials?: MaterialItem[], description?: string }>} [workItems]
+ * @param {Array<{ id?: string, status?: string, description?: string }>} [workItems]
  */
 export function collectJobMaterialItems(job, workItems = []) {
-  const items = [];
-  for (const material of job?.materials || []) {
-    if (!String(material?.description || '').trim()) continue;
-    items.push({ ...material, source: 'job' });
-  }
-  for (const task of workItems || []) {
-    if (!task?.id || task.status === 'cancelled') continue;
-    for (const material of task.materials || []) {
-      if (!String(material?.description || '').trim()) continue;
-      items.push({ ...material, source: 'task', taskDescription: task.description });
-    }
-  }
-  return items;
+  const tasks = new Map((workItems || []).filter((task) => task?.id).map((task) => [task.id, task]));
+  return jobMaterialLines(job).map((material) => {
+    const task = material.task_id ? tasks.get(material.task_id) : null;
+    return {
+      ...material,
+      source: material.task_id ? 'task' : 'job',
+      ...(task?.description ? { taskDescription: task.description } : {}),
+    };
+  });
 }
 
 /**

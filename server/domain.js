@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { JOB_PHASES } from './jobStatus.js';
 import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
+import { materialRowForStorage } from '../shared/materialStatus.js';
 
 const text = z.string().max(20000);
 const [leadStatusHead, ...leadStatusTail] = JOB_PHASES.lead.statuses;
@@ -135,7 +136,7 @@ export const schemas = {
     archived_at: date.optional(),
     estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(),
-    /** Job-level materials list (not on estimates). Items not on hand feed the draft Material Order. */
+    /** The job's only buy list. Optional task_id tags a line to a task; untagged lines stay on the job. */
     materials: z.array(z.object({
       id: z.string().max(64).optional(),
       description: text.default(''),
@@ -145,6 +146,8 @@ export const schemas = {
       status: z.enum(['needed', 'ordered', 'waiting', 'on_hand']).optional(),
       have: z.boolean().default(false),
       notes: text.optional(),
+      /** WorkItem this line belongs to. Omit to leave it on the whole-job list. */
+      task_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().min(1).max(36).optional()),
     })).max(500).optional(),
     notes: text.optional(),
     /** Primary trade for kanban grouping (plumbing, electrical, …). */
@@ -227,7 +230,10 @@ export const schemas = {
     /** Position within its status column / the list; lower first. */
     sort_order: z.number().finite().min(-1e9).max(1e9).optional(),
     measurements: z.array(z.object({ id: z.string().max(64).optional(), label: text.default(''), value: text.default('') })).max(200).optional(),
-    /** Parts for this task. Items not yet on hand feed the job's draft Material Order (materialOrderSync.js). */
+    /**
+     * Accepted on write, then copied onto Job.materials (tagged with this task) and cleared.
+     * Reads are filled from that job list — there is not a second store.
+     */
     materials: z.array(z.object({
       id: z.string().max(64).optional(),
       description: text.default(''),
@@ -305,7 +311,7 @@ export const schemas = {
       /** Optional procurement difficulty. */
       line_status: z.enum(['pricing', 'backorder', 'unavailable', 'canceled', 'rebuild']).optional(),
       // 'WorkOrder' stays accepted so rows written before the checklist replaced it still decode.
-      source_entity: z.enum(['Estimate', 'WorkOrder', 'ChangeOrder', 'WorkItem']).optional(),
+      source_entity: z.enum(['Estimate', 'WorkOrder', 'ChangeOrder', 'WorkItem', 'Job']).optional(),
       source_id: id.optional(),
       source_line_index: z.number().int().min(0).max(10000).optional(),
       /** Stable id of the source row (task materials), so reordering a list doesn't re-key it. */
@@ -456,6 +462,22 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
       ...section,
       items: withIds(section.items || []),
     }));
+  }
+  if (entity === 'Job' && Array.isArray(data.materials)) {
+    data.materials = withIds(data.materials).map((row) => {
+      const stored = materialRowForStorage(row);
+      return stored.task_id ? stored : { ...stored, task_id: undefined };
+    });
+    if (!recordId && data.materials.some((row) => row.task_id)) {
+      throw fail(400, 'Tag materials to a task on this job');
+    }
+    if (recordId) {
+      for (const row of data.materials) {
+        if (!row.task_id) continue;
+        const task = await getRecord(db, owner, 'WorkItem', row.task_id);
+        if (task.job_id !== recordId) throw fail(400, 'Tag materials to a task on this job');
+      }
+    }
   }
   if (entity === 'WorkItem') {
     for (const key of ['steps', 'measurements', 'materials']) if (data[key]) data[key] = withIds(data[key]);

@@ -1,5 +1,5 @@
 /**
- * Sync Material Order draft lines from the job's task material lists (items not on hand).
+ * Sync Material Order draft lines from the job buy list (items not on hand).
  * Multiple MOs remain allowed; only draft MOs are auto-updated.
  */
 import { saveRecord } from './domain.js';

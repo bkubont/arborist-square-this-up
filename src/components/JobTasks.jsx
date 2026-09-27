@@ -19,7 +19,7 @@ import {
   workTypeLabel,
 } from "@/lib/workTypes";
 import MaterialStatusSelect from "@/components/MaterialStatusSelect";
-import { materialNeedsOrder, materialRowForStorage } from "@/lib/materialStatus";
+import { materialLineOpen, serializeMaterialRows } from "@/lib/jobMaterials";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,14 +28,14 @@ import { cn } from "@/lib/utils";
  * so one can be waiting on materials while another is done. Each card shows its expected labor
  * hours and its notes, each tinted with the status it was written under, with an "Add a note…" box
  * always there; moving a task to Waiting on Materials, On Hold or Cancelled puts the cursor in it.
- * Clicking a task opens its details (steps, measurements, materials). Never shown to the customer.
+ * Clicking a task opens its details (steps, measurements). Materials on the right are the job buy list filtered to this task. Never shown to the customer.
  *
  * Without a jobId (the Kanban page's Tasks board) it shows every job's tasks, each card naming its
  * job; new tasks are then added from a job.
  *
- * @param {{ jobId?: string, items: Array, documents?: Array, onChanged: () => void, view?: "list" | "board", boardGroupBy?: "stage" | "type", jobsById?: Record<string, any> }} props
+ * @param {{ jobId?: string, items: Array, jobMaterials?: Array, documents?: Array, onChanged: () => void, view?: "list" | "board", boardGroupBy?: "stage" | "type", jobsById?: Record<string, any> }} props
  */
-export default function JobTasks({ jobId = undefined, items = [], documents = [], onChanged, view = "list", boardGroupBy = "stage", jobsById = undefined }) {
+export default function JobTasks({ jobId = undefined, items = [], jobMaterials = undefined, documents = [], onChanged, view = "list", boardGroupBy = "stage", jobsById = undefined }) {
   const [adding, setAdding] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [openId, setOpenId] = useState(null);
@@ -195,7 +195,21 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
       ) : (
         <div className="space-y-2 mb-3">
           {shown.map((item) => (
-            <TaskRow key={item.id} item={item} documents={documents} busy={busyId === item.id} onPatch={patch} onStatus={changeStatus} onOpen={() => setOpenId(item.id)} note={noteProps(item)} />
+            <TaskRow
+              key={item.id}
+              item={item}
+              documents={documents}
+              busy={busyId === item.id}
+              onPatch={patch}
+              onStatus={changeStatus}
+              onOpen={() => setOpenId(item.id)}
+              note={noteProps(item)}
+              jobMaterials={jobMaterials}
+              onSaveMaterials={(next) => {
+                if (!jobId) return Promise.resolve();
+                return run(item.id, () => api.entities.Job.update(jobId, { materials: next }));
+              }}
+            />
           ))}
         </div>
       )}
@@ -226,9 +240,14 @@ export default function JobTasks({ jobId = undefined, items = [], documents = []
   );
 }
 
-function TaskTags({ item, documents, hideWorkType = false }) {
+function linesForTask(item, jobMaterials) {
+  if (Array.isArray(jobMaterials)) return jobMaterials.filter((row) => row.task_id === item.id);
+  return item.materials || [];
+}
+
+function TaskTags({ item, documents, hideWorkType = false, jobMaterials = undefined }) {
   const steps = item.steps || [];
-  const needed = (item.materials || []).filter((m) => materialNeedsOrder(m)).length;
+  const needed = linesForTask(item, jobMaterials).filter((m) => materialLineOpen(m)).length;
   return (
     <>
       {/* Most tasks come from the estimate, so only work added later by a change order is tagged. */}
@@ -238,7 +257,7 @@ function TaskTags({ item, documents, hideWorkType = false }) {
       {formatHours(item.labor_hours) && <Tag><Clock className="inline w-2.5 h-2.5 mr-0.5 -mt-px" aria-hidden="true" />{formatHours(item.labor_hours)}</Tag>}
       {item.amount_cents != null && <Tag tone="money">{moneyCents(item.amount_cents)}{item.billed_invoice_id ? " · billed" : ""}</Tag>}
       {steps.length > 0 && <Tag>{steps.filter((s) => s.done).length}/{steps.length} steps</Tag>}
-      {needed > 0 && <Tag tone="materials">{needed} to get</Tag>}
+      {needed > 0 && <Tag tone="materials">Waiting on materials</Tag>}
     </>
   );
 }
@@ -262,11 +281,11 @@ function TaskDoneCheckbox({ itemId, checked, disabled, busy, onToggle, label }) 
   );
 }
 
-function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
+function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note, jobMaterials, onSaveMaterials }) {
   const [expanded, setExpanded] = useState(true);
   const status = taskStatus(item);
   const steps = item.steps || [];
-  const materials = item.materials || [];
+  const materials = linesForTask(item, jobMaterials);
   const closed = isTaskCompleted(status) || status === "cancelled";
   const done = isTaskCompleted(status);
 
@@ -278,23 +297,17 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
   const addStep = (text) => onPatch(item, { steps: [...steps, { text: text.trim(), done: false }] });
   const removeStep = (stepId) => onPatch(item, { steps: steps.filter((s) => s.id !== stepId) });
 
-  const saveMaterials = (next) => {
-    const num = (v) => (v === "" || v == null ? undefined : Number(v));
-    onPatch(item, {
-      materials: next
-        .filter((m) => m.description?.trim())
-        .map((m) => materialRowForStorage({
-          ...m,
-          description: m.description.trim(),
-          qty: num(m.qty),
-          unit: m.unit || undefined,
-          unit_price: num(m.unit_price),
-        })),
-    });
+  const saveMaterials = (nextForTask) => {
+    const others = (jobMaterials || []).filter((row) => row.task_id !== item.id);
+    const payload = serializeMaterialRows([
+      ...others,
+      ...nextForTask.map((row) => ({ ...row, task_id: item.id })),
+    ]);
+    return onSaveMaterials?.(payload);
   };
   const setMaterial = (index, patch) => saveMaterials(materials.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   const setMaterialStatus = (index, status) => setMaterial(index, { status, have: status === "on_hand" });
-  const addMaterial = (description) => saveMaterials([...materials, { description: description.trim(), qty: "", unit: "", unit_price: "", status: "needed", have: false }]);
+  const addMaterial = (description) => saveMaterials([...materials, { description: description.trim(), qty: "", unit: "", unit_price: "", status: "needed", have: false, task_id: item.id }]);
   const removeMaterial = (index) => saveMaterials(materials.filter((_, i) => i !== index));
 
   return (
@@ -311,7 +324,7 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
         <button type="button" className="flex-1 min-w-[10rem] text-left" onClick={onOpen}>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={cn("text-sm font-medium hover:underline", closed ? "text-slate-400" : "text-slate-800", status === "cancelled" && "line-through")}>{item.description}</span>
-            <TaskTags item={item} documents={documents} />
+            <TaskTags item={item} documents={documents} jobMaterials={jobMaterials} />
           </div>
         </button>
         <div className="flex items-center gap-1">
@@ -357,7 +370,7 @@ function TaskRow({ item, documents, busy, onPatch, onStatus, onOpen, note }) {
               <StepAdder disabled={busy} onAdd={addStep} />
             </div>
           </div>
-          <div>
+          <div data-testid={`task-materials-${item.id}`}>
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Materials</div>
             <div className="space-y-1.5">
               {materials.map((m, index) => (
@@ -530,7 +543,7 @@ function TaskBoardCard({ item, documents, busyId, onOpen, noteProps, jobsById, d
       <div className="text-sm font-medium text-foreground leading-snug line-clamp-3">{item.description}</div>
       <div className="flex flex-wrap gap-1 mt-1.5">
         {showStatus && <Tag tone="stage">{taskStatusLabel(status)}</Tag>}
-        <TaskTags item={item} documents={documents} hideWorkType={showStatus} />
+        <TaskTags item={item} documents={documents} hideWorkType={showStatus} jobMaterials={undefined} />
       </div>
       <TaskNotes item={item} {...noteProps(item)} className="mt-1.5" />
     </div>
