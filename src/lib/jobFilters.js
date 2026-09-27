@@ -121,11 +121,12 @@ export function countByStatus(jobs) {
  * @returns {{ working: number, payment: number }}
  */
 export function countByPhase(jobs = []) {
-  const counts = Object.fromEntries(JOB_PHASE_ORDER.map((phase) => [phase, 0]));
+  const counts = { working: 0, payment: 0 };
   for (const job of jobs) {
     const phase = JOB_PHASE_ORDER.includes(job?.phase) ? job.phase : null;
     const key = phase || phaseForStatus(job?.status) || "working";
-    counts[key] += 1;
+    if (key === "payment") counts.payment += 1;
+    else counts.working += 1;
   }
   return counts;
 }

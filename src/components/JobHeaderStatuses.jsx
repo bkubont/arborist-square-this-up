@@ -45,13 +45,12 @@ function TrackSelect({ label, value, statuses, onChange }) {
  */
 export default function JobHeaderStatuses({
   job,
-  client,
   workItems = [],
   materialOrders = [],
   onChange,
   className = "",
 }) {
-  const tracks = headerTracks(job, client);
+  const tracks = headerTracks(job);
   return (
     <div className={cn("space-y-2 w-full sm:w-72", className)}>
       <TrackSelect

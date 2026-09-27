@@ -288,7 +288,6 @@ export default function JobDetail() {
             <div className="flex items-start gap-2 w-full sm:w-auto">
               <JobHeaderStatuses
                 job={job}
-                client={client}
                 workItems={workItems}
                 materialOrders={materialOrders}
                 onChange={changeTrack}

@@ -2600,7 +2600,7 @@ test('status override: accept / approve without a signature, reopen only while n
   assert.equal((await setStatus('Estimate', estimate.id, 'accepted')).status, 200);
   tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.filter(i => i.source_id === estimate.id);
   assert.deepEqual(tasks.map(i => i.description).sort(), ['Deck', 'Stain']);
-  assert.equal(tasks.find(i => i.description === 'Deck').status, 'plan');
+  assert.equal(tasks.find(i => i.description === 'Deck').status, 'in_progress');
 
   // Declined ↔ draft; void is final here.
   assert.equal((await setStatus('Estimate', estimate.id, 'declined')).data.status, 'declined');
