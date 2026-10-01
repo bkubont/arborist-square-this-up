@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import PublicDocLayout from "@/components/PublicDocLayout";
-import { PRODUCT_NAME, SUPPORT_EMAIL } from "@/lib/brand";
+import { PRODUCT_NAME, PRODUCT_EDITION, SUPPORT_EMAIL } from "@/lib/brand";
 
 /**
  * Public Privacy Policy for store listings and in-app Settings.
@@ -20,8 +20,8 @@ export default function Privacy() {
       <section className="space-y-2">
         <h2 className="text-base font-semibold text-foreground">Who we are</h2>
         <p>
-          {PRODUCT_NAME} is a job tracker for contractors and similar trades. Accounts are
-          invitation-only; there is no public self-registration.
+          {PRODUCT_NAME} ({PRODUCT_EDITION.toLowerCase()}) is a job tracker for tree-service and
+          arborist businesses. Accounts are invitation-only; there is no public self-registration.
         </p>
       </section>
 
@@ -32,7 +32,7 @@ export default function Privacy() {
           <li>Account email and a hashed password (we do not store plaintext passwords)</li>
           <li>Session tokens so you can stay signed in</li>
           <li>Company profile details (name, address, phone, email, website, defaults)</li>
-          <li>Customers/clients, jobs, tasks, timeline notes, estimates, work orders, change orders, invoices, expenses, and related records</li>
+          <li>Customers/clients, jobs, tree inventory, tasks, timeline notes, estimates, change orders, invoices, expenses, and related records</li>
           <li>Photos and other files you upload (served only to the account owner; they are not public URLs)</li>
           <li>
             Optional customer email or phone when you send estimate or change-order sign links

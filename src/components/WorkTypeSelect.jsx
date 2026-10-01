@@ -5,7 +5,7 @@ import { normalizeWorkType, UNASSIGNED_WORK_TYPE, workTypeLabel } from "@/lib/wo
 import { cn } from "@/lib/utils";
 
 /**
- * Trade picker (plumbing, electrical, drywall, …) from the handyman catalog.
+ * Trade picker (pruning, removal, PHC, …) from the arborist work-type list.
  *
  * @param {{ value?: string, onValueChange: (value: string) => void, className?: string, triggerClassName?: string, allowEmpty?: boolean, disabled?: boolean, placeholder?: string }} props
  */

@@ -16,7 +16,7 @@ function trimUrl(value: unknown): string {
 
 /**
  * Store-listing / App Review URLs from env + app.config `extra`.
- * Production: https://squarethisup.com/privacy and /support (web public routes).
+ * Production: https://arborist.squarethisup.com/privacy and /support (web public routes).
  */
 export function getPrivacyPolicyUrl(): string {
   return (
@@ -35,6 +35,6 @@ export function getLinkHost(): string {
   return (
     trimUrl(process.env.EXPO_PUBLIC_LINK_HOST) ||
     trimUrl(extra().linkHost) ||
-    'jobs.yourdomain.com'
+    'arborist.squarethisup.com'
   );
 }

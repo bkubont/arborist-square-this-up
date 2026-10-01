@@ -18,6 +18,7 @@ import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
 import JobMaterialsPanel from "@/components/JobMaterialsPanel";
+import JobTreeInventoryPanel from "@/components/JobTreeInventoryPanel";
 import TimelineFeed from "@/components/TimelineFeed";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
@@ -63,6 +64,7 @@ export default function JobDetail() {
   const [workItems, setWorkItems] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [punchList, setPunchList] = useState(null);
+  const [trees, setTrees] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
@@ -91,18 +93,20 @@ export default function JobDetail() {
   };
 
   const load = useCallback(async () => {
-    const [j, e, items, money, jobExpenses, ...docLists] = await Promise.all([
+    const [j, e, items, money, jobExpenses, treeRows, ...docLists] = await Promise.all([
       api.entities.Job.get(id),
       api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 500),
       api.entities.WorkItem.filter({ job_id: id }, "-created_date", 500),
       api.summaries.job(id).catch(() => null),
       api.entities.Expense.filter({ job_id: id }, "-created_date", 200),
+      api.entities.TreeInventory.filter({ job_id: id }, "created_date", 200),
       ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 100)),
     ]);
     setJob(j);
     setEntries(e);
     setWorkItems(items);
     setExpenses(jobExpenses);
+    setTrees(treeRows);
     setSummary(money);
     const flatDocs = docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] })));
     setDocuments(flatDocs);
@@ -329,6 +333,8 @@ export default function JobDetail() {
               onExpensesChanged={load}
             />
           </div>
+
+          <JobTreeInventoryPanel jobId={id} trees={trees} onChanged={load} />
 
           <JobMaterialsPanel jobId={id} materials={job.materials || []} tasks={workItems} onChanged={load} />
 

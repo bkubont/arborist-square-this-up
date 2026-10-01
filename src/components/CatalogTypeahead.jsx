@@ -13,7 +13,7 @@ export default function CatalogTypeahead({
   value,
   onChange,
   onPick,
-  placeholder = "Description — start typing to search catalog…",
+  placeholder = "Description — start typing to search arborist services…",
   className,
   inputClassName,
 }) {

@@ -117,6 +117,7 @@ export const api = {
     Invoice: entity('Invoice'),
     PunchList: entity('PunchList'),
     Expense: entity('Expense'),
+    TreeInventory: entity('TreeInventory'),
   },
   punchList: {
     complete(id, data) { return post(`/punch-list/${encodeURIComponent(id)}/complete`, data); },

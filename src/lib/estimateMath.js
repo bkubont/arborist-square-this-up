@@ -3,7 +3,7 @@ import { addCalendarDays, todayKey } from "./format.js";
 /** Estimate line totals — whole-line amount per row (labor + materials). */
 
 /** Catalog / fallback labor rate when company profile has none. */
-export const DEFAULT_LABOR_RATE = 55;
+export const DEFAULT_LABOR_RATE = 85;
 
 /** Valid-until default: creation (or estimate) date + N days. */
 export const ESTIMATE_VALID_DAYS = 10;
@@ -203,5 +203,24 @@ export function catalogItemToFormLine(item, fallbackRate = DEFAULT_LABOR_RATE) {
     notes: noteParts.join(" · "),
     tools: item.tools || "",
     catalog_id: item.id || "",
+  };
+}
+
+/** CompanyProfile service_preset → estimate editor form row. */
+export function servicePresetToFormLine(preset, fallbackRate = DEFAULT_LABOR_RATE) {
+  const labor = Number(preset.labor_amount) || 0;
+  const materials = Number(preset.material_amount) || 0;
+  const equipment = Number(preset.equipment_amount) || 0;
+  const wholeLine = roundMoney(labor + materials + equipment);
+  const rate = preset.labor_rate ?? fallbackRate;
+  return {
+    description: preset.name || "",
+    line_amount: wholeLine > 0 ? String(wholeLine) : "",
+    labor_hours: preset.labor_hours != null ? String(preset.labor_hours) : "",
+    labor_rate: rate != null ? String(rate) : "",
+    category: preset.category || "",
+    notes: preset.description || "",
+    tools: "",
+    catalog_id: preset.id || "",
   };
 }

@@ -1,20 +1,20 @@
-const linkHost = process.env.EXPO_PUBLIC_LINK_HOST || 'jobs.yourdomain.com';
-// Store listing / App Review — production: https://squarethisup.com/privacy and /support
+const linkHost = process.env.EXPO_PUBLIC_LINK_HOST || 'arborist.squarethisup.com';
+// Store listing / App Review — production: https://arborist.squarethisup.com/privacy and /support
 const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
 const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
 
 /** @type {import('expo/config').ExpoConfig} */
 const expoConfig = {
   name: 'Square This Up',
-  slug: 'square-this-up',
+  slug: 'arborist-square-this-up',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
-  scheme: 'squarethisup',
+  scheme: 'arboristsquarethisup',
   userInterfaceStyle: 'light',
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.squarethisup.app',
+    bundleIdentifier: 'com.squarethisup.arborist',
     infoPlist: {
       NSCameraUsageDescription: 'Square This Up uses the camera to capture jobsite photos.',
       NSPhotoLibraryUsageDescription: 'Square This Up uses your photo library to attach jobsite photos.',
@@ -29,7 +29,7 @@ const expoConfig = {
       backgroundImage: './assets/images/android-icon-background.png',
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
-    package: 'com.squarethisup.app',
+    package: 'com.squarethisup.arborist',
     predictiveBackGestureEnabled: false,
     permissions: ['CAMERA', 'READ_MEDIA_IMAGES'],
     intentFilters: [
@@ -46,8 +46,8 @@ const expoConfig = {
         action: 'VIEW',
         category: ['BROWSABLE', 'DEFAULT'],
         data: [
-          { scheme: 'squarethisup', pathPrefix: '/register' },
-          { scheme: 'squarethisup', pathPrefix: '/reset-password' },
+          { scheme: 'arboristsquarethisup', pathPrefix: '/register' },
+          { scheme: 'arboristsquarethisup', pathPrefix: '/reset-password' },
         ],
       },
     ],

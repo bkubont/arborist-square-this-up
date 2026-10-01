@@ -488,20 +488,19 @@ test('catalog search and estimate line fill with recomputed totals', async t => 
   };
 
   await create('CompanyProfile', { name: 'Square This Up', default_tax_rate: 6 });
-  const catalog = await request('/catalog?q=hvac%20air%20filter&limit=10', { cookie: a.cookie });
+  const catalog = await request('/catalog?q=stump&limit=10', { cookie: a.cookie });
   assert.equal(catalog.status, 200);
   assert.ok(catalog.data.items.length >= 1);
-  const hit = catalog.data.items.find(item => /air filter/i.test(item.task));
+  const hit = catalog.data.items.find(item => /stump/i.test(item.task));
   assert.ok(hit);
   assert.ok(hit.hours_mid > 0);
   assert.ok(hit.est_labor_cost > 0);
-  assert.ok(hit.est_materials_cost > 0);
 
-  const byCategory = await request('/catalog?category=Plumbing&limit=20', { cookie: a.cookie });
-  assert.ok(byCategory.data.items.every(item => /plumbing/i.test(item.category)));
+  const byCategory = await request('/catalog?category=Pruning&limit=20', { cookie: a.cookie });
+  assert.ok(byCategory.data.items.every(item => /pruning/i.test(item.category)));
 
   const client = await create('Client', { name: 'Catalog client', ...CLIENT_ADDR });
-  const job = await create('Job', { title: 'Small faucet job', client_id: client.id });
+  const job = await create('Job', { title: 'Stump grind job', client_id: client.id });
   const estimate = await create('Estimate', {
     job_id: job.id,
     number: 'EST-010',
