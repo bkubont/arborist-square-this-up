@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { api } from "@/api/client";
@@ -76,7 +76,6 @@ export default function JobBoard() {
   const [activePhase, setActivePhase] = useState(
     () => searchParams.get("phase") || "working",
   );
-  const touchStartX = useRef(null);
 
   useEffect(() => {
     const phase = searchParams.get("phase");
@@ -89,19 +88,6 @@ export default function JobBoard() {
     if (phase === "working") params.delete("phase");
     else params.set("phase", phase);
     setSearchParams(params, { replace: true });
-  };
-
-  const onPhaseTouchStart = (e) => {
-    touchStartX.current = e.touches[0]?.clientX ?? null;
-  };
-
-  const onPhaseTouchEnd = (e) => {
-    if (touchStartX.current == null) return;
-    const dx = (e.changedTouches[0]?.clientX ?? touchStartX.current) - touchStartX.current;
-    const idx = JOB_PHASE_ORDER.indexOf(activePhase);
-    if (dx < -48 && idx < JOB_PHASE_ORDER.length - 1) choosePhase(JOB_PHASE_ORDER[idx + 1]);
-    if (dx > 48 && idx > 0) choosePhase(JOB_PHASE_ORDER[idx - 1]);
-    touchStartX.current = null;
   };
 
   const load = useCallback(() => {
@@ -338,14 +324,7 @@ export default function JobBoard() {
               </button>
             ))}
           </div>
-          <p className="lg:hidden text-[11px] text-muted-foreground mb-3 -mt-2">
-            Swipe left or right to change phase
-          </p>
-          <div
-            className="space-y-8 pb-8"
-            onTouchStart={onPhaseTouchStart}
-            onTouchEnd={onPhaseTouchEnd}
-          >
+          <div className="space-y-8 pb-8">
             {JOB_PHASE_ORDER.map((phase) => (
               <div
                 key={phase}
