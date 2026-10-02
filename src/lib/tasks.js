@@ -2,9 +2,9 @@
 export const TASK_STATUSES = [
   "plan",
   "in_progress",
-  "permits",
+  "clearances",
   "waiting_on_approval",
-  "waiting_on_materials",
+  "waiting_on_access",
   "blocked",
   "finish",
   "completed",
@@ -14,7 +14,9 @@ export const TASK_STATUSES = [
 const LEGACY_TASK_STATUS_MAP = {
   prep: "plan",
   materials: "plan",
-  waiting_materials: "waiting_on_materials",
+  permits: "clearances",
+  waiting_materials: "waiting_on_access",
+  waiting_on_materials: "waiting_on_access",
   on_hold: "blocked",
   done: "completed",
 };
@@ -23,16 +25,18 @@ const LABELS = {
   plan: "Plan",
   in_progress: "In progress",
   materials: "Plan",
-  permits: "Permits",
+  clearances: "Clearances",
+  permits: "Clearances",
   waiting_on_approval: "Waiting on Approval",
-  waiting_on_materials: "Waiting on Materials",
+  waiting_on_access: "Waiting on Access",
+  waiting_on_materials: "Waiting on Access",
   blocked: "Blocked",
   finish: "Finish",
   completed: "Completed",
   cancelled: "Cancelled",
   // Legacy labels (shown only before the server normalizes on save)
   prep: "Plan",
-  waiting_materials: "Waiting on Materials",
+  waiting_materials: "Waiting on Access",
   on_hold: "Blocked",
   done: "Completed",
 };
@@ -49,7 +53,7 @@ export const taskStatusLabel = (status) => LABELS[normalizeTaskStatus(status)] |
 /** A task's status; tasks saved before statuses existed fall back to their old done flag. */
 export const taskStatus = (item) => normalizeTaskStatus(item?.status || (item?.done ? "completed" : "plan"));
 
-/** Built-in Materials and Prep tasks are hidden — job materials live on Overview; Prep is a job-board column. */
+/** Built-in Materials and Prep tasks are hidden — Prep is a job-board column. */
 export const isHiddenBuiltInTask = (item) => item?.template_key === "materials" || item?.template_key === "prep";
 
 /** Board/list order: by status column, then position, then age. */
@@ -77,7 +81,7 @@ export const taskDeletable = (item, documents = []) => !item?.source_type || tas
 /** Statuses that usually need a reason; moving a task into one opens its card note. */
 export const NOTE_PROMPT_STATUSES = [
   "waiting_on_approval",
-  "waiting_on_materials",
+  "waiting_on_access",
   "blocked",
   "cancelled",
 ];

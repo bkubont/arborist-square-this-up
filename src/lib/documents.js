@@ -1,11 +1,14 @@
-/** Shared labels for job-linked contractor documents. */
+/** Shared labels for job-linked arborist documents. Material Orders / Punch Lists stay in the API for legacy data but are hidden from create menus. */
 export const DOCUMENT_TYPES = [
   { entity: 'Estimate', label: 'Estimate', createLabel: 'New Estimate' },
   { entity: 'MaterialOrder', label: 'Material Order', createLabel: 'New Material Order' },
-  { entity: 'ChangeOrder', label: 'Change Order', createLabel: 'New Change Order' },
+  { entity: 'ChangeOrder', label: 'Scope add-on', createLabel: 'New scope add-on' },
   { entity: 'Invoice', label: 'Invoice', createLabel: 'New Invoice' },
   { entity: 'PunchList', label: 'Punch List', createLabel: 'Punch List' },
 ];
+
+/** Document types shown in the arborist job UI (create + list). */
+export const ARBORIST_VISIBLE_DOC_ENTITIES = ['Estimate', 'ChangeOrder', 'Invoice'];
 
 export const PUNCH_LIST_STATUSES = ['in_progress', 'completed', 'void'];
 

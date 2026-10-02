@@ -12,7 +12,6 @@ import { googleMapsUrl } from "@/lib/address";
 import { money } from "@/lib/format";
 import { jobEstimateRollup } from "@/lib/jobCardRollups";
 import { jobBalance } from "@/lib/jobFilters";
-import { jobHasOpenMaterials } from "@/lib/jobMaterials";
 import { photoCategoryMeta } from "@/lib/photoCategories";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -203,12 +202,6 @@ export default function JobKanbanCard({
                 {job.title}
               </div>
             )}
-            {jobHasOpenMaterials(job) && (
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-attention-materials-foreground mb-1">
-                Waiting on materials
-              </div>
-            )}
-
             <div
               data-testid="job-card-note"
               className="mb-1.5 rounded-md border border-border bg-muted/50 px-2 py-1.5"

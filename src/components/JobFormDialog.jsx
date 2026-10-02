@@ -67,7 +67,7 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
         <div className="space-y-3">
           <div>
             <FieldLabel>Title (optional)</FieldLabel>
-            <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Kitchen faucet replacement" />
+            <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Front oak removal + stump" />
           </div>
           <div>
             <FieldLabel required>Client</FieldLabel>

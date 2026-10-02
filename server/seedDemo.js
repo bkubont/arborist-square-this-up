@@ -7,7 +7,6 @@ import { stdin as input, stdout as output } from 'node:process';
 import { fileIdsOf, saveRecord, decode } from './domain.js';
 import { createWorkItemsForLines } from './workItems.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
-import { attachDefaultPunchList } from './defaultPunchList.js';
 import { applyJobArchiveFields, isArchivedJob } from './jobArchive.js';
 import { applyJobStatusFields, JOB_PHASE_ORDER } from './jobStatus.js';
 import { emailSchema } from './security.js';
@@ -87,7 +86,6 @@ const JOB_BLUEPRINTS = [
     description: 'Accepted emergency; crew scheduled after utilities clear.',
     estimate: { status: 'accepted', labor: 980, material: 60 },
     tasks: 'plan',
-    materialOrder: { status: 'purchased' },
     deposit: 300,
     trees: [
       { label: 'T-1', species: 'Pine', dbh_inches: 22, condition: 'hazardous', location_note: 'Back fence line', recommended_work: ['storm_mitigation', 'haul'] },
@@ -102,7 +100,6 @@ const JOB_BLUEPRINTS = [
     description: 'Prior removal; stump grind and dispose spoil.',
     estimate: { status: 'accepted', labor: 320, material: 90 },
     tasks: 'plan',
-    materialOrder: { status: 'quote' },
     deposit: 100,
     trees: [
       { label: 'Stump-1', species: 'Maple', dbh_inches: 24, condition: 'dead', location_note: 'Side yard', recommended_work: ['stump_grind', 'haul'] },
@@ -117,7 +114,6 @@ const JOB_BLUEPRINTS = [
     description: 'Waiting on utility flagging before climb.',
     estimate: { status: 'accepted', labor: 1400, material: 50 },
     tasks: 'plan',
-    materialOrder: { status: 'received' },
     deposit: 400,
     trees: [
       { label: 'T-1', species: 'Sweetgum', dbh_inches: 20, condition: 'fair', location_note: 'ROW near primary', recommended_work: ['prune', 'monitor'] },
@@ -141,14 +137,12 @@ const JOB_BLUEPRINTS = [
   {
     title: 'PHC soil injection — ash row',
     phase: 'working',
-    status: 'Waiting on materials',
+    status: 'Waiting on access',
     job_type: 'commercial',
     work_type: 'plant health care',
-    description: 'Treatment product on backorder.',
-    jobMaterials: [{ description: 'PHC injectate kit', qty: 2, unit_price: 95, have: false }],
+    description: 'Waiting on property access for soil injection.',
     estimate: { status: 'accepted', labor: 380, material: 190 },
-    tasks: 'waiting_on_materials',
-    materialOrder: { status: 'partial', lineStatus: 'backorder' },
+    tasks: 'waiting_on_access',
     deposit: 150,
     trees: [
       { label: 'T-1', species: 'Ash', dbh_inches: 14, condition: 'poor', location_note: 'Parking island A', recommended_work: ['phc'] },
@@ -162,10 +156,8 @@ const JOB_BLUEPRINTS = [
     job_type: 'residential',
     work_type: 'crane work',
     description: 'Tight access; crane day booked.',
-    jobMaterials: [{ description: 'Rigging straps', qty: 4, unit_price: 28, have: false }],
     estimate: { status: 'accepted', labor: 2100, material: 200 },
     tasks: 'plan',
-    materialOrder: { status: 'quote' },
     trees: [
       { label: 'T-1', species: 'Elm', dbh_inches: 36, condition: 'hazardous', location_note: 'Rear yard, no truck access', recommended_work: ['removal', 'haul'] },
     ],
@@ -179,7 +171,6 @@ const JOB_BLUEPRINTS = [
     description: 'Punch list done; invoice ready to send.',
     estimate: { status: 'accepted', labor: 1100, material: 40 },
     tasks: 'completed',
-    materialOrder: { status: 'received' },
     invoice: { status: 'draft' },
     deposit: 300,
     trees: [
@@ -253,7 +244,6 @@ const JOB_BLUEPRINTS = [
     description: 'Sectional take-down in progress; CO for extra haul loads.',
     estimate: { status: 'accepted', labor: 1200, material: 150 },
     tasks: 'plan',
-    materialOrder: { status: 'purchased' },
     changeOrder: { status: 'approved', amount: 220 },
     deposit: 300,
     trees: [
@@ -391,7 +381,6 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
 
   const job = await saveRecord(db, ownerId, 'Job', prepareDemoJobFields(blueprint, client, { start_date, end_date }));
   await attachDefaultJobTasks(db, ownerId, job.id);
-  await attachDefaultPunchList(db, ownerId, job.id);
 
   if (Array.isArray(blueprint.trees)) {
     for (const tree of blueprint.trees) {
@@ -444,36 +433,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     await createWorkItemsForLines(db, ownerId, { jobId: job.id, sourceType: 'Estimate', sourceId: estimate.id, lines: estimate.accepted_snapshot.lines });
     await setTaskStatuses(estimate.id, blueprint.tasks || 'plan');
   }
-  if (['Completed', 'Paid'].includes(blueprint.status)) {
-    const punchRows = await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [ownerId, 'PunchList', job.id]);
-    for (const punch of punchRows.map(decode)) {
-      if (punch.status !== 'completed') {
-        await saveRecord(db, ownerId, 'PunchList', { status: 'completed', completed_at: new Date().toISOString() }, punch.id);
-      }
-    }
-  }
 
-  if (blueprint.materialOrder) {
-    await saveRecord(db, ownerId, 'MaterialOrder', {
-      job_id: job.id,
-      number: `MO-${1001 + jobIndex}`,
-      date: start_date,
-      related_estimate_id: estimate.id,
-      status: blueprint.materialOrder.status,
-      lines: [
-        {
-          description: 'Primary materials',
-          qty: 1,
-          unit_price: money(material),
-          supplier: jobIndex % 2 === 0 ? 'Home Depot' : 'Menards',
-          category: 'Materials',
-          line_status: blueprint.materialOrder.lineStatus,
-        },
-      ],
-      subtotal: money(material),
-      total: money(material),
-    });
-  }
 
   let changeOrder;
   if (blueprint.changeOrder) {
@@ -567,10 +527,10 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
     events.push({ type: 'estimate_signed', category: 'document', text: `Estimate ${estimate.number} accepted` });
   }
   if (changeOrder?.status === 'sent') {
-    events.push({ type: 'change_order_sent', category: 'financial', text: `Change Order ${changeOrder.number} sent` });
+    events.push({ type: 'change_order_sent', category: 'financial', text: `Scope add-on ${changeOrder.number} sent` });
   }
   if (changeOrder?.status === 'approved') {
-    events.push({ type: 'change_order_signed', category: 'document', text: `Change Order ${changeOrder.number} approved` });
+    events.push({ type: 'change_order_signed', category: 'document', text: `Scope add-on ${changeOrder.number} approved` });
   }
   if (blueprint.deposit) {
     events.push({
@@ -599,7 +559,7 @@ async function seedJob(db, ownerId, client, blueprint, jobIndex, taxRate) {
 
   // Roll up job money fields from documents (mirrors refreshJobDocumentRollups).
   const estimateAmount = blueprint.estimate.status === 'accepted' ? totals.total : 0;
-  const materialsCost = blueprint.materialOrder ? money(material) : 0;
+  const materialsCost = 0;
   const invoiceAmount = invoice && invoice.status !== 'void' ? invoice.total : 0;
   await saveRecord(db, ownerId, 'Job', {
     estimate_amount: estimateAmount,
@@ -650,7 +610,7 @@ export async function seedDemoData(db, ownerId) {
   );
   const expenseSpecs = [
     { amount: 48.2, category: 'Fuel', vendor: 'Shell', note: 'Truck fill-up', job_id: undefined },
-    { amount: 126.5, category: 'Materials', vendor: 'Home Depot', note: 'Unassigned receipt', job_id: undefined },
+    { amount: 126.5, category: 'Fuel', vendor: 'Fuel station', note: 'Unassigned receipt', job_id: undefined },
     { amount: 89.99, category: 'Tools', vendor: 'Harbor Freight', note: 'Blade set', job_id: jobs[0]?.id },
     { amount: 34.0, category: 'Supplies', vendor: 'Menards', note: 'Tape & caulk', job_id: jobs[4]?.id },
   ];

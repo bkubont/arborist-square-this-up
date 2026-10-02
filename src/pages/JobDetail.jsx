@@ -12,18 +12,17 @@ import JobPhotoButton from "@/components/JobPhotoButton";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import VoiceRecorder from "@/components/VoiceRecorder";
 import JobTasks from "@/components/JobTasks";
-import PunchListPanel from "@/components/PunchListPanel";
 import { JobRunningTotal, JobQuickNote } from "@/components/JobCardInfo";
 import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
-import JobMaterialsPanel from "@/components/JobMaterialsPanel";
 import JobTreeInventoryPanel from "@/components/JobTreeInventoryPanel";
 import TimelineFeed from "@/components/TimelineFeed";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
+/** Load legacy MaterialOrder / PunchList for money/timeline compatibility; UI create/list hides them. */
 const DOC_ENTITIES = ["Estimate", "MaterialOrder", "ChangeOrder", "Invoice", "PunchList"];
 const TASK_VIEW_KEY = "jobTasksView";
 
@@ -63,7 +62,6 @@ export default function JobDetail() {
   const [documents, setDocuments] = useState([]);
   const [workItems, setWorkItems] = useState([]);
   const [expenses, setExpenses] = useState([]);
-  const [punchList, setPunchList] = useState(null);
   const [trees, setTrees] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -110,7 +108,6 @@ export default function JobDetail() {
     setSummary(money);
     const flatDocs = docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] })));
     setDocuments(flatDocs);
-    setPunchList(flatDocs.find((d) => d.entity === "PunchList" && d.status !== "void") || null);
     if (j?.client_id) {
       try {
         setClient(await api.entities.Client.get(j.client_id));
@@ -128,11 +125,6 @@ export default function JobDetail() {
   const activity = useMemo(
     () => composeJobActivity({ entries, documents }),
     [entries, documents],
-  );
-
-  const materialOrders = useMemo(
-    () => documents.filter((doc) => doc.entity === "MaterialOrder"),
-    [documents],
   );
 
   const addNote = async () => {
@@ -201,7 +193,7 @@ export default function JobDetail() {
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Quick note… (e.g. Customer deciding on mirror)"
+            placeholder="Quick note… (e.g. Client deciding on crane day)"
             rows={2}
             className="text-sm"
           />
@@ -292,8 +284,6 @@ export default function JobDetail() {
             <div className="flex items-start gap-2 w-full sm:w-auto">
               <JobHeaderStatuses
                 job={job}
-                workItems={workItems}
-                materialOrders={materialOrders}
                 onChange={changeTrack}
               />
               <JobQuickNote job={job} onSaved={load} />
@@ -320,6 +310,8 @@ export default function JobDetail() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-0">
+          <JobTreeInventoryPanel jobId={id} trees={trees} onChanged={load} />
+
           <div>
             <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
               Money
@@ -334,10 +326,6 @@ export default function JobDetail() {
             />
           </div>
 
-          <JobTreeInventoryPanel jobId={id} trees={trees} onChanged={load} />
-
-          <JobMaterialsPanel jobId={id} materials={job.materials || []} tasks={workItems} onChanged={load} />
-
           <JobDocuments
             jobId={id}
             jobTitle={job.title}
@@ -347,8 +335,6 @@ export default function JobDetail() {
             entities={["Estimate"]}
             title="Estimate"
           />
-
-          <PunchListPanel jobId={id} punchList={punchList} onChanged={load} />
 
           {job.notes ? (
             <div className="bg-card rounded-xl border border-border p-4">
@@ -381,7 +367,7 @@ export default function JobDetail() {
                 ))}
               </div>
             </div>
-            <JobTasks jobId={id} items={workItems} jobMaterials={job.materials || []} documents={documents} onChanged={load} view={taskView} />
+            <JobTasks jobId={id} items={workItems} documents={documents} onChanged={load} view={taskView} />
           </div>
         </TabsContent>
 
@@ -392,9 +378,9 @@ export default function JobDetail() {
             client={client}
             documents={documents}
             onChanged={load}
-            entities={["MaterialOrder", "ChangeOrder"]}
-            title="Materials & change orders"
-            emptyHint="Material Orders appear here as needed; Change Orders after the estimate is accepted."
+            entities={["ChangeOrder"]}
+            title="Scope add-ons"
+            emptyHint="Scope add-ons (crane day, extra haul, stump grind) unlock after the estimate is accepted."
           />
         </TabsContent>
 

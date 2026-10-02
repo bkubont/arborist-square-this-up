@@ -11,7 +11,6 @@
 import { fail, saveRecord, decode, getRecord } from './domain.js';
 import { listJobDocuments } from './documentRules.js';
 import { attachDefaultJobTasks } from './defaultJobTasks.js';
-import { attachDefaultPunchList } from './defaultPunchList.js';
 import { estimateLineAmount, changeOrderLineAmount } from './mapping.js';
 import { toCents } from '../shared/money.js';
 import { JOB_TASK_SORT } from '../shared/taskTemplates.js';
@@ -193,7 +192,6 @@ export async function carryOverChecklists(db) {
 
       for (const job of (await ownerRows(tx, ownerId, 'Job')).map(decode)) {
         created += await attachDefaultJobTasks(tx, ownerId, job.id);
-        if (await attachDefaultPunchList(tx, ownerId, job.id)) created += 1;
         if (!Array.isArray(job.checklist) || !job.checklist.length) continue;
         for (const entry of job.checklist.filter(e => String(e?.text || '').trim())) {
           await saveRecord(tx, ownerId, 'WorkItem', { job_id: job.id, description: entry.text.trim(), status: entry.done ? 'completed' : DEFAULT_TASK_STATUS });

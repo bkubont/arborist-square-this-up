@@ -57,8 +57,8 @@ const LABELS = {
   status_change: "Status change",
   checklist: "Checklist",
   work_order_created: "Work order created",
-  change_order_sent: "Change order sent",
-  change_order_signed: "Change order signed",
+  change_order_sent: "Scope add-on sent",
+  change_order_signed: "Scope add-on signed",
   document_created: "Document created",
   document_voided: "Document voided",
 };

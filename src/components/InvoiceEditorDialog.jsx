@@ -333,7 +333,7 @@ export default function InvoiceEditorDialog({
       </style></head><body>
       <div class="grid-top">
         <div>
-          <h1>Construction Invoice</h1>
+          <h1>Invoice</h1>
           ${companyBlock}
           ${clientBlock}
           ${form.project_name ? `<div class="section-label">Project</div><div>${escapeHtml(form.project_name)}</div>` : ""}
@@ -344,7 +344,7 @@ export default function InvoiceEditorDialog({
             <tr><td>Invoice No</td><td>${escapeHtml(form.number || "")}</td></tr>
             <tr><td>Job ID</td><td>${escapeHtml(jobId || "")}</td></tr>
             <tr><td>Estimate</td><td>${escapeHtml(form.estimate_ref || "")}</td></tr>
-            <tr><td>Change Orders</td><td>${escapeHtml(form.change_order_refs || "")}</td></tr>
+            <tr><td>Scope add-ons</td><td>${escapeHtml(form.change_order_refs || "")}</td></tr>
           </table>
           <div class="section-label">Notes</div>
           <div class="notes-box">${escapeHtml(form.notes || "")}</div>
@@ -469,7 +469,7 @@ export default function InvoiceEditorDialog({
               <Input value={form.estimate_ref} onChange={(e) => setForm((f) => ({ ...f, estimate_ref: e.target.value }))} />
             </div>
             <div className="sm:col-span-2">
-              <Label>Change order refs</Label>
+              <Label>Scope add-on refs</Label>
               <Input value={form.change_order_refs} onChange={(e) => setForm((f) => ({ ...f, change_order_refs: e.target.value }))} />
             </div>
             <div className="sm:col-span-2">
