@@ -121,10 +121,10 @@ npm run desktop:dev
 
 Windows site-download artifacts (unsigned by design for MVP):
 
-**Preferred:** GitHub Actions → **Desktop Windows** → **Run workflow**. Set repository variable `VITE_API_URL` (production API origin, no trailing slash — same convention as `APP_ORIGIN` / `https://jobs.yourdomain.com`). Download the run’s `square-this-up-windows-*` artifact (NSIS + portable `.exe`). See [desktop/README.md](desktop/README.md).
+**Preferred:** GitHub Actions → **Desktop Windows** → **Run workflow**. Set repository variable `VITE_API_URL` (production API origin, no trailing slash — same as `APP_ORIGIN` / `https://arborist.squarethisup.com`). Download the run’s `arborist-square-this-up-windows-*` artifact (NSIS + portable `.exe`). See [desktop/README.md](desktop/README.md).
 
 ```sh
-export VITE_API_URL=https://jobs.yourdomain.com
+export VITE_API_URL=https://arborist.squarethisup.com
 npm run desktop:build:win          # NSIS + portable (needs Windows or Wine32)
 # npm run desktop:build:win:dir    # unpacked tree only — does not verify the installer
 # → desktop/release/ (gitignored)
