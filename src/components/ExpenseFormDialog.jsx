@@ -34,7 +34,7 @@ export default function ExpenseFormDialog({
   const libraryRef = useRef(null);
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayIso());
-  const [category, setCategory] = useState("Materials");
+  const [category, setCategory] = useState("Fuel");
   const [vendor, setVendor] = useState("");
   const [note, setNote] = useState("");
   const [jobId, setJobId] = useState("");
@@ -46,7 +46,7 @@ export default function ExpenseFormDialog({
     if (expense) {
       setAmount(expense.amount != null ? String(expense.amount) : "");
       setDate(expense.date || todayIso());
-      setCategory(expense.category || "Materials");
+      setCategory(expense.category || "Fuel");
       setVendor(expense.vendor || "");
       setNote(expense.note || "");
       setJobId(expense.job_id || "");
@@ -54,7 +54,7 @@ export default function ExpenseFormDialog({
     } else {
       setAmount("");
       setDate(todayIso());
-      setCategory("Materials");
+      setCategory("Fuel");
       setVendor("");
       setNote("");
       setJobId(defaultJobId || "");

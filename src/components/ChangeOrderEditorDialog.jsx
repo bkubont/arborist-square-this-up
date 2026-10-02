@@ -17,7 +17,7 @@ import { loadAccountTaxRate } from "@/lib/salesTax";
 import { DEFAULT_LABOR_RATE, emptyEstimateLine, isPricedScopeLine, scopeLineToForm, scopeLineTotal, serializeChangeOrderLine } from "@/lib/estimateMath";
 
 /**
- * Change Order editor + client e-sign. Lines work exactly like estimate lines (shared
+ * Scope add-on (Change Order) editor + client e-sign. Lines work exactly like estimate lines (shared
  * ScopeLinesEditor); the change order keeps its own reason, description, credit and added days.
  * Added cost is the lines' total and net = added − credit (the server enforces the same).
  */
@@ -161,7 +161,7 @@ export default function ChangeOrderEditorDialog({ open, onOpenChange, document, 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Change Order{form.number ? ` · ${form.number}` : ""}</DialogTitle>
+          <DialogTitle>Scope add-on{form.number ? ` · ${form.number}` : ""}</DialogTitle>
         </DialogHeader>
 
         {document.status === "approved" && (

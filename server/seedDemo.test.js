@@ -57,7 +57,7 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     for (const needed of [
       'Estimate',
       'Waiting on approval',
-      'Waiting on materials',
+      'Waiting on access',
       'Prep',
       'In progress',
       'Blocked',
@@ -104,7 +104,12 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     assert.equal(tasks.filter((task) => task.template_key === 'prep').length, 0, 'Prep is not auto-created');
     assert.equal(tasks.filter((task) => task.template_key === 'materials').length, 0, 'no built-in Materials tasks');
     const punchLists = (await db.all('SELECT data FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'PunchList'])).map((r) => JSON.parse(r.data));
-    assert.equal(punchLists.length, 14);
+    assert.equal(punchLists.length, 0, 'arborist seed does not auto-attach punch lists');
+    assert.equal(
+      (await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'MaterialOrder'])).length,
+      0,
+      'arborist seed does not create material orders',
+    );
     assert.ok(jobs.every((j) => JSON.parse(j.data).checklist === undefined), 'no old free-text checklist');
 
     // Deposits must not double-count: do not set both deposit_amount and timeline amounts.

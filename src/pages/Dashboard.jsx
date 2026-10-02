@@ -265,7 +265,7 @@ function DashboardPage() {
             )}
           </div>
         ) : (
-          <Empty text="No active jobs. Use Quick Add → Job or open Customers." />
+          <Empty text="No active jobs. Use Quick Add → Job, then add tree inventory on the job Overview." />
         )}
       </Section>
 

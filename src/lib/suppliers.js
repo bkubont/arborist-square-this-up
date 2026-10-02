@@ -1,38 +1,32 @@
 /**
- * Curated Material Order suppliers — seed + catalog preferred_source labels only.
- * No organic “remember what I typed” history. Free-text override remains allowed in the UI.
+ * Curated vendor suggestions for typeaheads.
+ * Arborist-oriented suppliers — free-text override remains allowed in the UI.
  */
 
 /** Popular real supplier names for typeahead. */
 export const POPULAR_SUPPLIERS = [
-  'Home Depot',
-  "Lowe's",
-  'Menards',
-  'Ace Hardware',
-  'Ferguson',
-  'ABC Supply',
-  'Grainger',
+  'Local chip dump',
+  'Municipal green waste',
+  'Fuel station',
+  'Crane rental',
+  'Stump grinder rental',
+  'Tree care supplier',
+  'Nursery / plant stock',
+  'PHC chemical supplier',
+  'Hardware store',
   'Amazon',
-  'Sherwin-Williams',
-  'Floor & Decor',
-  'Local lumberyard',
-  'Local plumbing supply',
-  'Local electrical supply',
-  'Specialty glass shop',
   'Online specialty',
 ];
 
-/** Category-style labels from Materials_Master `preferred_source` (catalog seed). */
+/** Category-style labels for typeahead. */
 export const CATALOG_SOURCE_LABELS = [
-  'Big-box',
-  'Big-box / plumbing supply',
-  'Big-box / specialty',
-  'Big-box / online',
-  'Big-box / lumberyard',
+  'Chip dump',
+  'Fuel',
+  'Crane rental',
+  'Equipment rental',
+  'Nursery',
+  'PHC supplier',
   'Specialty',
-  'Specialty / Big-box',
-  'Specialty / glass shop',
-  'Lumberyard / Big-box',
 ];
 
 /** Deduped list used by supplier typeahead. */

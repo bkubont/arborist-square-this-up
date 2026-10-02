@@ -19,7 +19,7 @@ import {
   workTypeLabel,
 } from "@/lib/workTypes";
 import MaterialStatusSelect from "@/components/MaterialStatusSelect";
-import { materialLineOpen, serializeMaterialRows } from "@/lib/jobMaterials";
+import { serializeMaterialRows } from "@/lib/jobMaterials";
 import { cn } from "@/lib/utils";
 
 /**
@@ -247,17 +247,15 @@ function linesForTask(item, jobMaterials) {
 
 function TaskTags({ item, documents, hideWorkType = false, jobMaterials = undefined }) {
   const steps = item.steps || [];
-  const needed = linesForTask(item, jobMaterials).filter((m) => materialLineOpen(m)).length;
   return (
     <>
-      {/* Most tasks come from the estimate, so only work added later by a change order is tagged. */}
-      {item.source_type === "ChangeOrder" && <Tag tone="brand">Change order</Tag>}
+      {/* Most tasks come from the estimate; scope add-ons (ChangeOrder) are tagged. */}
+      {item.source_type === "ChangeOrder" && <Tag tone="brand">Scope add-on</Tag>}
       {taskSourceVoided(item, documents) && <Tag tone="void">Voided</Tag>}
       {!hideWorkType && item.category?.trim() && <Tag tone="trade">{item.category.trim()}</Tag>}
       {formatHours(item.labor_hours) && <Tag><Clock className="inline w-2.5 h-2.5 mr-0.5 -mt-px" aria-hidden="true" />{formatHours(item.labor_hours)}</Tag>}
       {item.amount_cents != null && <Tag tone="money">{moneyCents(item.amount_cents)}{item.billed_invoice_id ? " · billed" : ""}</Tag>}
       {steps.length > 0 && <Tag>{steps.filter((s) => s.done).length}/{steps.length} steps</Tag>}
-      {needed > 0 && <Tag tone="materials">Waiting on materials</Tag>}
     </>
   );
 }

@@ -33,7 +33,9 @@ export const JOB_PHASES = {
       'Approved',
       'Prep',
       'In progress',
-      'Waiting on materials',
+      'Waiting on access',
+      'Waiting on weather',
+      'Waiting on utility',
       'Blocked',
       'Completed',
       'Cancelled',
@@ -65,7 +67,8 @@ export const LEGACY_JOB_STATUS_MAP = {
   Declined: { phase: 'working', status: 'Cancelled' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
-  'Waiting on Materials': { phase: 'working', status: 'Waiting on materials' },
+  'Waiting on Materials': { phase: 'working', status: 'Waiting on access' },
+  'Waiting on materials': { phase: 'working', status: 'Waiting on access' },
   'On Hold': { phase: 'working', status: 'Blocked' },
 };
 
@@ -100,7 +103,7 @@ export function applyInvoicedGate(fields) {
 }
 
 /**
- * Header tracks coexist. Working, derived Materials, and Payment — no Lead on the job.
+ * Header tracks coexist. Working and Payment — no Lead on the job.
  * @param {object} job
  */
 export function headerTracks(job) {

@@ -41,7 +41,7 @@ async function assertNothingBuiltOn(tx, ownerId, entity, record) {
   if (invoice) throw fail(409, `Invoice ${invoice.number || ''} is built on this ${noun(entity)}. Void the invoice first.`.replace(/\s+/g, ' '));
   if (entity === 'Estimate') {
     const live = (await listJobDocuments(tx, ownerId, 'ChangeOrder', record.job_id)).filter(co => !['void', 'rejected'].includes(co.status));
-    if (live.length) throw fail(409, `Change order ${live.map(co => co.number).filter(Boolean).join(', ')} is built on this estimate. Void it first.`.replace(/\s+/g, ' '));
+    if (live.length) throw fail(409, `Scope add-on ${live.map(co => co.number).filter(Boolean).join(', ')} is built on this estimate. Void it first.`.replace(/\s+/g, ' '));
   }
 }
 
@@ -53,7 +53,7 @@ export async function overrideScopeStatus(tx, ownerId, entity, recordId, status)
   if (record.status === status) return record;
 
   const signed = SCOPE_SIGNED_STATUS[entity];
-  const label = `${entity === 'ChangeOrder' ? 'Change order' : 'Estimate'} ${record.number || ''}`.replace(/\s+/g, ' ').trim();
+  const label = `${entity === 'ChangeOrder' ? 'Scope add-on' : 'Estimate'} ${record.number || ''}`.replace(/\s+/g, ' ').trim();
 
   if (status === signed) {
     const updated = await acceptScopeDocument(tx, ownerId, entity, record, { signedAt: new Date().toISOString(), manual: true });

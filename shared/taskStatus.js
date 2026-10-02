@@ -1,10 +1,10 @@
-/** Brittany's task board columns, in order (finish | completed | cancelled at the end). Job materials live on Overview, not the board. */
+/** Arborist task board columns, in order (finish | completed | cancelled at the end). */
 export const TASK_STATUSES = [
   'plan',
   'in_progress',
-  'permits',
+  'clearances',
   'waiting_on_approval',
-  'waiting_on_materials',
+  'waiting_on_access',
   'blocked',
   'finish',
   'completed',
@@ -15,7 +15,9 @@ export const TASK_STATUSES = [
 export const LEGACY_TASK_STATUS_MAP = {
   prep: 'plan',
   materials: 'plan',
-  waiting_materials: 'waiting_on_materials',
+  permits: 'clearances',
+  waiting_materials: 'waiting_on_access',
+  waiting_on_materials: 'waiting_on_access',
   on_hold: 'blocked',
   done: 'completed',
 };

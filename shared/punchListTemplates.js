@@ -1,6 +1,6 @@
 /**
  * Final walkthrough punch list — sections follow finish | find | funds (same three-beat ring as
- * plan | prep | permits on the Prep task).
+ * plan | prep | clearances on the Prep task).
  */
 
 export const PUNCH_LIST_SECTION_KEYS = ['finish', 'find', 'funds'];

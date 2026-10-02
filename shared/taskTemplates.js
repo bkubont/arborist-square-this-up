@@ -7,11 +7,11 @@ export const JOB_TASK_SORT = {
   prep: 100,
 };
 
-/** Prep follows plan | prep | permits. */
+/** Prep follows plan | prep | clearances (utility locate / access). */
 export const PREP_TASK_STEPS = [
   { text: 'Plan', done: false },
   { text: 'Prep', done: false },
-  { text: 'Permits', done: false },
+  { text: 'Clearances / locate', done: false },
 ];
 
 /** @typedef {'prep'} JobTaskTemplateKey */

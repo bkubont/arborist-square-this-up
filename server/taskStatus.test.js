@@ -8,13 +8,13 @@ import {
   defaultStatusForTemplate,
 } from './taskStatus.js';
 
-test('task board columns: plan, in progress, permits, waiting on materials, finish | completed | cancelled; no prep or materials column', () => {
+test('task board columns: plan, in progress, clearances, waiting on access, finish | completed | cancelled', () => {
   assert.deepEqual(TASK_STATUSES, [
     'plan',
     'in_progress',
-    'permits',
+    'clearances',
     'waiting_on_approval',
-    'waiting_on_materials',
+    'waiting_on_access',
     'blocked',
     'finish',
     'completed',
@@ -22,6 +22,8 @@ test('task board columns: plan, in progress, permits, waiting on materials, fini
   ]);
   assert.ok(!TASK_STATUSES.includes('materials'));
   assert.ok(!TASK_STATUSES.includes('prep'));
+  assert.ok(!TASK_STATUSES.includes('permits'));
+  assert.ok(!TASK_STATUSES.includes('waiting_on_materials'));
 });
 
 test('normalizeTaskStatus keeps in_progress and maps other legacy values', () => {
@@ -29,7 +31,9 @@ test('normalizeTaskStatus keeps in_progress and maps other legacy values', () =>
   assert.equal(normalizeTaskStatus('done'), 'completed');
   assert.equal(normalizeTaskStatus('prep'), 'plan');
   assert.equal(normalizeTaskStatus('materials'), 'plan');
-  assert.equal(normalizeTaskStatus('waiting_materials'), 'waiting_on_materials');
+  assert.equal(normalizeTaskStatus('permits'), 'clearances');
+  assert.equal(normalizeTaskStatus('waiting_materials'), 'waiting_on_access');
+  assert.equal(normalizeTaskStatus('waiting_on_materials'), 'waiting_on_access');
 });
 
 test('parseTaskStatusForWrite accepts in_progress and maps done to completed', () => {

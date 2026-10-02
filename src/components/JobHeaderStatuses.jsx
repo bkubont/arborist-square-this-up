@@ -1,6 +1,5 @@
 import React from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import MaterialsStatusLine from "@/components/MaterialsStatusLine";
 import { JOB_PHASES, headerTracks } from "@/lib/jobStatus";
 import { statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
@@ -40,13 +39,11 @@ function TrackSelect({ label, value, statuses, onChange }) {
 }
 
 /**
- * Job header info box: Working, derived Materials, Payment.
- * Changing one does not clear the others. Lead lives on the customer profile.
+ * Job header info box: Working + Payment tracks.
+ * Materials procurement track removed for the arborist workflow.
  */
 export default function JobHeaderStatuses({
   job,
-  workItems = [],
-  materialOrders = [],
   onChange,
   className = "",
 }) {
@@ -59,17 +56,6 @@ export default function JobHeaderStatuses({
         statuses={JOB_PHASES.working.statuses}
         onChange={(status) => onChange?.({ track: "working", status })}
       />
-      <div>
-        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Materials</div>
-        <div className="min-h-9 flex items-center rounded-md border border-border bg-muted/40 px-3 py-2">
-          <MaterialsStatusLine
-            job={job}
-            workItems={workItems}
-            materialOrders={materialOrders}
-            hideLabel
-          />
-        </div>
-      </div>
       <TrackSelect
         label="Payment"
         value={tracks.payment}

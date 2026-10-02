@@ -6,8 +6,6 @@ import {
   STORED_JOB_STATUSES,
   phaseForStatus,
 } from "./jobStatus.js";
-import { jobHasOpenMaterials } from "./jobMaterials.js";
-
 /** Stored job statuses across Working and Payment (Invoiced is a Payment status). */
 export const JOB_STATUSES = STORED_JOB_STATUSES;
 
@@ -362,13 +360,15 @@ export function actionReasonsForJob(job, estimates = [], changeOrders = []) {
   const reasons = [];
   if (job?.status === "Blocked") reasons.push("Blocked");
   if (job?.status === "Waiting on approval") reasons.push("Waiting on client approval");
-  if (job?.status === "Waiting on materials" || jobHasOpenMaterials(job)) reasons.push("Waiting on materials");
+  if (["Waiting on access", "Waiting on weather", "Waiting on utility", "Waiting on materials"].includes(job?.status)) {
+    reasons.push(job.status === "Waiting on materials" ? "Waiting on access" : job.status);
+  }
 
   const jobEstimates = estimates.filter((e) => e.job_id === job.id && isAwaitingApproval(e));
   if (jobEstimates.length) reasons.push("Estimate awaiting approval");
 
   const jobCos = changeOrders.filter((c) => c.job_id === job.id && isAwaitingApproval(c));
-  if (jobCos.length) reasons.push("Change order awaiting approval");
+  if (jobCos.length) reasons.push("Scope add-on awaiting approval");
 
   return reasons;
 }

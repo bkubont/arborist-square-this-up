@@ -26,7 +26,7 @@ describe('contact lead pipeline', () => {
       'Waiting on approval': 'Follow-up',
       Approved: 'Active',
     });
-    assert.ok(JOB_PHASES.working.statuses.includes('Waiting on materials'));
+    assert.ok(JOB_PHASES.working.statuses.includes('Waiting on access'));
     assert.ok(JOB_PHASES.working.statuses.includes('Estimate'));
   });
 
@@ -53,8 +53,8 @@ describe('contact lead pipeline', () => {
     assert.equal(phone.status, undefined);
     assert.equal(Object.prototype.hasOwnProperty.call(phone, 'archived_at'), false);
 
-    const rejected = applyClientPipelineFields({ status: 'Waiting on materials' }, { status: 'Prospect' });
-    assert.equal(rejected.status, 'Waiting on materials');
+    const rejected = applyClientPipelineFields({ status: 'Waiting on access' }, { status: 'Prospect' });
+    assert.equal(rejected.status, 'Waiting on access');
 
     const remapped = applyClientPipelineFields({ phone: '555-0100' }, { status: 'Contact' });
     assert.equal(remapped.status, 'Prospect');
@@ -174,7 +174,7 @@ test('contact lead status does not sync with jobs; Declined archives the contact
   const blocked = await request(`/entities/Client/${client.id}`, {
     method: 'PATCH',
     cookie: a.cookie,
-    data: { status: 'Waiting on materials' },
+    data: { status: 'Waiting on access' },
   });
   assert.equal(blocked.status, 400);
   assert.equal((await request(`/entities/Client/${client.id}`, { cookie: a.cookie })).data.status, 'Prospect');

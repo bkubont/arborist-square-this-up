@@ -1,8 +1,7 @@
 /**
- * Document create buttons by job stage (Brittany UX).
- * New job → Estimate + Material Order only.
- * After estimate accept → Change Order and Invoice unlock. The job's tasks (WorkItem) track the
- * work itself and do not gate billing.
+ * Document create buttons by job stage (arborist UX).
+ * New job → Estimate only (Material Orders / Punch Lists are hidden).
+ * After estimate accept → Scope add-on (ChangeOrder) and Invoice unlock.
  * One Estimate, one Invoice per job (open existing; no duplicates).
  */
 
@@ -54,13 +53,20 @@ export function documentCreateAvailability(entity, documents = []) {
     }
   }
 
-  if (entity === "Estimate" || entity === "MaterialOrder") {
+  if (entity === "Estimate") {
     return { available: true };
+  }
+
+  if (entity === "MaterialOrder" || entity === "PunchList") {
+    return {
+      available: false,
+      reason: "This document type is not used in the arborist workflow.",
+    };
   }
 
   if (!hasAcceptedEstimate(documents)) {
     const labels = {
-      ChangeOrder: "Change Orders unlock after the customer accepts the estimate.",
+      ChangeOrder: "Scope add-ons unlock after the customer accepts the estimate.",
       Invoice: "Invoices unlock after the customer accepts the estimate.",
     };
     return {

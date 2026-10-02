@@ -77,13 +77,16 @@ describe('job status model', () => {
       'Approved',
       'Prep',
       'In progress',
-      'Waiting on materials',
+      'Waiting on access',
+      'Waiting on weather',
+      'Waiting on utility',
       'Blocked',
       'Completed',
       'Cancelled',
     ]);
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting'));
     assert.ok(!JOB_PHASES.working.statuses.includes(INVOICE_GATE_STATUS));
+    assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on materials'));
     assert.ok(JOB_PHASES.working.statuses.includes('Prep'));
     assert.ok(JOB_PHASES.working.statuses.includes('Blocked'));
     assert.deepEqual(JOB_PHASES.payment.statuses, [
@@ -94,10 +97,10 @@ describe('job status model', () => {
       'Paid',
     ]);
     const normalized = normalizeJobRecord({ status: 'Waiting on materials' });
-    assert.equal(normalized.status, 'Waiting on materials');
+    assert.equal(normalized.status, 'Waiting on access');
     assert.equal(normalized.phase, 'working');
     const legacy = normalizeJobRecord({ status: 'Waiting on Materials' });
-    assert.equal(legacy.status, 'Waiting on materials');
+    assert.equal(legacy.status, 'Waiting on access');
     assert.equal(legacy.phase, 'working');
     const prep = normalizeJobRecord({ phase: 'working', status: 'Prep' });
     assert.equal(prep.status, 'Prep');

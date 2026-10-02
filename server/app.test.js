@@ -2094,7 +2094,7 @@ test('completing a punch list posts photo to job timeline', async t => {
   assert.ok(entries.some((e) => e.photo_url === file.data.file_url && e.type === 'photo'));
 });
 
-test('task cards accept plan, in_progress, permits, waiting on approval, blocked, finish, and completed statuses', async t => {
+test('task cards accept plan, in_progress, clearances, waiting on approval, blocked, finish, and completed statuses', async t => {
   const { request, register } = await fixture(t);
   const a = await register('task-statuses@example.com');
   const create = async (entity, data) => {
@@ -2105,8 +2105,8 @@ test('task cards accept plan, in_progress, permits, waiting on approval, blocked
   const patch = (id, data) => request(`/entities/WorkItem/${id}`, { method: 'PATCH', cookie: a.cookie, data });
   const client = await create('Client', { name: 'Status client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Status job', client_id: client.id });
-  const task = await create('WorkItem', { job_id: job.id, description: 'Frame wall' });
-  for (const status of ['plan', 'in_progress', 'permits', 'waiting_on_approval', 'blocked', 'finish', 'completed']) {
+  const task = await create('WorkItem', { job_id: job.id, description: 'Crown prune' });
+  for (const status of ['plan', 'in_progress', 'clearances', 'waiting_on_approval', 'blocked', 'finish', 'completed']) {
     const updated = await patch(task.id, { status });
     assert.equal(updated.status, 200, updated.data?.message);
     assert.equal(updated.data.status, status);
@@ -2204,7 +2204,7 @@ test('WorkItem edits: server-owned fields locked, signed description kept, done_
   assert.ok(completed.data.steps[0].id, 'step id assigned server-side');
   assert.equal(completed.data.amount_cents, 10000);
   const undone = await patch(sourced.id, { status: 'waiting_materials' });
-  assert.equal(undone.data.status, 'waiting_on_materials', 'legacy waiting_materials lands on the waiting on materials column');
+  assert.equal(undone.data.status, 'waiting_on_access', 'legacy waiting_materials lands on the waiting on access column');
   assert.equal(undone.data.done, false);
   assert.equal(undone.data.done_at, undefined);
   assert.equal(undone.data.steps[0].id, completed.data.steps[0].id, 'existing step ids are kept');
