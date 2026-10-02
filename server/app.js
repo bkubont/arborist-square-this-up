@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, fileIdsOf } from './domain.js';
+import { schemas, fail, decode, getRecord, saveRecord, JOB_DOCUMENT_ENTITIES, JOB_CHILD_ENTITIES, fileIdsOf, defaultCompanyProfileSeed } from './domain.js';
 import { searchCatalog } from './catalog.js';
 import { loadWorkTypes } from '../shared/workTypes.js';
 import { suggestAddresses } from './addressSuggest.js';
@@ -226,11 +226,8 @@ export async function createApp(db, env = process.env) {
       if ((await tx.all('SELECT id FROM users WHERE email = ?', [email])).length) throw fail(409, 'Account already exists. Please log in.');
       await tx.run('INSERT INTO users (id, email, password_hash, created_date) VALUES (?, ?, ?, ?)', [userId, email, digest, new Date().toISOString()]);
       await tx.run('DELETE FROM tokens WHERE token_hash = ?', [hash(invite)]);
-      // Seed company profile with sales tax so docs can autofill immediately.
-      await saveRecord(tx, userId, 'CompanyProfile', {
-        name: '',
-        default_tax_rate: defaultTaxRate,
-      });
+      // Seed company profile with sales tax + arborist service presets so estimates autofill.
+      await saveRecord(tx, userId, 'CompanyProfile', defaultCompanyProfileSeed(defaultTaxRate));
     });
     const sessionToken = await session(res, userId, db, { setCookie: !native });
     const payload = { id: userId, email, default_tax_rate: defaultTaxRate };
@@ -248,7 +245,7 @@ export async function createApp(db, env = process.env) {
       try {
         const transport = nodemailer.createTransport({ host: env.SMTP_HOST, port: Number(env.SMTP_PORT || 465), secure: env.SMTP_SECURE !== 'false',
           auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } : undefined });
-        await transport.sendMail({ from: env.MAIL_FROM, to: email, subject: 'Reset your Square This Up password',
+        await transport.sendMail({ from: env.MAIL_FROM, to: email, subject: 'Reset your Square This Up (arborist) password',
           text: `Reset your password within 30 minutes: ${origin}/reset-password?token=${value}\nIf you did not request this, ignore this email.` });
       } catch { console.error('Password reset email delivery failed'); }
     }
@@ -699,7 +696,7 @@ export async function createApp(db, env = process.env) {
         throw fail(409, 'Delete this client’s jobs first');
       if (req.params.entity === 'Job') {
         // 'WorkOrder' clears rows left from before the checklist replaced it (nothing else reads them).
-        for (const child of ['TimelineEntry', 'Expense', 'Payment', 'WorkItem', 'WorkOrder', ...JOB_DOCUMENT_ENTITIES]) {
+        for (const child of [...JOB_CHILD_ENTITIES, ...JOB_DOCUMENT_ENTITIES]) {
           await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, child, record.id]);
         }
         await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);

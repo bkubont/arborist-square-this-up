@@ -1,11 +1,17 @@
-/** Square This Up brand constants (Brittany Stephenson). */
+/** Square This Up — arborist edition brand constants (Brittany / bkubont). */
 export const PRODUCT_NAME = "Square This Up";
+
+/** Short edition label for docs and empty states. */
+export const PRODUCT_EDITION = "Arborist edition";
 
 /**
  * Public support mailbox shown on /support and /privacy.
  * Edit to the real inbox before store listing; keep in sync with Hostinger mail if used.
  */
-export const SUPPORT_EMAIL = "support@squarethisup.com";
+export const SUPPORT_EMAIL = "support@arborist.squarethisup.com";
+
+/** Production web origin for this edition. */
+export const APP_ORIGIN_PRODUCTION = "https://arborist.squarethisup.com";
 
 /** Exact brand hexes */
 export const BRAND_HEX = {

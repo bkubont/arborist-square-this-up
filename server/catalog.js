@@ -1,19 +1,16 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { arboristCatalogPayload, DEFAULT_ARBORIST_SERVICE_PRESETS } from '../shared/arboristServicePresets.js';
 
-const catalogPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'handyman-catalog.json');
 let cached;
 
 export function loadCatalog() {
-  if (!cached) cached = JSON.parse(readFileSync(catalogPath, 'utf8'));
+  if (!cached) cached = arboristCatalogPayload();
   return cached;
 }
 
-/** Brittany's work-type list for dropdowns and kanban grouping. */
+/** Arborist work-type list for dropdowns and kanban grouping. */
 export { loadWorkTypes as getWorkTypes } from '../shared/workTypes.js';
 
-/** Search handyman catalog (Estimate / WO search→fill). */
+/** Search arborist service catalog (Estimate search→fill). */
 export function searchCatalog({ q = '', category = '', maintenance = '', source = '', limit = 40 } = {}) {
   const catalog = loadCatalog();
   const query = String(q).trim().toLowerCase();
@@ -59,7 +56,7 @@ function catalogNotes(item) {
 /** Map a catalog row into an editable Estimate line (whole-line amount, labor + materials). */
 export function catalogItemToEstimateLine(item) {
   const hours = item.hours_mid ?? null;
-  const rate = item.labor_rate ?? 55;
+  const rate = item.labor_rate ?? 85;
   const labor = item.est_labor_cost ?? (hours != null ? hours * rate : 0);
   const materials = Number(item.est_materials_cost) || 0;
   const wholeLine = Math.round((Number(labor || 0) + materials) * 100) / 100;
@@ -76,3 +73,24 @@ export function catalogItemToEstimateLine(item) {
     catalog_id: item.id,
   };
 }
+
+/** Map a CompanyProfile service_preset into an estimate line. */
+export function servicePresetToEstimateLine(preset) {
+  const labor = Number(preset.labor_amount) || 0;
+  const materials = Number(preset.material_amount) || 0;
+  const equipment = Number(preset.equipment_amount) || 0;
+  const wholeLine = Math.round((labor + materials + equipment) * 100) / 100;
+  return {
+    description: preset.name || preset.description || '',
+    category: preset.category || '',
+    labor_amount: wholeLine > 0 ? wholeLine : undefined,
+    labor_hours: preset.labor_hours != null ? Number(preset.labor_hours) : undefined,
+    labor_rate: preset.labor_rate != null ? Number(preset.labor_rate) : undefined,
+    material_amount: undefined,
+    equipment_amount: undefined,
+    notes: preset.description || '',
+    catalog_id: preset.id || undefined,
+  };
+}
+
+export { DEFAULT_ARBORIST_SERVICE_PRESETS };

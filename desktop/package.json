@@ -1,8 +1,8 @@
 {
-  "name": "square-this-up-desktop",
+  "name": "arborist-square-this-up-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Square This Up Windows desktop shell (Electron)",
+  "description": "Square This Up (arborist edition) Windows desktop shell (Electron)",
   "main": "main.js",
   "author": "Square This Up",
   "license": "UNLICENSED",
@@ -13,7 +13,7 @@
     "pack:dir": "electron-builder --win --x64 --dir"
   },
   "build": {
-    "appId": "com.squarethisup.desktop",
+    "appId": "com.squarethisup.arborist.desktop",
     "productName": "Square This Up",
     "copyright": "Copyright © Square This Up",
     "directories": {

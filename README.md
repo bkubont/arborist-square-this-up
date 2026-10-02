@@ -1,6 +1,8 @@
-# Square This Up
+# Square This Up — Arborist edition
 
-A standalone React + Express job tracker (working title was Jobsite Notebook). Production uses MySQL on Hostinger; local development uses a persistent SQLite database. Base44 is no longer required to start or run the app.
+A standalone React + Express job tracker for **tree-service / arborist** businesses (forked from the contractor Square This Up app). Production target: **https://arborist.squarethisup.com**. Local development uses a persistent SQLite database; production uses MySQL on Hostinger.
+
+This repository is a separate product — do not change `bkubont/Square-this-up`.
 
 ## Local development
 
@@ -21,14 +23,16 @@ Each invited account has separate clients, jobs, timeline entries and files. Inv
 
 Hostinger builds this source on the server with `NODE_ENV=production`. Vite, its React plugin, Tailwind, PostCSS and Autoprefixer are therefore regular dependencies so they remain available even when npm omits development dependencies. Keep Node.js 24 selected. A `vite: not found` build failure should be addressed by uploading the corrected package and lockfile, not by downgrading Node.js.
 
-Use an available Node.js web app slot on the existing Business plan. Keep the app separate from existing business websites, for example on jobs.yourdomain.com.
+Use an available Node.js web app slot on the existing Business plan. Keep the arborist app on **arborist.squarethisup.com**, separate from the contractor site.
 
 1. Create a dedicated MySQL database and database user in hPanel. Confirm database capacity and max_allowed_packet of at least 8 MB (uploads are limited to 4 MB). Photos live in the files table, so database limits matter separately from the advertised website disk space. Start with ACCOUNT_STORAGE_MB=100; raise only after checking database and backup limits.
 2. Add a Node.js web app using a private repository or source ZIP. Choose Express/Other backend mode, Node.js 24, repository root as the application root, npm ci for installation, npm run build for the build command, and server/index.js as the entry file (npm start if a start command is requested). The frontend output is dist, but deploy the complete application, not dist alone. Express serves the API and built frontend from the same origin.
-3. Set NODE_ENV=production, APP_ORIGIN=https://jobs.yourdomain.com, DB_HOST, DB_PORT, DB_NAME, DB_USER and DB_PASSWORD in Hostinger's environment settings. Use the actual database hostname supplied by hPanel. Enable DB_SSL=true when the database supports a trusted TLS connection. Honor Hostinger's assigned PORT. Never expose database credentials through VITE_ variables.
+3. Set NODE_ENV=production, APP_ORIGIN=https://arborist.squarethisup.com, DB_HOST, DB_PORT, DB_NAME, DB_USER and DB_PASSWORD in Hostinger's environment settings. Use the actual database hostname supplied by hPanel. Enable DB_SSL=true when the database supports a trusted TLS connection. Honor Hostinger's assigned PORT. Never expose database credentials through VITE_ variables.
 4. The server creates its tables on startup. Run npm run account -- invite you@example.com against this production database from an authorized shell using the same environment. If the web app does not offer a shell, use a trusted local machine with Hostinger's remote MySQL access restricted to that machine's IP. Do not expose an unauthenticated setup endpoint.
-5. Open the invitation URL, set your password, and verify /api/health returns {"ok":true}. Confirm login, client/job creation, upload, logout, deep-link refresh, backup download, and persistence across a restart/redeployment. Test with two separate accounts and confirm both record and photo isolation.
-6. Confirm hPanel's scheduled backups include this MySQL database and verify a restore into a separate database. Download an account backup regularly and before changes. Keep a copy outside the hosting account. Only switch from Base44 after data/file counts and these checks pass.
+5. Open the invitation URL, set your password, and verify /api/health returns {"ok":true}. Confirm login, client/job creation, tree inventory, estimate presets, upload, logout, deep-link refresh, backup download, and persistence across a restart/redeployment. Test with two separate accounts and confirm both record and photo isolation.
+6. Confirm hPanel's scheduled backups include this MySQL database and verify a restore into a separate database. Download an account backup regularly and before changes. Keep a copy outside the hosting account.
+
+See **DEPLOYMENT.md** for the Hostinger checklist (no DNS/website/DB create without confirmation).
 
 Production refuses to start without MySQL and an HTTPS APP_ORIGIN. The backend uses HttpOnly, Secure, SameSite cookies, origin checks on mutations, hashed passwords, expiring sessions, and database-backed authentication rate limits. Domain changes require updating APP_ORIGIN and logging in again.
 
@@ -47,7 +51,7 @@ The reset command prints a private, single-use link valid for 30 minutes. Comple
 
 ### Demo wipe and seed (one account)
 
-To clear **business data** for a single account and load a fixed demo set (15 clients, 14 jobs across statuses, documents, timeline, and a few expenses), run:
+To clear **business data** for a single account and load a fixed arborist demo set (15 clients, 14 tree-service jobs across statuses, tree inventory, documents, timeline, and a few expenses), run:
 
 ```sh
 npm run account -- seed-demo you@example.com --yes

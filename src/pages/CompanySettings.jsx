@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import PageHeader from "@/components/PageHeader";
 import { DEFAULT_SALES_TAX_RATE } from "@/lib/salesTax";
 import { assignAppPath } from "@/lib/desktopSession";
-import { SUPPORT_EMAIL } from "@/lib/brand";
+import { SUPPORT_EMAIL, PRODUCT_EDITION } from "@/lib/brand";
+import { DEFAULT_ARBORIST_SERVICE_PRESETS } from "../../shared/arboristServicePresets.js";
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
 export default function CompanySettings() {
@@ -24,6 +25,7 @@ export default function CompanySettings() {
     default_tax_rate: String(DEFAULT_SALES_TAX_RATE),
     default_payment_terms: "",
   });
+  const [presets, setPresets] = useState(DEFAULT_ARBORIST_SERVICE_PRESETS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -45,8 +47,14 @@ export default function CompanySettings() {
         default_tax_rate: existing.default_tax_rate ?? String(DEFAULT_SALES_TAX_RATE),
         default_payment_terms: existing.default_payment_terms || "",
       });
+      setPresets(
+        Array.isArray(existing.service_presets) && existing.service_presets.length
+          ? existing.service_presets
+          : DEFAULT_ARBORIST_SERVICE_PRESETS.map((p) => ({ ...p })),
+      );
     } else {
       setForm((f) => ({ ...f, default_tax_rate: String(DEFAULT_SALES_TAX_RATE) }));
+      setPresets(DEFAULT_ARBORIST_SERVICE_PRESETS.map((p) => ({ ...p })));
     }
     setLoading(false);
   }, []);
@@ -56,6 +64,10 @@ export default function CompanySettings() {
   }, [load]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const setPreset = (index, patch) => {
+    setPresets((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
 
   const save = async () => {
     setSaving(true);
@@ -69,6 +81,24 @@ export default function CompanySettings() {
         website: form.website,
         default_payment_terms: form.default_payment_terms,
         default_tax_rate: form.default_tax_rate === "" ? DEFAULT_SALES_TAX_RATE : Number(form.default_tax_rate),
+        service_presets: presets.map((p) => {
+          const numOrUndef = (v) => {
+            if (v === "" || v == null) return undefined;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : undefined;
+          };
+          return {
+            id: p.id,
+            name: p.name,
+            description: p.description || "",
+            category: p.category || "",
+            labor_amount: numOrUndef(/** @type {unknown} */ (p.labor_amount)),
+            material_amount: numOrUndef(/** @type {unknown} */ (p.material_amount)),
+            equipment_amount: numOrUndef(/** @type {unknown} */ (p.equipment_amount)),
+            labor_hours: numOrUndef(/** @type {unknown} */ (p.labor_hours)),
+            labor_rate: numOrUndef(/** @type {unknown} */ (p.labor_rate)),
+          };
+        }),
       };
       if (profile) await api.entities.CompanyProfile.update(profile.id, payload);
       else {
@@ -116,7 +146,7 @@ export default function CompanySettings() {
     <div className="p-4 lg:p-8 max-w-2xl mx-auto">
       <PageHeader
         title="Settings"
-        description="Company profile for estimates, work orders, change orders, and invoices"
+        description={`Company profile and arborist rate-card presets (${PRODUCT_EDITION})`}
         primaryAction={
           <div className="flex items-center gap-3">
             {saved && <span className="text-sm text-emerald-600">Saved</span>}
@@ -129,7 +159,7 @@ export default function CompanySettings() {
       <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
         <div>
           <Label>Company name</Label>
-          <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Your company" />
+          <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Your tree service" />
         </div>
         <div>
           <Label>Address</Label>
@@ -161,12 +191,61 @@ export default function CompanySettings() {
               onChange={(e) => set("default_tax_rate", e.target.value)}
               placeholder={String(DEFAULT_SALES_TAX_RATE)}
             />
-            <p className="text-xs text-slate-500 mt-1">Autofills new estimates, invoices, work orders, and change orders.</p>
+            <p className="text-xs text-slate-500 mt-1">Autofills new estimates, invoices, and change orders.</p>
           </div>
           <div>
             <Label>Default payment terms</Label>
             <Input value={form.default_payment_terms} onChange={(e) => set("default_payment_terms", e.target.value)} placeholder="Due upon receipt" />
           </div>
+        </div>
+      </div>
+
+      <div className="mt-6 bg-white rounded-xl border border-slate-200 p-5 space-y-3" data-testid="service-presets">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Service estimate presets</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Rate-card templates for pruning, removal, stump grind, haul, crane, cabling, PHC, and storm call-outs. Edit rates; estimate editor can add these lines quickly.
+          </p>
+        </div>
+        <div className="space-y-2">
+          {presets.map((p, i) => (
+            <div key={p.id || i} className="grid grid-cols-1 sm:grid-cols-[1fr_5rem_5rem_5rem] gap-2 items-center rounded-lg border border-slate-100 p-2">
+              <div>
+                <div className="text-sm font-medium text-slate-800">{p.name}</div>
+                <div className="text-xs text-slate-500">{p.category}{p.description ? ` · ${p.description}` : ""}</div>
+              </div>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                className="h-8 text-sm"
+                value={p.labor_amount ?? ""}
+                onChange={(e) => setPreset(i, { labor_amount: e.target.value })}
+                aria-label={`${p.name} labor`}
+                placeholder="Labor $"
+              />
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                className="h-8 text-sm"
+                value={p.material_amount ?? ""}
+                onChange={(e) => setPreset(i, { material_amount: e.target.value })}
+                aria-label={`${p.name} materials`}
+                placeholder="Mats $"
+              />
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                className="h-8 text-sm"
+                value={p.equipment_amount ?? ""}
+                onChange={(e) => setPreset(i, { equipment_amount: e.target.value })}
+                aria-label={`${p.name} equipment`}
+                placeholder="Equip $"
+              />
+            </div>
+          ))}
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import { money, shortDate } from "@/lib/format";
 import {
   addDaysIso,
   catalogItemToFormLine,
+  servicePresetToFormLine,
   DEFAULT_LABOR_RATE,
   emptyEstimateLine,
   ESTIMATE_VALID_DAYS,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/estimateMath";
 import { isEstimateReadOnly } from "@/lib/documentAvailability";
 import { loadAccountTaxRate } from "@/lib/salesTax";
+import { DEFAULT_ARBORIST_SERVICE_PRESETS } from "../../shared/arboristServicePresets.js";
 
 /**
  * Estimate editor: whole-line amounts (labor + materials) + catalog typeahead + e-sign.
@@ -50,6 +52,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   const [signBusy, setSignBusy] = useState(false);
   const [signResult, setSignResult] = useState(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [servicePresets, setServicePresets] = useState(DEFAULT_ARBORIST_SERVICE_PRESETS);
   const cameraRef = useRef(null);
 
   useEffect(() => {
@@ -72,6 +75,11 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
 
     api.catalog.search({ limit: 1 }).then((data) => {
       if (data?.default_labor_rate != null) setDefaultLaborRate(Number(data.default_labor_rate) || DEFAULT_LABOR_RATE);
+    }).catch(() => {});
+
+    api.entities.CompanyProfile.list("-created_date", 1).then((rows) => {
+      const presets = rows[0]?.service_presets;
+      if (Array.isArray(presets) && presets.length) setServicePresets(presets);
     }).catch(() => {});
 
     if (document.tax_rate == null || document.tax_rate === "") {
@@ -116,6 +124,21 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   const onCatalogPick = (index, item) => {
     if (readOnly) return;
     setLine(index, catalogItemToFormLine(item, defaultLaborRate));
+  };
+
+  const addFromPreset = (presetId) => {
+    if (readOnly || !presetId) return;
+    const preset = servicePresets.find((p) => p.id === presetId);
+    if (!preset) return;
+    setLines((rows) => {
+      const blank = emptyEstimateLine();
+      const filled = servicePresetToFormLine(preset, defaultLaborRate);
+      // Replace a trailing empty line, otherwise append.
+      if (rows.length === 1 && !rows[0].description && !rows[0].line_amount) return [filled];
+      const last = rows[rows.length - 1];
+      if (last && !last.description && !last.line_amount) return [...rows.slice(0, -1), filled];
+      return [...rows, filled];
+    });
   };
 
   const captureJobPhoto = async (files) => {
@@ -361,8 +384,25 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           {!readOnly && (
             <p className="text-xs text-slate-500 mb-2">
-              Type in Description to pick from the catalog. Each line is one whole-line amount (labor + materials). Hrs × rate can suggest the amount.
+              Type in Description to search arborist service presets. Or add a whole preset below. Each line is one whole-line amount (labor + materials + equipment).
             </p>
+          )}
+          {!readOnly && servicePresets.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Label className="text-xs text-slate-500 shrink-0">Add preset</Label>
+              <Select onValueChange={addFromPreset}>
+                <SelectTrigger className="h-8 text-xs max-w-xs" data-testid="estimate-add-preset">
+                  <SelectValue placeholder="Pruning, removal, stump…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {servicePresets.map((p) => (
+                    <SelectItem key={p.id || p.name} value={p.id || p.name} className="text-xs">
+                      {p.name}{p.category ? ` · ${p.category}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
 
           <div className="space-y-3">
@@ -377,7 +417,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
                       <WorkTypeSelect
                         value={line.category || ""}
                         onValueChange={(category) => setLine(index, { category })}
-                        placeholder="e.g. Plumbing"
+                        placeholder="e.g. Pruning"
                       />
                     )}
                   </div>

@@ -90,6 +90,9 @@ test('demo seed creates 15 clients and 14 jobs with intended distribution', asyn
     assert.equal(estimates.length, 14);
     assert.equal(new Set(estimates.map((e) => e.parent_id)).size, 14);
 
+    const trees = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'TreeInventory']);
+    assert.ok(trees.length >= 10, 'demo seeds tree inventory rows');
+
     const expenses = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [ownerId, 'Expense']);
     assert.equal(expenses.length, 4);
 

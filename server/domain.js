@@ -5,6 +5,12 @@ import { JOB_PHASES, normalizeJobRecord } from './jobStatus.js';
 import { CLIENT_LEAD_STATUSES, normalizeClientRecord } from './clientPipeline.js';
 import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 import { materialRowForStorage } from '../shared/materialStatus.js';
+import {
+  JOB_TYPES,
+  TREE_CONDITIONS,
+  TREE_RECOMMENDED_WORK,
+  defaultServicePresetsForProfile,
+} from '../shared/arboristServicePresets.js';
 
 const text = z.string().max(20000);
 const [leadStatusHead, ...leadStatusTail] = CLIENT_LEAD_STATUSES;
@@ -13,6 +19,12 @@ const [workingStatusHead, ...workingStatusTail] = JOB_PHASES.working.statuses;
 const jobWorkingStatus = z.enum(/** @type {[string, ...string[]]} */ ([workingStatusHead, ...workingStatusTail]));
 const [paymentStatusHead, ...paymentStatusTail] = JOB_PHASES.payment.statuses;
 const jobPaymentStatus = z.enum(/** @type {[string, ...string[]]} */ ([paymentStatusHead, ...paymentStatusTail]));
+const [jobTypeHead, ...jobTypeTail] = JOB_TYPES;
+const jobTypeEnum = z.enum(/** @type {[string, ...string[]]} */ ([jobTypeHead, ...jobTypeTail]));
+const [treeConditionHead, ...treeConditionTail] = TREE_CONDITIONS;
+const treeConditionEnum = z.enum(/** @type {[string, ...string[]]} */ ([treeConditionHead, ...treeConditionTail]));
+const [treeWorkHead, ...treeWorkTail] = TREE_RECOMMENDED_WORK;
+const treeRecommendedWorkEnum = z.enum(/** @type {[string, ...string[]]} */ ([treeWorkHead, ...treeWorkTail]));
 const id = z.string().min(1).max(36);
 const money = z.number().finite().min(0).max(1e12);
 const signedMoney = z.number().finite().min(-1e12).max(1e12);
@@ -86,6 +98,8 @@ export { TASK_STATUSES } from './taskStatus.js';
 
 /** Job-linked document entities (parent_id = job_id). */
 export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'PunchList'];
+/** Other job children wiped when a Job is deleted (not documents). */
+export const JOB_CHILD_ENTITIES = ['TimelineEntry', 'Expense', 'Payment', 'WorkItem', 'WorkOrder', 'TreeInventory'];
 /** Estimate/ChangeOrder statuses that mean "the customer decided" or "withdrawn" — the document is frozen. */
 export const SCOPE_TERMINAL_STATUSES = { Estimate: ['accepted', 'declined', 'void'], ChangeOrder: ['approved', 'rejected', 'void'] };
 /** The one status each reaches only through a real customer signature (see server/sign.js). */
@@ -150,11 +164,32 @@ export const schemas = {
       task_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().min(1).max(36).optional()),
     })).max(500).optional(),
     notes: text.optional(),
-    /** Primary trade for kanban grouping (plumbing, electrical, …). */
+    /** Primary trade for kanban grouping (pruning, removal, …). */
     work_type: text.optional(),
+    /** Arborist job flavor — residential | commercial | municipal | storm | other. */
+    job_type: jobTypeEnum.optional(),
     // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
     // moves them into WorkItems and clears this.
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
+  /**
+   * Trees on a job (inventory). parent_id = job_id.
+   * Label/tag + species + DBH + condition + location + optional photo + recommended work.
+   */
+  TreeInventory: z.object({
+    job_id: id,
+    /** Site tag, e.g. T-1 or Front oak. */
+    label: z.string().trim().min(1).max(120),
+    species: text.optional(),
+    /** Diameter at breast height in inches. */
+    dbh_inches: money.optional(),
+    condition: treeConditionEnum.default('unknown'),
+    location_note: text.optional(),
+    photo_url: z.string().max(200).optional(),
+    recommended_work: z.array(treeRecommendedWorkEnum).max(20).default([]),
+    notes: text.optional(),
+    /** Optional link to an estimate line id when quoting that tree. */
+    estimate_line_id: z.string().max(64).optional(),
+  }),
   // 'checklist' and 'work_order_created' stay so timeline rows from before the WorkItem checklist
   // still decode; nothing writes them any more.
   TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided','document_declined']),
@@ -262,6 +297,21 @@ export const schemas = {
     /** Percent, e.g. 6 for 6%. New accounts default to 6%. */
     default_tax_rate: rate.default(DEFAULT_SALES_TAX_RATE),
     default_payment_terms: text.optional(),
+    /**
+     * Editable arborist rate-card / estimate line templates.
+     * Seeded from DEFAULT_ARBORIST_SERVICE_PRESETS on invite registration.
+     */
+    service_presets: z.array(z.object({
+      id: z.string().max(64).optional(),
+      name: z.string().trim().min(1).max(250),
+      description: text.optional(),
+      category: text.optional(),
+      labor_amount: money.optional(),
+      material_amount: money.optional(),
+      equipment_amount: money.optional(),
+      labor_hours: money.optional(),
+      labor_rate: money.optional(),
+    })).max(100).optional(),
   }),
   Estimate: z.object({
     job_id: id,
@@ -412,9 +462,20 @@ export function assertClientAddressComplete(data = {}) {
 
 function parentFor(entity, data) {
   if (entity === 'Job') return { parentId: data.client_id, parentEntity: 'Client' };
-  if (entity === 'TimelineEntry' || entity === 'Payment' || entity === 'WorkItem' || JOB_DOCUMENT_ENTITIES.includes(entity)) return { parentId: data.job_id, parentEntity: 'Job' };
+  if (entity === 'TimelineEntry' || entity === 'Payment' || entity === 'WorkItem' || entity === 'TreeInventory' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
+    return { parentId: data.job_id, parentEntity: 'Job' };
+  }
   if (entity === 'Expense' && data.job_id) return { parentId: data.job_id, parentEntity: 'Job' };
   return { parentId: null, parentEntity: null };
+}
+
+/** Default CompanyProfile payload for invite registration (sales tax + arborist presets). */
+export function defaultCompanyProfileSeed(defaultTaxRate = DEFAULT_SALES_TAX_RATE) {
+  return {
+    name: '',
+    default_tax_rate: defaultTaxRate,
+    service_presets: defaultServicePresetsForProfile(),
+  };
 }
 
 export async function getRecord(db, owner, entity, recordId) {
@@ -472,6 +533,9 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
       ...section,
       items: withIds(section.items || []),
     }));
+  }
+  if (entity === 'CompanyProfile' && Array.isArray(data.service_presets)) {
+    data.service_presets = withIds(data.service_presets);
   }
   if (entity === 'Job' && Array.isArray(data.materials)) {
     data.materials = withIds(data.materials).map((row) => {
