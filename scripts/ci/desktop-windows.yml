@@ -1,0 +1,112 @@
+# Build unsigned Windows NSIS + portable Electron installers for site download.
+# Run manually: Actions → "Desktop Windows" → Run workflow → download Artifacts.
+#
+# Required repository variable (Settings → Secrets and variables → Actions → Variables):
+#   VITE_API_URL  — production API origin, no trailing slash
+#                   e.g. https://arborist.squarethisup.com (same as APP_ORIGIN)
+#
+# Optional: set the same name as a secret instead; the workflow prefers vars, then secrets.
+#
+# Artifacts are unsigned by design (MVP). Windows SmartScreen will warn on first launch
+# ("More info → Run anyway"). Do not commit release/ or signing keys.
+
+name: Desktop Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref_note:
+        description: Optional note (shown in run summary only)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    env:
+      # Prefer repo variable; allow secret fallback with the same name.
+      VITE_API_URL: ${{ vars.VITE_API_URL || secrets.VITE_API_URL }}
+      # Unsigned MVP — do not attempt auto code signing.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Require VITE_API_URL
+        shell: bash
+        run: |
+          if [ -z "${VITE_API_URL:-}" ]; then
+            echo "::error::Missing VITE_API_URL. Set repository variable (or secret) VITE_API_URL to your production API origin (e.g. https://arborist.squarethisup.com), no trailing slash."
+            exit 1
+          fi
+          # Strip accidental trailing slash for consistent Vite embeds
+          export VITE_API_URL="${VITE_API_URL%/}"
+          echo "VITE_API_URL=${VITE_API_URL}" >> "$GITHUB_ENV"
+          echo "Packaging against API origin: ${VITE_API_URL}"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        run: npm ci
+        working-directory: desktop
+
+      - name: Build Windows NSIS + portable
+        run: npm run desktop:build:win
+
+      - name: List release artifacts
+        shell: bash
+        run: |
+          ls -la desktop/release/ || true
+          # Fail if expected .exe outputs are missing (do not treat unpacked-dir as success)
+          shopt -s nullglob
+          nsis=(desktop/release/*-win-x64.exe)
+          portable=(desktop/release/*-portable.exe)
+          if [ ${#nsis[@]} -eq 0 ] || [ ${#portable[@]} -eq 0 ]; then
+            echo "::error::Expected NSIS (*-win-x64.exe) and portable (*-portable.exe) under desktop/release/. Found:"
+            ls -la desktop/release/ || true
+            exit 1
+          fi
+          echo "NSIS: ${nsis[*]}"
+          echo "Portable: ${portable[*]}"
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: arborist-square-this-up-windows-${{ github.run_number }}
+          path: |
+            desktop/release/*-win-x64.exe
+            desktop/release/*-portable.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "## Desktop Windows build"
+            echo ""
+            echo "- **API:** \`${VITE_API_URL}\`"
+            echo "- **Unsigned:** yes (SmartScreen may warn — More info → Run anyway)"
+            echo "- **Note:** ${{ inputs.ref_note || '—' }}"
+            echo ""
+            echo "Download the **arborist-square-this-up-windows-${{ github.run_number }}** artifact from this run."
+            echo ""
+            echo "### Files"
+            ls -1 desktop/release/*-win-x64.exe desktop/release/*-portable.exe 2>/dev/null | while read -r f; do
+              echo "- \`$(basename "$f")\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -55,10 +55,10 @@ Full NSIS + portable `.exe` packaging needs Windows (or Wine32). This cloud Linu
 
 1. In GitHub → **Settings → Secrets and variables → Actions → Variables**, add:
    - **Name:** `VITE_API_URL`
-   - **Value:** your production API origin (same host as `APP_ORIGIN` / README), e.g. `https://jobs.yourdomain.com` — **no trailing slash**
+   - **Value:** `https://arborist.squarethisup.com` — **no trailing slash** (same host as `APP_ORIGIN`)
    - (Optional) use a **secret** with the same name instead; the workflow reads `vars` first, then `secrets`.
 2. Open **Actions → Desktop Windows → Run workflow** (`workflow_dispatch`).
-3. When the run finishes, download the artifact **`square-this-up-windows-<run#>`** (contains the NSIS + portable `.exe` files). Retention: 30 days.
+3. When the run finishes, download the artifact **`arborist-square-this-up-windows-<run#>`** (contains the NSIS + portable `.exe` files). Retention: 30 days.
 4. Expect SmartScreen on first launch until you buy Authenticode signing.
 
 Workflow file: `.github/workflows/desktop-windows.yml`.
@@ -67,14 +67,14 @@ Workflow file: `.github/workflows/desktop-windows.yml`.
 
 ```sh
 # From repo root — builds Vite UI for desktop, then packages Windows installer + portable
-export VITE_API_URL=https://jobs.yourdomain.com   # must match production host (no trailing slash)
+export VITE_API_URL=https://arborist.squarethisup.com   # must match production host (no trailing slash)
 npm run desktop:build:win
 ```
 
 On Linux without Wine32, **`desktop:build:win:dir`** only produces an unpacked tree — that does **not** verify the NSIS installer:
 
 ```sh
-export VITE_API_URL=https://jobs.yourdomain.com
+export VITE_API_URL=https://arborist.squarethisup.com
 npm run desktop:build:win:dir
 # → desktop/release/win-unpacked/Square This Up.exe (+ resources/ui)
 ```
@@ -96,7 +96,7 @@ Until then: ship unsigned, warn users to choose “More info → Run anyway”, 
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `VITE_DESKTOP=true` | Vite build/dev | HashRouter, Bearer client, relative asset base |
-| `VITE_API_URL` | Vite build/dev | Absolute API origin (e.g. `https://jobs.yourdomain.com`) |
+| `VITE_API_URL` | Vite build/dev | Absolute API origin (e.g. `https://arborist.squarethisup.com`) |
 | `ELECTRON_START_URL` | Electron dev | Override UI URL (default `http://127.0.0.1:5173`) |
 
 ## Out of scope (v1)
