@@ -19,15 +19,13 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
   working: {
     label: 'Working',
     statuses: [
-      'Estimate',
-      'Waiting on approval',
+      'Estimate sent',
       'Approved',
       'Prep',
       'In progress',
-      'Waiting on materials',
+      'Waiting on',
       'Blocked',
       'Completed',
-      'Cancelled',
     ],
   },
   payment: {
@@ -36,27 +34,36 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
   },
 };
 
-export const ESTIMATE_STAGE_STATUSES = ['Estimate', 'Waiting on approval', 'Approved'] as const;
+export const ESTIMATE_STAGE_STATUSES = ['Estimate sent', 'Approved'] as const;
 
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap(phase => JOB_PHASES[phase].statuses);
 
-export const ARCHIVE_JOB_STATUSES = new Set(['Paid', 'Declined', 'Cancelled']);
+export const ARCHIVE_JOB_STATUSES = new Set(['Paid', 'Declined']);
 
 export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter(s => !ARCHIVE_JOB_STATUSES.has(s));
 
 export const LEGACY_JOB_STATUS_MAP: Record<string, { phase: JobPhase; status: string }> = {
-  Contact: { phase: 'working', status: 'Estimate' },
-  Assessment: { phase: 'working', status: 'Estimate' },
-  'Plan / draft estimate': { phase: 'working', status: 'Estimate' },
-  Declined: { phase: 'working', status: 'Cancelled' },
+  Contact: { phase: 'working', status: 'Estimate sent' },
+  Assessment: { phase: 'working', status: 'Estimate sent' },
+  'Plan / draft estimate': { phase: 'working', status: 'Estimate sent' },
+  Estimate: { phase: 'working', status: 'Estimate sent' },
+  'Waiting on approval': { phase: 'working', status: 'Estimate sent' },
+  Declined: { phase: 'working', status: 'Completed' },
+  Cancelled: { phase: 'working', status: 'Completed' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
-  'Waiting on Materials': { phase: 'working', status: 'Waiting on materials' },
+  'Waiting on Materials': { phase: 'working', status: 'Waiting on' },
+  'Waiting on materials': { phase: 'working', status: 'Waiting on' },
+  'Waiting on access': { phase: 'working', status: 'Waiting on' },
+  'Waiting on weather': { phase: 'working', status: 'Waiting on' },
+  'Waiting on utility': { phase: 'working', status: 'Waiting on' },
   'On Hold': { phase: 'working', status: 'Blocked' },
 };
 
 export function isEstimateStageStatus(status: string | null | undefined): boolean {
-  return (ESTIMATE_STAGE_STATUSES as readonly string[]).includes(status || '');
+  return (ESTIMATE_STAGE_STATUSES as readonly string[]).includes(status || '')
+    || status === 'Estimate'
+    || status === 'Waiting on approval';
 }
 
 export function phaseForStatus(status: string | null | undefined): JobPhase | null {
@@ -69,7 +76,7 @@ export function phaseForStatus(status: string | null | undefined): JobPhase | nu
 }
 
 export function defaultStatusForPhase(phase: JobPhase | string): string {
-  return JOB_PHASES[phase as JobPhase]?.statuses[0] || 'Estimate';
+  return JOB_PHASES[phase as JobPhase]?.statuses[0] || 'Estimate sent';
 }
 
 export function statusesForPhase(phase: JobPhase | string): string[] {
@@ -121,11 +128,9 @@ export function resolvePhaseStatus(
     phaseForStatus(status) ||
     legacy?.phase ||
     'working';
-  const candidate = status || legacy?.status || defaultStatusForPhase(resolvedPhase);
+  const candidate = legacy?.status || status || defaultStatusForPhase(resolvedPhase);
   const resolvedStatus = statusesForPhase(resolvedPhase).includes(candidate)
     ? candidate
-    : legacy?.status && statusesForPhase(resolvedPhase).includes(legacy.status)
-      ? legacy.status
-      : defaultStatusForPhase(resolvedPhase);
+    : defaultStatusForPhase(resolvedPhase);
   return { phase: resolvedPhase, status: resolvedStatus };
 }

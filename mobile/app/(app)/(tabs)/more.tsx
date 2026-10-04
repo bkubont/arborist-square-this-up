@@ -145,7 +145,7 @@ export default function MoreScreen() {
       />
       <LinkRow
         title="Archive"
-        hint="Paid, declined, and cancelled jobs"
+        hint="Paid and declined jobs"
         onPress={() => router.push('/(app)/jobs/archive')}
       />
       <LinkRow

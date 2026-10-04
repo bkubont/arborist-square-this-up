@@ -6,22 +6,29 @@ import { statusColors } from "@/lib/statusColors";
 import { cn } from "@/lib/utils";
 
 /**
- * A task's card notes, oldest first. Each is tinted with the status the task had when the note was
- * written (the server stamps it), so a card reads as a small history: "On Hold — waiting on the
- * customer", then "In Progress — back on". Read-only here; see TaskNotes for adding / removing.
+ * Card notes, oldest first. Each is tinted with the status stamped when the note was written, so
+ * the color survives column moves. Used on task cards and job board cards.
  *
- * @param {{ notes?: Array<{ id: string, text: string, status?: string, created_at?: string }>, onRemove?: (id: string) => void, className?: string }} props
+ * @param {{ notes?: Array<{ id: string, text: string, status?: string, created_at?: string }>, onRemove?: (id: string) => void, className?: string, formatLabel?: (status: string) => string, testId?: string, fallbackStatus?: string }} props
  */
-export function NoteList({ notes = [], onRemove = undefined, className = undefined }) {
+export function NoteList({
+  notes = [],
+  onRemove = undefined,
+  className = undefined,
+  formatLabel = taskStatusLabel,
+  testId = "task-note",
+  fallbackStatus = "plan",
+}) {
   if (!notes.length) return null;
   return (
     <ul className={cn("space-y-1", className)}>
       {notes.map((note) => {
-        const colors = statusColors(note.status || "plan");
+        const status = note.status || fallbackStatus;
+        const colors = statusColors(status);
         return (
           <li
             key={note.id}
-            data-testid="task-note"
+            data-testid={testId}
             data-note-status={note.status || ""}
             className={cn("group/note flex items-start gap-1.5 rounded-md border px-2 py-1 text-xs", colors.badge)}
           >
@@ -29,7 +36,7 @@ export function NoteList({ notes = [], onRemove = undefined, className = undefin
             <span className="flex-1 min-w-0">
               <span className="whitespace-pre-wrap break-words">{note.text}</span>
               <span className="block text-[10px] opacity-70">
-                {taskStatusLabel(note.status || "plan")}{note.created_at ? ` · ${shortDate(note.created_at)}` : ""}
+                {formatLabel(status)}{note.created_at ? ` · ${shortDate(note.created_at)}` : ""}
               </span>
             </span>
             {onRemove && (

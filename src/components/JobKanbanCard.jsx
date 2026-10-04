@@ -1,7 +1,8 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera, DollarSign, Loader2, MessageSquare, Phone, StickyNote } from "lucide-react";
+import { Camera, DollarSign, Loader2, MessageSquare, Phone } from "lucide-react";
 import { api } from "@/api/client";
+import JobCardNotes from "@/components/JobCardNotes";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -24,7 +25,7 @@ function stopCardAction(e) {
 
 /**
  * Brittany kanban job card: customer header, optional title, city/phone actions,
- * quick camera + payment, notes, hours + whole-line estimate total.
+ * quick camera + payment, multi colored notes, hours + whole-line estimate total.
  */
 export default function JobKanbanCard({
   job,
@@ -45,6 +46,14 @@ export default function JobKanbanCard({
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState("cash");
   const [busy, setBusy] = useState(false);
+  const [localNotes, setLocalNotes] = useState(null);
+
+  useEffect(() => {
+    setLocalNotes(null);
+  }, [job.id, job.updated_date]);
+
+  const notes = localNotes ?? job.status_notes ?? [];
+  const cardJob = { ...job, status_notes: notes };
 
   const customerName = client?.name || job.client_name || "—";
   const city = client?.city?.trim();
@@ -97,6 +106,44 @@ export default function JobKanbanCard({
       onChanged?.();
     } catch {
       alert("Could not log payment.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addNote = async (text) => {
+    if (!job?.id) return;
+    const previous = notes;
+    const optimistic = [...previous, { id: `tmp-${Date.now()}`, text, status: job.status }];
+    setLocalNotes(optimistic);
+    setBusy(true);
+    try {
+      const updated = await api.entities.Job.update(job.id, {
+        status_notes: [...previous, { text }],
+      });
+      setLocalNotes(updated.status_notes || []);
+      onChanged?.();
+    } catch {
+      setLocalNotes(previous);
+      alert("Could not save note.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeNote = async (noteId) => {
+    if (!job?.id) return;
+    const previous = notes;
+    const next = previous.filter((n) => n.id !== noteId);
+    setLocalNotes(next);
+    setBusy(true);
+    try {
+      const updated = await api.entities.Job.update(job.id, { status_notes: next });
+      setLocalNotes(updated.status_notes || []);
+      onChanged?.();
+    } catch {
+      setLocalNotes(previous);
+      alert("Could not remove note.");
     } finally {
       setBusy(false);
     }
@@ -202,21 +249,6 @@ export default function JobKanbanCard({
                 {job.title}
               </div>
             )}
-            <div
-              data-testid="job-card-note"
-              className="mb-1.5 rounded-md border border-border bg-muted/50 px-2 py-1.5"
-            >
-              <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">
-                <StickyNote className="w-3 h-3 shrink-0" aria-hidden="true" />
-                Note
-              </div>
-              <p className={cn(
-                "text-[11px] leading-snug whitespace-pre-wrap line-clamp-3 min-h-[1rem]",
-                job.notes?.trim() ? "text-foreground" : "text-muted-foreground italic",
-              )}>
-                {job.notes?.trim() || "Add a note on the job"}
-              </p>
-            </div>
 
             {rollup.hasEstimate && (
               <div className="text-[10px] text-muted-foreground space-y-0.5 mb-1.5">
@@ -239,6 +271,15 @@ export default function JobKanbanCard({
               )}
             </div>
           </Link>
+
+          <div className="mt-1.5">
+            <JobCardNotes
+              job={cardJob}
+              disabled={busy || saving}
+              onAdd={addNote}
+              onRemove={removeNote}
+            />
+          </div>
         </div>
       </div>
 

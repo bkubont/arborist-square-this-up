@@ -16,7 +16,7 @@ import { shortDate } from '@/lib/format';
 import { formatJobStatus, isArchivedJob } from '@/lib/jobStatus';
 
 /**
- * Archive — Paid, Declined, and Cancelled jobs (web /jobs/archive).
+ * Archive — Paid and Declined jobs (web /jobs/archive).
  */
 export default function ArchiveJobsScreen() {
   const router = useRouter();
@@ -67,7 +67,7 @@ export default function ArchiveJobsScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Archive</Text>
         <Text style={styles.subtitle}>
-          {loading ? 'Paid, declined, and cancelled jobs' : `${sorted.length} archived`}
+          {loading ? 'Paid and declined jobs' : `${sorted.length} archived`}
         </Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.links}>
@@ -100,7 +100,7 @@ export default function ArchiveJobsScreen() {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Text style={styles.empty}>No archived jobs yet.</Text>
-            <Text style={styles.emptyHint}>Jobs move here when marked Paid, Declined, or Cancelled.</Text>
+            <Text style={styles.emptyHint}>Jobs move here when marked Paid or Declined.</Text>
           </View>
         }
         renderItem={({ item }) => (
