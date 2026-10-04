@@ -26,8 +26,8 @@ describe('contact lead pipeline', () => {
       'Waiting on approval': 'Follow-up',
       Approved: 'Active',
     });
-    assert.ok(JOB_PHASES.working.statuses.includes('Waiting on access'));
-    assert.ok(JOB_PHASES.working.statuses.includes('Estimate'));
+    assert.ok(JOB_PHASES.working.statuses.includes('Waiting on'));
+    assert.ok(JOB_PHASES.working.statuses.includes('Estimate sent'));
   });
 
   it('archives only Declined and leaves other patches alone', () => {
@@ -53,8 +53,8 @@ describe('contact lead pipeline', () => {
     assert.equal(phone.status, undefined);
     assert.equal(Object.prototype.hasOwnProperty.call(phone, 'archived_at'), false);
 
-    const rejected = applyClientPipelineFields({ status: 'Waiting on access' }, { status: 'Prospect' });
-    assert.equal(rejected.status, 'Waiting on access');
+    const rejected = applyClientPipelineFields({ status: 'Waiting on' }, { status: 'Prospect' });
+    assert.equal(rejected.status, 'Waiting on');
 
     const remapped = applyClientPipelineFields({ phone: '555-0100' }, { status: 'Contact' });
     assert.equal(remapped.status, 'Prospect');
@@ -135,7 +135,7 @@ test('contact lead status does not sync with jobs; Declined archives the contact
   });
   assert.equal(estimate.status, 201);
   assert.equal(estimate.data.phase, 'working');
-  assert.equal(estimate.data.status, 'Estimate');
+  assert.equal(estimate.data.status, 'Estimate sent');
   assert.equal(working.status, 201);
   assert.equal(working.data.status, 'Prep');
 
@@ -147,15 +147,15 @@ test('contact lead status does not sync with jobs; Declined archives the contact
   const otherJob = await request('/entities/Job', {
     method: 'POST',
     cookie: b.cookie,
-    data: { title: 'Other job', client_id: otherClient.data.id, status: 'Estimate' },
+    data: { title: 'Other job', client_id: otherClient.data.id, status: 'Estimate sent' },
   });
 
   const movedJob = await request(`/entities/Job/${estimate.data.id}`, {
     method: 'PATCH',
     cookie: a.cookie,
-    data: { phase: 'working', status: 'Waiting on approval' },
+    data: { phase: 'working', status: 'Approved' },
   });
-  assert.equal(movedJob.data.status, 'Waiting on approval');
+  assert.equal(movedJob.data.status, 'Approved');
   const clientAfterJob = await request(`/entities/Client/${client.id}`, { cookie: a.cookie });
   assert.equal(clientAfterJob.data.status, 'Prospect', 'job status does not change the contact');
   const workingAfterJob = await request(`/entities/Job/${working.data.id}`, { cookie: a.cookie });
@@ -169,12 +169,12 @@ test('contact lead status does not sync with jobs; Declined archives the contact
   assert.equal(phone.status, 200);
   assert.equal(phone.data.status, 'Prospect');
   const afterPhone = await request(`/entities/Job/${estimate.data.id}`, { cookie: a.cookie });
-  assert.equal(afterPhone.data.status, 'Waiting on approval');
+  assert.equal(afterPhone.data.status, 'Approved');
 
   const blocked = await request(`/entities/Client/${client.id}`, {
     method: 'PATCH',
     cookie: a.cookie,
-    data: { status: 'Waiting on access' },
+    data: { status: 'Waiting on' },
   });
   assert.equal(blocked.status, 400);
   assert.equal((await request(`/entities/Client/${client.id}`, { cookie: a.cookie })).data.status, 'Prospect');
@@ -189,7 +189,7 @@ test('contact lead status does not sync with jobs; Declined archives the contact
     assert.equal(updated.data.status, status);
     assert.equal(updated.data.archived_at, undefined);
     const job = await request(`/entities/Job/${estimate.data.id}`, { cookie: a.cookie });
-    assert.equal(job.data.status, 'Waiting on approval', 'contact Lead does not move the job');
+    assert.equal(job.data.status, 'Approved', 'contact Lead does not move the job');
     const workingLead = await request(`/entities/Job/${working.data.id}`, { cookie: a.cookie });
     assert.equal(workingLead.data.status, 'Prep');
   }
@@ -202,13 +202,13 @@ test('contact lead status does not sync with jobs; Declined archives the contact
   assert.equal(declined.data.status, 'Declined');
   assert.match(declined.data.archived_at, /^\d{4}-\d{2}-\d{2}$/);
   const declinedJob = await request(`/entities/Job/${estimate.data.id}`, { cookie: a.cookie });
-  assert.equal(declinedJob.data.status, 'Waiting on approval');
+  assert.equal(declinedJob.data.status, 'Approved');
   assert.equal(declinedJob.data.archived_at, undefined);
   const workingJob = await request(`/entities/Job/${working.data.id}`, { cookie: a.cookie });
   assert.equal(workingJob.data.status, 'Prep');
   assert.equal(workingJob.data.archived_at, undefined);
   const untouched = await request(`/entities/Job/${otherJob.data.id}`, { cookie: b.cookie });
-  assert.equal(untouched.data.status, 'Estimate');
+  assert.equal(untouched.data.status, 'Estimate sent');
   assert.equal((await request(`/entities/Client/${client.id}`, { method: 'PATCH', cookie: b.cookie, data: { status: 'Active' } })).status, 404);
 
   const reopened = await request(`/entities/Client/${client.id}`, {

@@ -55,11 +55,12 @@ const JOB_BLUEPRINTS = [
   {
     title: 'Front oak removal + stump',
     phase: 'working',
-    status: 'Estimate',
+    status: 'Estimate sent',
     job_type: 'residential',
     work_type: 'removal',
     description: 'Remove declining pin oak; grind stump; haul chips.',
     estimate: { status: 'draft', labor: 1600, material: 120 },
+    status_notes: [{ text: 'Draft quote — waiting to schedule site walk', status: 'Estimate sent' }],
     trees: [
       { label: 'T-1', species: 'Oak', dbh_inches: 28, condition: 'poor', location_note: 'Front yard near driveway', recommended_work: ['removal', 'stump_grind', 'haul'] },
     ],
@@ -67,11 +68,15 @@ const JOB_BLUEPRINTS = [
   {
     title: 'HOA prune cycle — Phase A',
     phase: 'working',
-    status: 'Waiting on approval',
+    status: 'Estimate sent',
     job_type: 'commercial',
     work_type: 'HOA cycle',
     description: 'Annual crown prune for street trees; quote sent to board.',
     estimate: { status: 'sent', labor: 2400, material: 80 },
+    status_notes: [
+      { text: 'Estimate emailed to board president', status: 'Estimate sent' },
+      { text: 'Board meets Thursday — follow up after vote', status: 'Estimate sent' },
+    ],
     trees: [
       { label: 'T-1', species: 'Maple', dbh_inches: 18, condition: 'fair', location_note: 'Lot 12 street tree', recommended_work: ['prune'] },
       { label: 'T-2', species: 'Maple', dbh_inches: 16, condition: 'healthy', location_note: 'Lot 14 street tree', recommended_work: ['prune'] },
@@ -137,13 +142,17 @@ const JOB_BLUEPRINTS = [
   {
     title: 'PHC soil injection — ash row',
     phase: 'working',
-    status: 'Waiting on access',
+    status: 'Waiting on',
     job_type: 'commercial',
     work_type: 'plant health care',
     description: 'Waiting on property access for soil injection.',
     estimate: { status: 'accepted', labor: 380, material: 190 },
     tasks: 'waiting_on_access',
     deposit: 150,
+    status_notes: [
+      { text: 'Gate code needed — property manager out until Monday', status: 'Waiting on' },
+      { text: 'Weather window looks clear mid-week', status: 'Waiting on' },
+    ],
     trees: [
       { label: 'T-1', species: 'Ash', dbh_inches: 14, condition: 'poor', location_note: 'Parking island A', recommended_work: ['phc'] },
       { label: 'T-2', species: 'Ash', dbh_inches: 12, condition: 'poor', location_note: 'Parking island B', recommended_work: ['phc'] },
@@ -342,6 +351,7 @@ function prepareDemoJobFields(blueprint, client, { start_date, end_date }) {
     start_date,
     end_date,
     notes: 'Demo seed job — arborist edition',
+    status_notes: blueprint.status_notes || undefined,
     work_type: blueprint.work_type || undefined,
     job_type: blueprint.job_type || undefined,
     // Prefer timeline deposit_received for demo money (matches UI logDeposit).

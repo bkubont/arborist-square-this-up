@@ -359,9 +359,8 @@ export function moneyGroups({ jobs = [], estimates = [], invoices = [], timeline
 export function actionReasonsForJob(job, estimates = [], changeOrders = []) {
   const reasons = [];
   if (job?.status === "Blocked") reasons.push("Blocked");
-  if (job?.status === "Waiting on approval") reasons.push("Waiting on client approval");
-  if (["Waiting on access", "Waiting on weather", "Waiting on utility", "Waiting on materials"].includes(job?.status)) {
-    reasons.push(job.status === "Waiting on materials" ? "Waiting on access" : job.status);
+  if (["Waiting on", "Waiting on access", "Waiting on weather", "Waiting on utility", "Waiting on materials"].includes(job?.status)) {
+    reasons.push("Waiting on");
   }
 
   const jobEstimates = estimates.filter((e) => e.job_id === job.id && isAwaitingApproval(e));

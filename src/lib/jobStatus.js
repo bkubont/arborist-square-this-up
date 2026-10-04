@@ -28,14 +28,11 @@ export const JOB_PHASES = {
   working: {
     label: 'Working',
     statuses: [
-      'Estimate',
-      'Waiting on approval',
+      'Estimate sent',
       'Approved',
       'Prep',
       'In progress',
-      'Waiting on access',
-      'Waiting on weather',
-      'Waiting on utility',
+      'Waiting on',
       'Blocked',
       'Completed',
       'Cancelled',
@@ -54,21 +51,26 @@ export const JOB_PHASES = {
 };
 
 /** Estimate pipeline on Working — cards open Overview; money is quote-only. */
-export const ESTIMATE_STAGE_STATUSES = ['Estimate', 'Waiting on approval', 'Approved'];
+export const ESTIMATE_STAGE_STATUSES = ['Estimate sent', 'Approved'];
 
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
 
 export const ALL_JOB_STATUSES = STORED_JOB_STATUSES;
 
 export const LEGACY_JOB_STATUS_MAP = {
-  Contact: { phase: 'working', status: 'Estimate' },
-  Assessment: { phase: 'working', status: 'Estimate' },
-  'Plan / draft estimate': { phase: 'working', status: 'Estimate' },
+  Contact: { phase: 'working', status: 'Estimate sent' },
+  Assessment: { phase: 'working', status: 'Estimate sent' },
+  'Plan / draft estimate': { phase: 'working', status: 'Estimate sent' },
+  Estimate: { phase: 'working', status: 'Estimate sent' },
+  'Waiting on approval': { phase: 'working', status: 'Estimate sent' },
   Declined: { phase: 'working', status: 'Cancelled' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
-  'Waiting on Materials': { phase: 'working', status: 'Waiting on access' },
-  'Waiting on materials': { phase: 'working', status: 'Waiting on access' },
+  'Waiting on Materials': { phase: 'working', status: 'Waiting on' },
+  'Waiting on materials': { phase: 'working', status: 'Waiting on' },
+  'Waiting on access': { phase: 'working', status: 'Waiting on' },
+  'Waiting on weather': { phase: 'working', status: 'Waiting on' },
+  'Waiting on utility': { phase: 'working', status: 'Waiting on' },
   'On Hold': { phase: 'working', status: 'Blocked' },
 };
 
@@ -81,7 +83,9 @@ export const ARCHIVE_JOB_STATUSES = new Set([
 export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));
 
 export function isEstimateStageStatus(status) {
-  return ESTIMATE_STAGE_STATUSES.includes(status);
+  return ESTIMATE_STAGE_STATUSES.includes(status)
+    || status === 'Estimate'
+    || status === 'Waiting on approval';
 }
 
 export function phaseForStatus(status) {
@@ -93,7 +97,7 @@ export function phaseForStatus(status) {
 }
 
 export function defaultStatusForPhase(phase) {
-  return JOB_PHASES[phase]?.statuses[0] || 'Estimate';
+  return JOB_PHASES[phase]?.statuses[0] || 'Estimate sent';
 }
 
 /** Invoiced is Payment. Keep the status; put the job on the Payment board. */
@@ -112,6 +116,8 @@ export function headerTracks(job) {
   const pick = (list, stored, fromBoard) => {
     if (fromBoard && list.includes(fromBoard)) return fromBoard;
     if (stored && list.includes(stored)) return stored;
+    const legacy = stored && LEGACY_JOB_STATUS_MAP[stored]?.status;
+    if (legacy && list.includes(legacy)) return legacy;
     return "";
   };
   return {

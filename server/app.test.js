@@ -2055,7 +2055,7 @@ test('creating a job auto-attaches a punch list document and no Prep task', asyn
   const client = await create('Client', { name: 'Default tasks client', ...CLIENT_ADDR });
   const job = await create('Job', { title: 'Default tasks job', client_id: client.id });
   assert.equal(job.phase, 'working');
-  assert.equal(job.status, 'Estimate');
+  assert.equal(job.status, 'Estimate sent');
   const items = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
   assert.equal(items.length, 0);
   assert.ok(!items.some((i) => i.template_key === 'prep'));

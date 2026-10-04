@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
-import { JOB_PHASES, normalizeJobRecord } from './jobStatus.js';
+import { JOB_PHASES, STORED_JOB_STATUSES, normalizeJobRecord, canonicalJobStatus } from './jobStatus.js';
 import { CLIENT_LEAD_STATUSES, normalizeClientRecord } from './clientPipeline.js';
 import { ALL_TASK_STATUSES, DEFAULT_TASK_STATUS, isTaskCompleted, normalizeTaskStatus, parseTaskStatusForWrite } from './taskStatus.js';
 import { materialRowForStorage } from '../shared/materialStatus.js';
@@ -19,6 +19,8 @@ const [workingStatusHead, ...workingStatusTail] = JOB_PHASES.working.statuses;
 const jobWorkingStatus = z.enum(/** @type {[string, ...string[]]} */ ([workingStatusHead, ...workingStatusTail]));
 const [paymentStatusHead, ...paymentStatusTail] = JOB_PHASES.payment.statuses;
 const jobPaymentStatus = z.enum(/** @type {[string, ...string[]]} */ ([paymentStatusHead, ...paymentStatusTail]));
+const [jobStatusHead, ...jobStatusTail] = STORED_JOB_STATUSES;
+const jobBoardStatus = z.enum(/** @type {[string, ...string[]]} */ ([jobStatusHead, ...jobStatusTail]));
 const [jobTypeHead, ...jobTypeTail] = JOB_TYPES;
 const jobTypeEnum = z.enum(/** @type {[string, ...string[]]} */ ([jobTypeHead, ...jobTypeTail]));
 const [treeConditionHead, ...treeConditionTail] = TREE_CONDITIONS;
@@ -139,14 +141,7 @@ export const schemas = {
     /** Parallel tracks. The board column is still phase + status; these do not replace each other. */
     working_status: jobWorkingStatus.optional(),
     payment_status: jobPaymentStatus.optional(),
-    status: z.enum([
-      'Estimate', 'Waiting on approval', 'Approved',
-      'Prep', 'In progress',
-      'Waiting on access', 'Waiting on weather', 'Waiting on utility',
-      'Blocked', 'Completed', 'Cancelled',
-      'Invoiced',
-      'Waiting on payment', 'Partial', 'Late', 'Paid',
-    ]).default('Estimate'),
+    status: jobBoardStatus.default('Estimate sent'),
     start_date: date.optional(), end_date: date.optional(),
     /** Set when a job reaches a terminal status — hides it from working lists; view under Archive. */
     archived_at: date.optional(),
@@ -166,6 +161,16 @@ export const schemas = {
       task_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().min(1).max(36).optional()),
     })).max(500).optional(),
     notes: text.optional(),
+    /**
+     * Colored notes on the job board card (like task status_notes). Each keeps the job status
+     * it was written under so the tint survives column moves.
+     */
+    status_notes: z.array(z.object({
+      id: z.string().max(64).optional(),
+      text: z.string().trim().min(1).max(500),
+      status: jobBoardStatus.optional(),
+      created_at: z.string().max(40).optional(),
+    })).max(200).optional(),
     /** Primary trade for kanban grouping (pruning, removal, …). */
     work_type: text.optional(),
     /** Arborist job flavor — residential | commercial | municipal | storm | other. */
@@ -504,6 +509,8 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
     const normalized = normalizeJobRecord(merged);
     merged.phase = normalized.phase;
     merged.status = normalized.status;
+    if (normalized.working_status !== undefined) merged.working_status = normalized.working_status;
+    if (normalized.status_notes !== undefined) merged.status_notes = normalized.status_notes;
   }
   if (entity === 'Client') {
     const normalized = normalizeClientRecord(merged);
@@ -563,6 +570,14 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
       const now = new Date().toISOString();
       data.status_notes = data.status_notes.map(note => (note.id ? note : { ...note, id: randomUUID(), status: normalizeTaskStatus(note.status || data.status), created_at: now }));
     }
+  }
+  if (entity === 'Job' && data.status_notes) {
+    const now = new Date().toISOString();
+    data.status_notes = data.status_notes.map(note => (
+      note.id
+        ? { ...note, status: canonicalJobStatus(note.status || data.status) }
+        : { ...note, id: randomUUID(), status: canonicalJobStatus(note.status || data.status), created_at: now }
+    ));
   }
   if (entity === 'Client' && !opts.skipClientAddressCheck) {
     const touchingAddress = !recordId || CLIENT_ADDRESS_KEYS.some((key) => Object.prototype.hasOwnProperty.call(input || {}, key));
