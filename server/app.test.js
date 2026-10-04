@@ -1294,7 +1294,7 @@ test('mark invoice paid totals the invoice', async t => {
   assert.equal(marked.data.payments_applied, 500);
 });
 
-test('paid, declined, and cancelled jobs archive; completed stays in working', async t => {
+test('paid jobs archive; completed stays in working; Cancelled migrates off the board', async t => {
   const { request, register } = await fixture(t);
   const a = await register('archive@example.com');
   const client = (await request('/entities/Client', {
@@ -1309,15 +1309,11 @@ test('paid, declined, and cancelled jobs archive; completed stays in working', a
   assert.equal(completed.status, 200);
   assert.equal(completed.data.archived_at, undefined);
 
-  const declinedJob = (await request('/entities/Job', {
-    method: 'POST', cookie: a.cookie, data: { title: 'Declined job', client_id: client.id, status: 'Cancelled', phase: 'working' },
-  })).data;
-  assert.ok(declinedJob.archived_at);
-
   const cancelledJob = (await request('/entities/Job', {
-    method: 'POST', cookie: a.cookie, data: { title: 'Cancelled job', client_id: client.id, status: 'Cancelled', phase: 'working' },
+    method: 'POST', cookie: a.cookie, data: { title: 'Legacy cancelled', client_id: client.id, status: 'Cancelled', phase: 'working' },
   })).data;
-  assert.ok(cancelledJob.archived_at);
+  assert.equal(cancelledJob.status, 'Completed');
+  assert.equal(cancelledJob.archived_at, undefined);
 
   const paid = await request(`/entities/Job/${job.id}`, {
     method: 'PATCH', cookie: a.cookie, data: { status: 'Paid', phase: 'payment' },

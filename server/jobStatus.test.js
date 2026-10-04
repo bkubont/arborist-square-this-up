@@ -72,7 +72,7 @@ describe('job status model', () => {
     }
   });
 
-  it('working phase is Estimate sent through Cancelled with one Waiting on column', () => {
+  it('working phase is Estimate sent through Completed with one Waiting on column', () => {
     assert.deepEqual(JOB_PHASES.working.statuses, [
       'Estimate sent',
       'Approved',
@@ -81,10 +81,10 @@ describe('job status model', () => {
       'Waiting on',
       'Blocked',
       'Completed',
-      'Cancelled',
     ]);
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting'));
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on approval'));
+    assert.ok(!JOB_PHASES.working.statuses.includes('Cancelled'));
     assert.ok(!JOB_PHASES.working.statuses.includes(INVOICE_GATE_STATUS));
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on materials'));
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on access'));
@@ -134,9 +134,12 @@ describe('job status model', () => {
     assert.equal(normalized.status, INVOICE_GATE_STATUS);
   });
 
-  it('maps Declined jobs to Cancelled so they stay archived', () => {
+  it('maps Declined and Cancelled jobs to Completed', () => {
     const declined = normalizeJobRecord({ phase: 'lead', status: 'Declined' });
     assert.equal(declined.phase, 'working');
-    assert.equal(declined.status, 'Cancelled');
+    assert.equal(declined.status, 'Completed');
+    const cancelled = normalizeJobRecord({ phase: 'working', status: 'Cancelled' });
+    assert.equal(cancelled.phase, 'working');
+    assert.equal(cancelled.status, 'Completed');
   });
 });

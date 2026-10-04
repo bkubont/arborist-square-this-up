@@ -26,7 +26,6 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
       'Waiting on',
       'Blocked',
       'Completed',
-      'Cancelled',
     ],
   },
   payment: {
@@ -39,7 +38,7 @@ export const ESTIMATE_STAGE_STATUSES = ['Estimate sent', 'Approved'] as const;
 
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap(phase => JOB_PHASES[phase].statuses);
 
-export const ARCHIVE_JOB_STATUSES = new Set(['Paid', 'Declined', 'Cancelled']);
+export const ARCHIVE_JOB_STATUSES = new Set(['Paid', 'Declined']);
 
 export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter(s => !ARCHIVE_JOB_STATUSES.has(s));
 
@@ -49,7 +48,8 @@ export const LEGACY_JOB_STATUS_MAP: Record<string, { phase: JobPhase; status: st
   'Plan / draft estimate': { phase: 'working', status: 'Estimate sent' },
   Estimate: { phase: 'working', status: 'Estimate sent' },
   'Waiting on approval': { phase: 'working', status: 'Estimate sent' },
-  Declined: { phase: 'working', status: 'Cancelled' },
+  Declined: { phase: 'working', status: 'Completed' },
+  Cancelled: { phase: 'working', status: 'Completed' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
   'Waiting on Materials': { phase: 'working', status: 'Waiting on' },

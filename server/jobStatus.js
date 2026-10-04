@@ -17,7 +17,6 @@ export const JOB_PHASES = {
       'Waiting on',
       'Blocked',
       'Completed',
-      'Cancelled',
     ],
   },
   payment: {
@@ -47,7 +46,8 @@ export const LEGACY_JOB_STATUS_MAP = {
   'Plan / draft estimate': { phase: 'working', status: 'Estimate sent' },
   Estimate: { phase: 'working', status: 'Estimate sent' },
   'Waiting on approval': { phase: 'working', status: 'Estimate sent' },
-  Declined: { phase: 'working', status: 'Cancelled' },
+  Declined: { phase: 'working', status: 'Completed' },
+  Cancelled: { phase: 'working', status: 'Completed' },
   Scheduled: { phase: 'working', status: 'Prep' },
   'In Progress': { phase: 'working', status: 'In progress' },
   'Waiting on Materials': { phase: 'working', status: 'Waiting on' },
@@ -62,7 +62,6 @@ export const LEGACY_JOB_STATUS_MAP = {
 export const ARCHIVE_JOB_STATUSES = new Set([
   'Paid',
   'Declined',
-  'Cancelled',
 ]);
 
 export const ACTIVE_JOB_STATUSES = STORED_JOB_STATUSES.filter((s) => !ARCHIVE_JOB_STATUSES.has(s));

@@ -22,14 +22,12 @@ describe('job archive', () => {
     assert.equal(isArchivedJob({ status: 'Completed' }), false);
     assert.equal(isArchivedJob({ status: 'Paid' }), true);
     assert.equal(isArchivedJob({ status: 'Declined' }), true);
-    assert.equal(isArchivedJob({ status: 'Cancelled' }), true);
     assert.equal(isArchivedJob({ status: 'In progress' }), false);
   });
 
-  it('archives Paid, Declined, and Cancelled but not Completed', () => {
+  it('archives Paid and Declined but not Completed', () => {
     assert.ok(applyJobArchiveFields({ status: 'Paid' }, { status: 'In progress' }).archived_at);
     assert.ok(applyJobArchiveFields({ status: 'Declined' }, { status: 'Estimate sent' }).archived_at);
-    assert.ok(applyJobArchiveFields({ status: 'Cancelled' }, { status: 'In progress' }).archived_at);
     assert.equal(applyJobArchiveFields({ status: 'Completed' }, { status: 'In progress' }).archived_at, undefined);
   });
 
