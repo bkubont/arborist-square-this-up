@@ -118,6 +118,20 @@ export const api = {
     PunchList: entity('PunchList'),
     Expense: entity('Expense'),
     TreeInventory: entity('TreeInventory'),
+    Crew: entity('Crew'),
+  },
+  members: {
+    list() { return request('/members'); },
+    invite(data) { return post('/members/invite', data); },
+    updateRole(userId, role) {
+      return request(`/members/${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      });
+    },
+    remove(userId) {
+      return request(`/members/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+    },
   },
   punchList: {
     complete(id, data) { return post(`/punch-list/${encodeURIComponent(id)}/complete`, data); },

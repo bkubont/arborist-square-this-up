@@ -49,6 +49,27 @@ import { emailSchema, passwordSchema, passwordHash, verifyPassword, hash, token 
 import { DEFAULT_SALES_TAX_RATE } from './salesTax.js';
 import { jobSummary, accountSummaries } from './summary.js';
 import { fromCents } from '../shared/money.js';
+import {
+  ensureMembership,
+  acceptMemberInvite,
+  peekMemberInvite,
+  createMemberInvite,
+  listMembers,
+  listMemberInvites,
+  updateMemberRole,
+  removeMember,
+  crewIdsForUser,
+  toPublicUser,
+  validateCrewMembers,
+} from './membership.js';
+import { can, INVITABLE_ROLES, ROLE_LABELS, isCrewScopedRole } from './roles.js';
+import {
+  requirePermission,
+  assertEntityPermission,
+  assertRecordVisible,
+  assertWriteAllowed,
+  filterRecordsForRole,
+} from './permissions.js';
 
 /** Saving these re-syncs the job's draft Material Order from the job buy list. */
 const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem', 'Job']);
@@ -158,9 +179,19 @@ export async function createApp(db, env = process.env) {
     const value = bearerToken(req) || req.cookies[cookieName];
     const [user] = value ? await db.all('SELECT users.id, users.email, users.created_date FROM users JOIN sessions ON sessions.user_id = users.id WHERE sessions.token_hash = ? AND sessions.expires_at > ?', [hash(value), Date.now()]) : [];
     if (!user) throw fail(401, 'Please log in');
+    const membership = await ensureMembership(db, user.id);
     req.user = user;
+    req.membership = membership;
+    req.ownerId = membership.company_id;
+    req.role = membership.role;
     req.sessionToken = value;
     next();
+  };
+  const attachPublicUser = async (user, membership) => {
+    const crewIds = isCrewScopedRole(membership.role)
+      ? await crewIdsForUser(db, membership.company_id, user.id)
+      : [];
+    return toPublicUser(user, membership, crewIds);
   };
   const session = async (res, userId, connection = db, { setCookie = true } = {}) => {
     const value = token();
@@ -170,7 +201,24 @@ export async function createApp(db, env = process.env) {
     return value;
   };
   app.get('/api/health', async (req, res) => { await db.all('SELECT 1 AS ok'); res.json({ ok: true }); });
-  app.get('/api/auth/me', requireUser, (req, res) => res.json(req.user));
+  app.get('/api/auth/me', requireUser, async (req, res) => {
+    res.json(await attachPublicUser(req.user, req.membership));
+  });
+  app.get('/api/auth/invite-info', async (req, res) => {
+    const inviteToken = z.string().regex(/^[a-f0-9]{64}$/).parse(req.query.invite || '');
+    const email = emailSchema.parse(req.query.email || '');
+    const member = await peekMemberInvite(db, inviteToken, email);
+    if (member) {
+      res.json({ kind: 'member', role: member.role, role_label: ROLE_LABELS[member.role] || member.role });
+      return;
+    }
+    const [solo] = await db.all(
+      'SELECT email FROM tokens WHERE token_hash = ? AND kind = ? AND email = ? AND expires_at > ?',
+      [hash(inviteToken), 'invite', email, Date.now()],
+    );
+    if (!solo) throw fail(400, 'Invitation is invalid or expired');
+    res.json({ kind: 'company' });
+  });
   app.post('/api/auth/login', async (req, res) => {
     const email = emailSchema.parse(req.body.email);
     if (!await limited(`login:${email}`)) throw fail(429, 'Too many attempts. Try again in 15 minutes.');
@@ -183,7 +231,11 @@ export async function createApp(db, env = process.env) {
       const sessionToken = await session(res, user.id, tx, { setCookie: !native });
       return { user, sessionToken };
     });
-    const payload = { id: user.user.id, email: user.user.email };
+    const membership = await ensureMembership(db, user.user.id);
+    const payload = await attachPublicUser(
+      { id: user.user.id, email: user.user.email, created_date: user.user.created_date },
+      membership,
+    );
     if (native) payload.token = user.sessionToken;
     res.json(payload);
   });
@@ -193,7 +245,7 @@ export async function createApp(db, env = process.env) {
     if (req.cookies[cookieName]) await db.run('DELETE FROM sessions WHERE token_hash = ?', [hash(req.cookies[cookieName])]);
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
-  /** App Store 5.1.1(v): password-confirmed wipe of this account and owned data. */
+  /** App Store 5.1.1(v): password-confirmed wipe. Owner deletes the company; members leave. */
   app.delete('/api/auth/account', requireUser, async (req, res) => {
     const password = z.string().max(128).parse(req.body?.password ?? '');
     if (!await limited(`delete-account:${req.user.id}`, 5)) throw fail(429, 'Too many attempts. Try again in 15 minutes.');
@@ -202,9 +254,29 @@ export async function createApp(db, env = process.env) {
       const [user] = await tx.all('SELECT * FROM users WHERE id = ?' + lock, [req.user.id]);
       const valid = await verifyPassword(password, user?.password_hash || dummyHash);
       if (!user || !valid) throw fail(401, 'Incorrect password');
-      // tokens are email-keyed (no FK); sessions/records/files/sign_links cascade from users.
-      await tx.run('DELETE FROM tokens WHERE email = ?', [user.email]);
-      await tx.run('DELETE FROM users WHERE id = ?', [user.id]);
+      const membership = await ensureMembership(tx, user.id);
+      if (membership.role === 'owner' && membership.company_id === user.id) {
+        // Wipe member users first (their rows do not own company records).
+        const members = await tx.all(
+          'SELECT user_id FROM company_members WHERE company_id = ? AND user_id != ?',
+          [user.id, user.id],
+        );
+        for (const m of members) {
+          await tx.run('DELETE FROM company_members WHERE user_id = ?', [m.user_id]);
+          await tx.run('DELETE FROM sessions WHERE user_id = ?', [m.user_id]);
+          await tx.run('DELETE FROM users WHERE id = ?', [m.user_id]);
+        }
+        await tx.run('DELETE FROM member_invites WHERE company_id = ?', [user.id]);
+        await tx.run('DELETE FROM tokens WHERE email = ?', [user.email]);
+        await tx.run('DELETE FROM users WHERE id = ?', [user.id]);
+      } else {
+        // Non-owner: leave company and delete only this login.
+        const { stripUserFromCrews } = await import('./membership.js');
+        await stripUserFromCrews(tx, membership.company_id, user.id);
+        await tx.run('DELETE FROM company_members WHERE user_id = ?', [user.id]);
+        await tx.run('DELETE FROM tokens WHERE email = ?', [user.email]);
+        await tx.run('DELETE FROM users WHERE id = ?', [user.id]);
+      }
     });
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
@@ -219,18 +291,50 @@ export async function createApp(db, env = process.env) {
     const digest = await passwordHash(password);
     const userId = randomUUID();
     const native = isNativeClient(req);
+    let membership = null;
     await db.transaction(async tx => {
       const lock = db.dialect === 'mysql' ? ' FOR UPDATE' : '';
-      const [row] = await tx.all('SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND email = ? AND expires_at > ?' + lock, [hash(invite), 'invite', email, Date.now()]);
+      const pendingMember = await peekMemberInvite(tx, invite, email);
+      if (pendingMember) {
+        if ((await tx.all('SELECT id FROM users WHERE email = ?', [email])).length) {
+          throw fail(409, 'Account already exists. Please log in.');
+        }
+        await tx.run(
+          'INSERT INTO users (id, email, password_hash, created_date) VALUES (?, ?, ?, ?)',
+          [userId, email, digest, new Date().toISOString()],
+        );
+        const memberJoin = await acceptMemberInvite(tx, { inviteToken: invite, email, userId });
+        if (!memberJoin) throw fail(400, 'Invitation is invalid or expired');
+        membership = { company_id: memberJoin.company_id, role: memberJoin.role };
+        return;
+      }
+      const [row] = await tx.all(
+        'SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND email = ? AND expires_at > ?' + lock,
+        [hash(invite), 'invite', email, Date.now()],
+      );
       if (!row) throw fail(400, 'Invitation is invalid or expired');
-      if ((await tx.all('SELECT id FROM users WHERE email = ?', [email])).length) throw fail(409, 'Account already exists. Please log in.');
-      await tx.run('INSERT INTO users (id, email, password_hash, created_date) VALUES (?, ?, ?, ?)', [userId, email, digest, new Date().toISOString()]);
+      if ((await tx.all('SELECT id FROM users WHERE email = ?', [email])).length) {
+        throw fail(409, 'Account already exists. Please log in.');
+      }
+      await tx.run(
+        'INSERT INTO users (id, email, password_hash, created_date) VALUES (?, ?, ?, ?)',
+        [userId, email, digest, new Date().toISOString()],
+      );
       await tx.run('DELETE FROM tokens WHERE token_hash = ?', [hash(invite)]);
+      await tx.run(
+        'INSERT INTO company_members (user_id, company_id, role, created_date) VALUES (?, ?, ?, ?)',
+        [userId, userId, 'owner', new Date().toISOString()],
+      );
       // Seed company profile with sales tax + arborist service presets so estimates autofill.
       await saveRecord(tx, userId, 'CompanyProfile', defaultCompanyProfileSeed(defaultTaxRate));
+      membership = { company_id: userId, role: 'owner' };
     });
     const sessionToken = await session(res, userId, db, { setCookie: !native });
-    const payload = { id: userId, email, default_tax_rate: defaultTaxRate };
+    const payload = await attachPublicUser(
+      { id: userId, email, created_date: new Date().toISOString() },
+      membership,
+    );
+    if (membership.role === 'owner') payload.default_tax_rate = defaultTaxRate;
     if (native) payload.token = sessionToken;
     res.status(201).json(payload);
   });
@@ -289,6 +393,49 @@ export async function createApp(db, env = process.env) {
   });
 
   app.use('/api', requireUser);
+
+  // --- Company members & crews (multi-crew Phase 1) ---
+  app.get('/api/members', requirePermission('manage_members'), async (req, res) => {
+    const [members, invites] = await Promise.all([
+      listMembers(db, req.ownerId),
+      listMemberInvites(db, req.ownerId),
+    ]);
+    res.json({
+      members,
+      invites: invites.map((i) => ({
+        email: i.email,
+        role: i.role,
+        role_label: ROLE_LABELS[i.role] || i.role,
+        expires_at: i.expires_at,
+        created_date: i.created_date,
+      })),
+      roles: INVITABLE_ROLES.map((r) => ({ id: r, label: ROLE_LABELS[r] })),
+    });
+  });
+  app.post('/api/members/invite', requirePermission('manage_members'), async (req, res) => {
+    const email = emailSchema.parse(req.body.email);
+    const role = z.enum(/** @type {[string, ...string[]]} */ (INVITABLE_ROLES)).parse(req.body.role);
+    if (!await limited(`member-invite:${req.ownerId}`, 30)) {
+      throw fail(429, 'Too many invites. Try again in 15 minutes.');
+    }
+    const result = await createMemberInvite(db, {
+      companyId: req.ownerId,
+      email,
+      role,
+      invitedBy: req.user.id,
+      origin,
+    });
+    res.status(201).json(result);
+  });
+  app.patch('/api/members/:userId', requirePermission('manage_members'), async (req, res) => {
+    const role = z.enum(/** @type {[string, ...string[]]} */ (INVITABLE_ROLES)).parse(req.body.role);
+    const updated = await updateMemberRole(db, req.ownerId, req.params.userId, role, req.user.id);
+    res.json(updated);
+  });
+  app.delete('/api/members/:userId', requirePermission('manage_members'), async (req, res) => {
+    res.json(await removeMember(db, req.ownerId, req.params.userId, req.user.id));
+  });
+
   app.get('/api/catalog', async (req, res) => {
     const q = z.string().max(200).optional().parse(req.query.q);
     const category = z.string().max(200).optional().parse(req.query.category);
@@ -308,6 +455,7 @@ export async function createApp(db, env = process.env) {
   });
   app.param('entity', (req, res, next, entity) => { if (!Object.hasOwn(schemas, entity)) return next(fail(404, 'Unknown record type')); next(); });
   app.get('/api/entities/:entity', async (req, res) => {
+    assertEntityPermission(req.params.entity, 'view', req.role);
     const limit = z.coerce.number().int().min(1).max(500).parse(req.query.limit || 200);
     const offset = z.coerce.number().int().min(0).parse(req.query.offset || 0);
     // created_date | updated_date; leading "-" = DESC (Dashboard / Money / Board use -updated_date)
@@ -316,17 +464,26 @@ export async function createApp(db, env = process.env) {
     if (parent !== undefined) z.string().min(1).max(36).parse(parent);
     const sortColumn = sort.includes('updated_date') ? 'updated_date' : 'created_date';
     const sortDir = sort.startsWith('-') ? 'DESC' : 'ASC';
+    // Crew-scoped job lists may need a larger fetch before filtering; cap still applies after filter.
+    const fetchLimit = isCrewScopedRole(req.role) && req.params.entity === 'Job' && !parent
+      ? Math.min(500, Math.max(limit, 200))
+      : limit;
     const rows = await db.all(
-      `SELECT * FROM records WHERE owner_id = ? AND entity = ?${parent ? ' AND parent_id = ?' : ''} ORDER BY ${sortColumn} ${sortDir}, id ASC LIMIT ${limit} OFFSET ${offset}`,
-      [req.user.id, req.params.entity, ...(parent ? [parent] : [])]
+      `SELECT * FROM records WHERE owner_id = ? AND entity = ?${parent ? ' AND parent_id = ?' : ''} ORDER BY ${sortColumn} ${sortDir}, id ASC LIMIT ${fetchLimit} OFFSET ${offset}`,
+      [req.ownerId, req.params.entity, ...(parent ? [parent] : [])]
     );
     let records = rows.map(decode).map((record) => normalizeEntityRecord(req.params.entity, record));
-    if (req.params.entity === 'WorkItem') records = await attachSharedMaterials(db, req.user.id, records);
+    records = await filterRecordsForRole(db, req, req.params.entity, records);
+    if (isCrewScopedRole(req.role) && req.params.entity === 'Job' && !parent) {
+      records = records.slice(0, limit);
+    }
+    if (req.params.entity === 'WorkItem') records = await attachSharedMaterials(db, req.ownerId, records);
     res.json(records);
   });
   app.get('/api/entities/:entity/:id', async (req, res) => {
-    let record = normalizeEntityRecord(req.params.entity, await getRecord(db, req.user.id, req.params.entity, req.params.id));
-    if (req.params.entity === 'WorkItem') record = (await attachSharedMaterials(db, req.user.id, [record]))[0];
+    let record = normalizeEntityRecord(req.params.entity, await getRecord(db, req.ownerId, req.params.entity, req.params.id));
+    await assertRecordVisible(db, req, req.params.entity, record);
+    if (req.params.entity === 'WorkItem') record = (await attachSharedMaterials(db, req.ownerId, [record]))[0];
     res.json(record);
   });
   // Lock the owner's row to serialize relationships, deletes, quotas and exports.
@@ -341,11 +498,11 @@ export async function createApp(db, env = process.env) {
       : undefined;
     if (channel === 'email' && !recipient) throw fail(400, 'Enter an email address');
     if (channel === 'sms' && !recipient) throw fail(400, 'Enter a phone number');
-    const estimate = await getRecord(db, req.user.id, 'Estimate', req.params.id);
+    const estimate = await getRecord(db, req.ownerId, 'Estimate', req.params.id);
     if (estimate.status === 'void') throw fail(400, 'Cannot send a void estimate');
     if (estimate.accepted_snapshot) throw fail(400, 'Estimate already has an accepted snapshot; create a revision instead of re-signing');
     const result = await createSignLink(db, {
-      ownerId: req.user.id,
+      ownerId: req.ownerId,
       entity: 'Estimate',
       record: estimate,
       channel,
@@ -353,9 +510,9 @@ export async function createApp(db, env = process.env) {
       origin,
       env,
     });
-    await ownedTransaction(req.user.id, async tx => {
-      if (estimate.status === 'draft') await saveRecord(tx, req.user.id, 'Estimate', { status: 'sent' }, estimate.id);
-      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+    await ownedTransaction(req.ownerId, async tx => {
+      if (estimate.status === 'draft') await saveRecord(tx, req.ownerId, 'Estimate', { status: 'sent' }, estimate.id);
+      await saveRecord(tx, req.ownerId, 'TimelineEntry', {
         job_id: estimate.job_id,
         type: 'estimate_sent',
         text: `Estimate ${estimate.number || ''} sign link sent (${channel})`.trim(),
@@ -371,13 +528,13 @@ export async function createApp(db, env = process.env) {
       : undefined;
     if (channel === 'email' && !recipient) throw fail(400, 'Enter an email address');
     if (channel === 'sms' && !recipient) throw fail(400, 'Enter a phone number');
-    const changeOrder = await getRecord(db, req.user.id, 'ChangeOrder', req.params.id);
+    const changeOrder = await getRecord(db, req.ownerId, 'ChangeOrder', req.params.id);
     if (changeOrder.status === 'void' || changeOrder.status === 'rejected') throw fail(400, 'Cannot send this change order');
     if (changeOrder.accepted_snapshot) throw fail(400, 'Change order already has an accepted snapshot; create a revision instead of re-signing');
     // The estimate could have been voided since this change order was created.
-    assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(db, req.user.id, 'Estimate', changeOrder.job_id)), 'sending');
+    assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(db, req.ownerId, 'Estimate', changeOrder.job_id)), 'sending');
     const result = await createSignLink(db, {
-      ownerId: req.user.id,
+      ownerId: req.ownerId,
       entity: 'ChangeOrder',
       record: changeOrder,
       channel,
@@ -385,9 +542,9 @@ export async function createApp(db, env = process.env) {
       origin,
       env,
     });
-    await ownedTransaction(req.user.id, async tx => {
-      if (changeOrder.status === 'draft') await saveRecord(tx, req.user.id, 'ChangeOrder', { status: 'sent' }, changeOrder.id);
-      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+    await ownedTransaction(req.ownerId, async tx => {
+      if (changeOrder.status === 'draft') await saveRecord(tx, req.ownerId, 'ChangeOrder', { status: 'sent' }, changeOrder.id);
+      await saveRecord(tx, req.ownerId, 'TimelineEntry', {
         job_id: changeOrder.job_id,
         type: 'change_order_sent',
         text: `Change order ${changeOrder.number || ''} sign link sent (${channel})`.trim(),
@@ -397,22 +554,30 @@ export async function createApp(db, env = process.env) {
     res.status(201).json(result);
   });
   app.get('/api/jobs/:id/authorized-total', async (req, res) => {
-    await getRecord(db, req.user.id, 'Job', req.params.id);
-    res.json(await jobAuthorizedTotal(db, req.user.id, req.params.id));
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    res.json(await jobAuthorizedTotal(db, req.ownerId, req.params.id));
   });
   // Server-derived money (cents-based), additive alongside the existing Job.estimate_amount /
   // invoice_amount / deposit_amount rollup — no current page reads these yet.
   app.get('/api/jobs/:id/summary', async (req, res) => {
-    await getRecord(db, req.user.id, 'Job', req.params.id);
-    res.json(await jobSummary(db, req.user.id, req.params.id));
+    if (!can(req.role, 'view_money') && !can(req.role, 'view_jobs')) {
+      throw fail(403, 'You do not have permission for this action');
+    }
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    res.json(await jobSummary(db, req.ownerId, req.params.id));
   });
   app.get('/api/summaries', async (req, res) => {
-    res.json(await accountSummaries(db, req.user.id));
+    if (!can(req.role, 'view_money') && !can(req.role, 'view_reports')) {
+      throw fail(403, 'You do not have permission for this action');
+    }
+    res.json(await accountSummaries(db, req.ownerId));
   });
-  app.post('/api/payments', async (req, res) => {
-    const created = await ownedTransaction(req.user.id, async tx => {
-      const payment = await saveRecord(tx, req.user.id, 'Payment', req.body);
-      await saveRecord(tx, req.user.id, 'TimelineEntry', {
+  app.post('/api/payments', requirePermission('edit_money'), async (req, res) => {
+    const created = await ownedTransaction(req.ownerId, async tx => {
+      const payment = await saveRecord(tx, req.ownerId, 'Payment', req.body);
+      await saveRecord(tx, req.ownerId, 'TimelineEntry', {
         job_id: payment.job_id,
         type: 'note',
         category: 'financial',
@@ -468,13 +633,13 @@ export async function createApp(db, env = process.env) {
   }
   app.post('/api/invoices/from-job', async (req, res) => {
     const jobId = z.string().min(1).max(36).parse(req.body.job_id);
-    const job = await getRecord(db, req.user.id, 'Job', jobId);
-    const company = await loadCompany(req.user.id);
-    const result = await ownedTransaction(req.user.id, async tx => {
-      await assertInvoiceHasAuthorizedScope(tx, req.user.id, jobId);
-      const existingInv = await findActiveJobDocument(tx, req.user.id, 'Invoice', jobId);
+    const job = await getRecord(db, req.ownerId, 'Job', jobId);
+    const company = await loadCompany(req.ownerId);
+    const result = await ownedTransaction(req.ownerId, async tx => {
+      await assertInvoiceHasAuthorizedScope(tx, req.ownerId, jobId);
+      const existingInv = await findActiveJobDocument(tx, req.ownerId, 'Invoice', jobId);
       if (existingInv) return { existing: existingInv };
-      return { created: await createInvoiceFromJob(tx, req.user.id, job, company) };
+      return { created: await createInvoiceFromJob(tx, req.ownerId, job, company) };
     });
     if (result.existing) {
       res.json(result.existing);
@@ -484,14 +649,14 @@ export async function createApp(db, env = process.env) {
   });
   app.post('/api/documents/:entity/:id/void', async (req, res) => {
     const entity = assertDocumentEntity(req.params.entity);
-    const updated = await ownedTransaction(req.user.id, async tx => {
-      const voided = await voidDocument(tx, req.user.id, entity, req.params.id);
+    const updated = await ownedTransaction(req.ownerId, async tx => {
+      const voided = await voidDocument(tx, req.ownerId, entity, req.params.id);
       // Drop voided Estimate / WO / CO materials from draft MOs + rollup
       if (MATERIAL_SYNC_ENTITIES.has(entity) && voided.job_id) {
-        await maybeSyncMaterialOrder(tx, req.user.id, voided.job_id);
+        await maybeSyncMaterialOrder(tx, req.ownerId, voided.job_id);
       }
       if (['Invoice', 'Estimate', 'MaterialOrder'].includes(entity) && voided.job_id) {
-        await refreshJobDocumentRollups(tx, req.user.id, voided.job_id, { saveRecord, sumActiveInvoiceTotals });
+        await refreshJobDocumentRollups(tx, req.ownerId, voided.job_id, { saveRecord, sumActiveInvoiceTotals });
       }
       return voided;
     });
@@ -500,28 +665,28 @@ export async function createApp(db, env = process.env) {
   app.post('/api/documents/:entity/:id/decline', async (req, res) => {
     const entity = req.params.entity;
     if (entity !== 'Estimate' && entity !== 'ChangeOrder') throw fail(400, 'Only estimates and change orders can be declined');
-    const updated = await ownedTransaction(req.user.id, tx => declineDocument(tx, req.user.id, entity, req.params.id));
+    const updated = await ownedTransaction(req.ownerId, tx => declineDocument(tx, req.ownerId, entity, req.params.id));
     res.json(updated);
   });
   /** Owner's status override for an Estimate / Change Order, no signature (server/statusOverride.js). */
   app.post('/api/documents/:entity/:id/status', async (req, res) => {
     const status = z.string().min(1).max(20).parse(req.body?.status);
-    const updated = await ownedTransaction(req.user.id, async tx => {
-      const saved = await overrideScopeStatus(tx, req.user.id, req.params.entity, req.params.id, status);
+    const updated = await ownedTransaction(req.ownerId, async tx => {
+      const saved = await overrideScopeStatus(tx, req.ownerId, req.params.entity, req.params.id, status);
       // Reopening can remove unstarted tasks, whose materials leave the draft Material Order.
-      if (saved.job_id) await maybeSyncMaterialOrder(tx, req.user.id, saved.job_id);
+      if (saved.job_id) await maybeSyncMaterialOrder(tx, req.ownerId, saved.job_id);
       return saved;
     });
     res.json(updated);
   });
   app.post('/api/documents/:entity/:id/revise', async (req, res) => {
     const entity = assertDocumentEntity(req.params.entity);
-    const created = await ownedTransaction(req.user.id, tx => reviseDocument(tx, req.user.id, entity, req.params.id));
+    const created = await ownedTransaction(req.ownerId, tx => reviseDocument(tx, req.ownerId, entity, req.params.id));
     res.status(201).json(created);
   });
   app.post('/api/punch-list/:id/complete', async (req, res) => {
     const photo_url = z.string().min(1).max(200).parse(req.body?.photo_url);
-    const updated = await ownedTransaction(req.user.id, tx => completePunchList(tx, req.user.id, req.params.id, { photo_url }));
+    const updated = await ownedTransaction(req.ownerId, tx => completePunchList(tx, req.ownerId, req.params.id, { photo_url }));
     res.json(updated);
   });
   app.post('/api/entities/:entity', async (req, res) => {
@@ -535,53 +700,54 @@ export async function createApp(db, env = process.env) {
     if (entity === 'Client') body = applyClientPipelineFields(body, null);
     if (entity === 'WorkItem') body = prepareWorkItemCreate(body);
     if (entity === 'PunchList') throw fail(400, 'Punch lists are created automatically with each job');
-    const created = await ownedTransaction(req.user.id, async tx => {
+    if (entity === 'Crew') await validateCrewMembers(db, req.ownerId, body || {});
+    await assertWriteAllowed(db, req, entity, body, null);
+    const created = await ownedTransaction(req.ownerId, async tx => {
       if (JOB_DOCUMENT_ENTITIES.includes(entity) && body?.job_id) {
-        await assertSingularDocument(tx, req.user.id, entity, body.job_id);
-        if (entity === 'Invoice') await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
-        if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.user.id, 'Estimate', body.job_id)), 'creating');
+        await assertSingularDocument(tx, req.ownerId, entity, body.job_id);
+        if (entity === 'Invoice') await assertInvoiceHasAuthorizedScope(tx, req.ownerId, body.job_id);
+        if (entity === 'ChangeOrder') assertJobHasActiveEstimate(!!findLiveAcceptedEstimate(await listJobDocuments(tx, req.ownerId, 'Estimate', body.job_id)), 'creating');
       }
-      let record = await saveRecord(tx, req.user.id, entity, body);
+      let record = await saveRecord(tx, req.ownerId, entity, body);
       if (entity === 'Job') {
-        await attachDefaultJobTasks(tx, req.user.id, record.id);
-        await attachDefaultPunchList(tx, req.user.id, record.id);
+        await attachDefaultJobTasks(tx, req.ownerId, record.id);
+        await attachDefaultPunchList(tx, req.ownerId, record.id);
       }
-      if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, record.job_id);
+      if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.ownerId, record.job_id);
       if (entity === 'WorkItem' && req.body && Object.prototype.hasOwnProperty.call(req.body, 'materials')) {
         const lines = Array.isArray(record.materials) && Array.isArray(req.body.materials) ? record.materials : [];
-        record = await absorbWorkItemMaterials(tx, req.user.id, record, lines);
+        record = await absorbWorkItemMaterials(tx, req.ownerId, record, lines);
       }
-      if (entity === 'WorkItem') record = (await attachSharedMaterials(tx, req.user.id, [record]))[0];
+      if (entity === 'WorkItem') record = (await attachSharedMaterials(tx, req.ownerId, [record]))[0];
       if (entity === 'MaterialOrder' && record.job_id) {
         const hasLines = Array.isArray(record.lines)
           && record.lines.some((l) => l.description || l.qty || l.unit_price);
         if (!hasLines) {
-          const synced = await maybeSyncMaterialOrder(tx, req.user.id, record.job_id, {
+          const synced = await maybeSyncMaterialOrder(tx, req.ownerId, record.job_id, {
             preferId: record.id,
             createIfMissing: false,
           });
           if (synced) record = synced;
         } else {
-          await refreshJobDocumentRollups(tx, req.user.id, record.job_id, { saveRecord, sumActiveInvoiceTotals });
+          await refreshJobDocumentRollups(tx, req.ownerId, record.job_id, { saveRecord, sumActiveInvoiceTotals });
         }
       }
       const materialSyncJobId = entity === 'Job' ? record.id : record.job_id;
       if (MATERIAL_SYNC_ENTITIES.has(entity) && materialSyncJobId) {
-        await maybeSyncMaterialOrder(tx, req.user.id, materialSyncJobId);
+        await maybeSyncMaterialOrder(tx, req.ownerId, materialSyncJobId);
       }
       return record;
     });
     if (entity === 'TimelineEntry' && isFinancialTimelineEntry(created) && created.job_id) {
-      await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, created.job_id));
+      await ownedTransaction(req.ownerId, tx => refreshInvoicePaymentSync(tx, req.ownerId, created.job_id));
     }
     res.status(201).json(normalizeEntityRecord(entity, created));
   });
   app.patch('/api/entities/:entity/:id', async (req, res) => {
     const entity = req.params.entity;
     let body = req.body;
-    const previous = entity === 'Job' || entity === 'Client' || JOB_DOCUMENT_ENTITIES.includes(entity) || entity === 'WorkItem'
-      ? await getRecord(db, req.user.id, entity, req.params.id)
-      : null;
+    const previous = await getRecord(db, req.ownerId, entity, req.params.id);
+    await assertRecordVisible(db, req, entity, previous);
     if (entity === 'Job' && body && typeof body === 'object') {
       body = stripJobDerivedMoney(body);
       body = applyJobStatusFields(body, previous);
@@ -592,6 +758,13 @@ export async function createApp(db, env = process.env) {
     }
     if (entity === 'WorkItem') body = prepareWorkItemUpdate(previous, body);
     if (entity === 'PunchList') body = preparePunchListUpdate(previous, body);
+    if (entity === 'Crew' && body && typeof body === 'object') {
+      await validateCrewMembers(db, req.ownerId, {
+        leader_user_id: body.leader_user_id !== undefined ? body.leader_user_id : previous.leader_user_id,
+        member_user_ids: body.member_user_ids !== undefined ? body.member_user_ids : previous.member_user_ids,
+      });
+    }
+    await assertWriteAllowed(db, req, entity, body, previous);
     let withdrawingSignLink = false;
     if ((entity === 'Estimate' || entity === 'ChangeOrder') && previous) {
       assertScopeUpdatable(entity, previous, body);
@@ -604,8 +777,8 @@ export async function createApp(db, env = process.env) {
       const targetJobId = Object.prototype.hasOwnProperty.call(body, 'job_id') && body.job_id
         ? body.job_id
         : previous.job_id;
-      const job = await getRecord(db, req.user.id, 'Job', targetJobId);
-      const timeline = await listJobDocuments(db, req.user.id, 'TimelineEntry', targetJobId);
+      const job = await getRecord(db, req.ownerId, 'Job', targetJobId);
+      const timeline = await listJobDocuments(db, req.ownerId, 'TimelineEntry', targetJobId);
       body = prepareInvoicePatch(previous, body, { job, timeline });
     }
 
@@ -614,114 +787,117 @@ export async function createApp(db, env = process.env) {
       && body.job_id
       && body.job_id !== previous.job_id;
 
-    const updated = await ownedTransaction(req.user.id, async tx => {
+    const updated = await ownedTransaction(req.ownerId, async tx => {
       if (movingJob && SINGLE_DOC_ENTITIES.has(entity)) {
-        await assertSingularDocument(tx, req.user.id, entity, body.job_id, { excludeId: req.params.id });
-        if (entity === 'Invoice') await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
+        await assertSingularDocument(tx, req.ownerId, entity, body.job_id, { excludeId: req.params.id });
+        if (entity === 'Invoice') await assertInvoiceHasAuthorizedScope(tx, req.ownerId, body.job_id);
       } else if (movingJob && entity === 'Invoice') {
-        await assertInvoiceHasAuthorizedScope(tx, req.user.id, body.job_id);
+        await assertInvoiceHasAuthorizedScope(tx, req.ownerId, body.job_id);
       }
-      let saved = await saveRecord(tx, req.user.id, entity, body, req.params.id);
-      if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.user.id, saved.job_id);
+      let saved = await saveRecord(tx, req.ownerId, entity, body, req.params.id);
+      if (entity === 'WorkItem') await completeJobWhenTasksDone(tx, req.ownerId, saved.job_id);
       if (entity === 'WorkItem' && req.body && Object.prototype.hasOwnProperty.call(req.body, 'materials')) {
         const lines = Array.isArray(saved.materials) && Array.isArray(req.body.materials) ? saved.materials : [];
-        saved = await absorbWorkItemMaterials(tx, req.user.id, saved, lines);
+        saved = await absorbWorkItemMaterials(tx, req.ownerId, saved, lines);
       }
-      if (entity === 'WorkItem') saved = (await attachSharedMaterials(tx, req.user.id, [saved]))[0];
-      if (withdrawingSignLink) await invalidateSignLinks(tx, req.user.id, entity, req.params.id);
+      if (entity === 'WorkItem') saved = (await attachSharedMaterials(tx, req.ownerId, [saved]))[0];
+      if (withdrawingSignLink) await invalidateSignLinks(tx, req.ownerId, entity, req.params.id);
       return saved;
     });
 
     if (entity === 'Invoice' && updated.job_id) {
-      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       if (movingJob && previous.job_id) {
-        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+        await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
     if (entity === 'TimelineEntry' && updated?.job_id && (
       isFinancialTimelineEntry(updated)
       || (previous && isFinancialTimelineEntry(previous))
     )) {
-      await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, updated.job_id));
+      await ownedTransaction(req.ownerId, tx => refreshInvoicePaymentSync(tx, req.ownerId, updated.job_id));
     }
     // Keep estimate_amount rollup when estimate is saved (pre-accept edits)
     if (entity === 'Estimate' && updated.job_id) {
-      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       if (movingJob && previous.job_id) {
-        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+        await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
     if (entity === 'MaterialOrder' && updated.job_id) {
-      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       if (movingJob && previous.job_id) {
-        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+        await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
     const materialSyncJobId = entity === 'Job' ? updated.id : updated.job_id;
     if (MATERIAL_SYNC_ENTITIES.has(entity) && materialSyncJobId) {
-      await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, materialSyncJobId));
+      await ownedTransaction(req.ownerId, tx => maybeSyncMaterialOrder(tx, req.ownerId, materialSyncJobId));
       if (movingJob && previous.job_id) {
-        await ownedTransaction(req.user.id, tx => maybeSyncMaterialOrder(tx, req.user.id, previous.job_id));
+        await ownedTransaction(req.ownerId, tx => maybeSyncMaterialOrder(tx, req.ownerId, previous.job_id));
       }
     }
     if (movingJob && SINGLE_DOC_ENTITIES.has(entity) && entity !== 'Estimate' && entity !== 'Invoice' && previous?.job_id) {
-      await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
+      await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, previous.job_id, { saveRecord, sumActiveInvoiceTotals }));
       if (updated.job_id) {
-        await ownedTransaction(req.user.id, tx => refreshJobDocumentRollups(tx, req.user.id, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
+        await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
     res.json(normalizeEntityRecord(entity, updated));
   });
   app.delete('/api/entities/:entity/:id', async (req, res) => {
     let financialTimelineJobId = null;
-    await ownedTransaction(req.user.id, async tx => {
-      const record = await getRecord(tx, req.user.id, req.params.entity, req.params.id);
+    const existing = await getRecord(db, req.ownerId, req.params.entity, req.params.id);
+    await assertRecordVisible(db, req, req.params.entity, existing);
+    await assertWriteAllowed(db, req, req.params.entity, {}, existing);
+    await ownedTransaction(req.ownerId, async tx => {
+      const record = await getRecord(tx, req.ownerId, req.params.entity, req.params.id);
       if (req.params.entity === 'TimelineEntry' && isFinancialTimelineEntry(record)) {
         financialTimelineJobId = record.job_id;
       }
       if (req.params.entity === 'Estimate' || req.params.entity === 'ChangeOrder') assertScopeDeletable(req.params.entity, record);
       if (req.params.entity === 'WorkItem') {
         const [sourceRow] = record.source_type
-          ? await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND id = ?', [req.user.id, record.source_type, record.source_id])
+          ? await tx.all('SELECT * FROM records WHERE owner_id = ? AND entity = ? AND id = ?', [req.ownerId, record.source_type, record.source_id])
           : [];
         assertWorkItemDeletable(record, sourceRow ? decode(sourceRow) : null);
       }
       const removedEntries = req.params.entity === 'Job'
         ? [
-          ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'TimelineEntry', record.id])).map(row => JSON.parse(row.data)),
-          ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, 'Expense', record.id])).map(row => JSON.parse(row.data)),
+          ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.ownerId, 'TimelineEntry', record.id])).map(row => JSON.parse(row.data)),
+          ...(await tx.all('SELECT data FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.ownerId, 'Expense', record.id])).map(row => JSON.parse(row.data)),
         ]
         : (req.params.entity === 'TimelineEntry' || req.params.entity === 'Expense') ? [record] : [];
-      if (req.params.entity === 'Client' && (await tx.all('SELECT id FROM records WHERE owner_id = ? AND parent_id = ?', [req.user.id, record.id])).length)
+      if (req.params.entity === 'Client' && (await tx.all('SELECT id FROM records WHERE owner_id = ? AND parent_id = ?', [req.ownerId, record.id])).length)
         throw fail(409, 'Delete this client’s jobs first');
       if (req.params.entity === 'Job') {
         // 'WorkOrder' clears rows left from before the checklist replaced it (nothing else reads them).
         for (const child of [...JOB_CHILD_ENTITIES, ...JOB_DOCUMENT_ENTITIES]) {
-          await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.user.id, child, record.id]);
+          await tx.run('DELETE FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?', [req.ownerId, child, record.id]);
         }
-        await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.user.id, record.id]);
+        await tx.run('DELETE FROM sign_links WHERE owner_id = ? AND job_id = ?', [req.ownerId, record.id]);
       }
-      await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.user.id, record.id]);
+      await tx.run('DELETE FROM records WHERE owner_id = ? AND id = ?', [req.ownerId, record.id]);
       // A deleted task's tagged lines leave the buy list and the draft Material Order with it.
       if (req.params.entity === 'WorkItem') {
-        await dropMaterialsForTask(tx, req.user.id, record.job_id, record.id);
-        await maybeSyncMaterialOrder(tx, req.user.id, record.job_id);
+        await dropMaterialsForTask(tx, req.ownerId, record.job_id, record.id);
+        await maybeSyncMaterialOrder(tx, req.ownerId, record.job_id);
         // Removing the last open task can leave every remaining one completed.
-        await completeJobWhenTasksDone(tx, req.user.id, record.job_id);
+        await completeJobWhenTasksDone(tx, req.ownerId, record.job_id);
       }
       // Remove files no longer referenced by any remaining record. A signature file is referenced by
       // both its signed Estimate/ChangeOrder and its timeline entry, so deleting either one alone
       // must not orphan the file the other still points to.
       const candidates = new Set(removedEntries.map(entry => entry.photo_url).filter(Boolean).map(url => url.split('/').pop()));
       if (candidates.size) {
-        const remaining = await tx.all('SELECT data FROM records WHERE owner_id = ?', [req.user.id]);
+        const remaining = await tx.all('SELECT data FROM records WHERE owner_id = ?', [req.ownerId]);
         const stillReferenced = new Set(remaining.flatMap(row => fileIdsOf(JSON.parse(row.data))));
         for (const fileId of candidates) if (!stillReferenced.has(fileId))
-          await tx.run('DELETE FROM files WHERE id = ? AND owner_id = ?', [fileId, req.user.id]);
+          await tx.run('DELETE FROM files WHERE id = ? AND owner_id = ?', [fileId, req.ownerId]);
       }
     });
     if (financialTimelineJobId) {
-      await ownedTransaction(req.user.id, tx => refreshInvoicePaymentSync(tx, req.user.id, financialTimelineJobId));
+      await ownedTransaction(req.ownerId, tx => refreshInvoicePaymentSync(tx, req.ownerId, financialTimelineJobId));
     }
     res.json({ ok: true });
   });
@@ -734,22 +910,22 @@ export async function createApp(db, env = process.env) {
       : bytes.toString('ascii',0,4) === 'RIFF' && bytes.toString('ascii',8,12) === 'WEBP' ? 'image/webp' : null;
     if (!mime) throw fail(400, 'Use a JPEG, PNG or WebP photo');
     const fileId = randomUUID();
-    await ownedTransaction(req.user.id, async tx => {
-      const [usage] = await tx.all('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE owner_id = ?', [req.user.id]);
+    await ownedTransaction(req.ownerId, async tx => {
+      const [usage] = await tx.all('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE owner_id = ?', [req.ownerId]);
       if (Number(usage.total) + bytes.length > Number(env.ACCOUNT_STORAGE_MB || 100) * 1024 * 1024) throw fail(413, 'Account photo storage limit reached');
-      await tx.run('INSERT INTO files (id, owner_id, mime, content, size) VALUES (?, ?, ?, ?, ?)', [fileId, req.user.id, mime, bytes, bytes.length]);
+      await tx.run('INSERT INTO files (id, owner_id, mime, content, size) VALUES (?, ?, ?, ?, ?)', [fileId, req.ownerId, mime, bytes, bytes.length]);
     });
     res.status(201).json({ file_url: `/api/files/${fileId}` });
   });
   app.get('/api/files/:id', async (req, res) => {
-    const [file] = await db.all('SELECT * FROM files WHERE owner_id = ? AND id = ?', [req.user.id, req.params.id]);
+    const [file] = await db.all('SELECT * FROM files WHERE owner_id = ? AND id = ?', [req.ownerId, req.params.id]);
     if (!file) throw fail(404, 'File not found');
     res.set('Content-Type', file.mime).set('Content-Disposition', 'inline').send(Buffer.from(file.content));
   });
-  app.get('/api/export', async (req, res) => {
-    const data = await ownedTransaction(req.user.id, async tx => ({ version: 1, exported_at: new Date().toISOString(),
-      records: (await tx.all('SELECT * FROM records WHERE owner_id = ?', [req.user.id])).map(row => ({ entity: row.entity, ...decode(row) })),
-      files: (await tx.all('SELECT * FROM files WHERE owner_id = ?', [req.user.id])).map(file => ({ id: file.id, mime: file.mime, content: Buffer.from(file.content).toString('base64') })),
+  app.get('/api/export', requirePermission('export_backup'), async (req, res) => {
+    const data = await ownedTransaction(req.ownerId, async tx => ({ version: 1, exported_at: new Date().toISOString(),
+      records: (await tx.all('SELECT * FROM records WHERE owner_id = ?', [req.ownerId])).map(row => ({ entity: row.entity, ...decode(row) })),
+      files: (await tx.all('SELECT * FROM files WHERE owner_id = ?', [req.ownerId])).map(file => ({ id: file.id, mime: file.mime, content: Buffer.from(file.content).toString('base64') })),
     }));
     res.set('Content-Disposition', 'attachment; filename="jobsite-backup.json"').json(data);
   });

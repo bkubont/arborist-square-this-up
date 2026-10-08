@@ -38,7 +38,10 @@ export const NAV_GROUPS = [
   {
     id: "system",
     label: "System",
-    items: [{ to: "/settings", label: "Settings", icon: NAV_ICONS.settings }],
+    items: [
+      { to: "/team", label: "Team", icon: NAV_ICONS.team },
+      { to: "/settings", label: "Settings", icon: NAV_ICONS.settings },
+    ],
   },
 ];
 

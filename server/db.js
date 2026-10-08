@@ -63,6 +63,9 @@ export async function migrate(db) {
     `CREATE TABLE IF NOT EXISTS files (id VARCHAR(36) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, mime VARCHAR(50) NOT NULL, content ${blob} NOT NULL, size INTEGER NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS rate_limits (bucket VARCHAR(64) PRIMARY KEY, attempts INTEGER NOT NULL, expires_at BIGINT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS sign_links (token_hash VARCHAR(64) PRIMARY KEY, owner_id VARCHAR(36) NOT NULL, entity VARCHAR(20) NOT NULL, record_id VARCHAR(36) NOT NULL, job_id VARCHAR(36) NOT NULL, channel VARCHAR(12) NOT NULL, recipient VARCHAR(254), expires_at BIGINT NOT NULL, used_at VARCHAR(30), created_date VARCHAR(30) NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE)`,
+    // Multi-crew Phase 1: users belong to a company (owner's users.id) with a role.
+    `CREATE TABLE IF NOT EXISTS company_members (user_id VARCHAR(36) PRIMARY KEY, company_id VARCHAR(36) NOT NULL, role VARCHAR(32) NOT NULL, created_date VARCHAR(30) NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(company_id) REFERENCES users(id) ON DELETE CASCADE)`,
+    `CREATE TABLE IF NOT EXISTS member_invites (token_hash VARCHAR(64) PRIMARY KEY, company_id VARCHAR(36) NOT NULL, email VARCHAR(254) NOT NULL, role VARCHAR(32) NOT NULL, invited_by VARCHAR(36) NOT NULL, expires_at BIGINT NOT NULL, created_date VARCHAR(30) NOT NULL, FOREIGN KEY(company_id) REFERENCES users(id) ON DELETE CASCADE)`,
   ]) await db.run(sql + suffix);
   for (const [name, table, columns] of [
     ['records_owner_entity', 'records', 'owner_id, entity, created_date'],
@@ -70,8 +73,13 @@ export async function migrate(db) {
     ['files_owner', 'files', 'owner_id'],
     ['sessions_expiry', 'sessions', 'expires_at'],
     ['sign_links_record', 'sign_links', 'owner_id, entity, record_id'],
+    ['company_members_company', 'company_members', 'company_id'],
+    ['member_invites_company', 'member_invites', 'company_id, email'],
   ]) {
     try { await db.run(`CREATE INDEX ${db.dialect === 'sqlite' ? 'IF NOT EXISTS ' : ''}${name} ON ${table} (${columns})`); }
     catch (error) { if (error.code !== 'ER_DUP_KEYNAME') throw error; }
   }
+  // Solo accounts become company owners of themselves (idempotent).
+  const { backfillOwnerMemberships } = await import('./membership.js');
+  await backfillOwnerMemberships(db);
 }
