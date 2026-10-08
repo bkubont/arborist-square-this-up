@@ -2527,7 +2527,7 @@ test('change order lines are priced like estimate lines: totals, tasks, signer v
   assert.equal(legacy.net_change, 75);
 });
 
-test('status override: accept / approve without a signature, reopen only while nothing is built on it', async t => {
+test('status override: accept / approve without a signature; accepted estimates cannot be reopened', async t => {
   const { request, register } = await fixture(t);
   const a = await register('override-a@example.com');
   const b = await register('override-b@example.com');
@@ -2570,36 +2570,17 @@ test('status override: accept / approve without a signature, reopen only while n
   assert.equal(approved.data.revised_contract_total, 450);
   assert.ok((await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.some(i => i.description === 'Railing'));
 
-  // Reopening the estimate is refused while a live change order (then an invoice) sits on it.
-  assert.equal((await setStatus('Estimate', estimate.id, 'draft')).status, 409);
+  // Phase 3: accepted estimates cannot be reopened (controlled changes — use void + new or scope add-on).
+  assert.match((await setStatus('Estimate', estimate.id, 'draft')).data.message, /cannot be reopened/i);
   assert.equal((await setStatus('ChangeOrder', co.id, 'draft')).status, 200, 'a change order with no invoice on the job can be reopened');
   assert.equal((await request(`/documents/ChangeOrder/${co.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
-  const invoice = (await request('/invoices/from-job', { method: 'POST', cookie: a.cookie, data: { job_id: job.id } })).data;
-  assert.match((await setStatus('Estimate', estimate.id, 'draft')).data.message, /Invoice .* Void the invoice first/);
-  assert.equal((await request(`/documents/Invoice/${invoice.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
 
-  // Reopen: unstarted tasks go, a started one stays; the estimate is editable again.
-  tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data;
-  const deck = tasks.find(i => i.description === 'Deck');
-  await request(`/entities/WorkItem/${deck.id}`, { method: 'PATCH', cookie: a.cookie, data: { status: 'in_progress' } });
-  const reopened = await setStatus('Estimate', estimate.id, 'draft');
-  assert.equal(reopened.status, 200, reopened.data?.message);
-  assert.equal(reopened.data.accepted_snapshot, undefined);
-  assert.equal(reopened.data.accepted_manually, undefined);
-  assert.equal((await request(`/entities/Job/${job.id}`, { cookie: a.cookie })).data.estimate_amount, 0);
-  tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.filter(i => i.source_id === estimate.id);
-  assert.deepEqual(tasks.map(i => i.description), ['Deck']);
-  assert.equal((await request(`/entities/Estimate/${estimate.id}`, { method: 'PATCH', cookie: a.cookie, data: { notes: 'Revised scope' } })).status, 200);
-
-  // Accepting again keeps the started task and adds only the missing one.
-  assert.equal((await setStatus('Estimate', estimate.id, 'accepted')).status, 200);
-  tasks = (await request(`/entities/WorkItem?job_id=${job.id}`, { cookie: a.cookie })).data.filter(i => i.source_id === estimate.id);
-  assert.deepEqual(tasks.map(i => i.description).sort(), ['Deck', 'Stain']);
-  assert.equal(tasks.find(i => i.description === 'Deck').status, 'in_progress');
-
-  // Declined ↔ draft; void is final here.
-  assert.equal((await setStatus('Estimate', estimate.id, 'declined')).data.status, 'declined');
-  assert.equal((await setStatus('Estimate', estimate.id, 'draft')).data.status, 'draft');
+  // Void accepted estimate, then decline ↔ draft still works on a never-accepted estimate; void is final.
   assert.equal((await request(`/documents/Estimate/${estimate.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
-  assert.equal((await setStatus('Estimate', estimate.id, 'draft')).status, 409);
+  const sentEst = await create('Estimate', { job_id: job.id, number: 'EST-SENT', status: 'draft', lines: [{ description: 'Alt', labor_amount: 50 }] });
+  await request(`/estimates/${sentEst.id}/send-sign`, { method: 'POST', cookie: a.cookie, data: { channel: 'link' } });
+  assert.equal((await setStatus('Estimate', sentEst.id, 'declined')).data.status, 'declined');
+  assert.equal((await setStatus('Estimate', sentEst.id, 'draft')).data.status, 'draft');
+  assert.equal((await request(`/documents/Estimate/${sentEst.id}/void`, { method: 'POST', cookie: a.cookie, data: {} })).status, 200);
+  assert.equal((await setStatus('Estimate', sentEst.id, 'draft')).status, 409);
 });

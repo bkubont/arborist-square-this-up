@@ -146,6 +146,7 @@ export const STATUS_SEMANTIC_MAP = {
   "Estimate sent": "brand",
   "Waiting on approval": "attention-approval",
   Approved: "success",
+  "Ready to Schedule": "attention-approval",
   Declined: "danger",
   // Working
   Prep: "sky",

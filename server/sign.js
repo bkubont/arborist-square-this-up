@@ -6,6 +6,12 @@ import { hash, token, emailSchema } from './security.js';
 import { computeAuthorizedTotal, changeOrderNet, pickAcceptedEstimate } from './mapping.js';
 import { assertJobHasActiveEstimate } from './lifecycle.js';
 import { createWorkItemsForLines } from './workItems.js';
+import {
+  bindingEstimateTotals,
+  capabilitiesFromTrees,
+  durationHoursFromEstimateLines,
+  jobFieldsAfterEstimateAccept,
+} from './readyToSchedule.js';
 
 const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
@@ -14,8 +20,8 @@ const SIGNABLE = new Set(['Estimate', 'ChangeOrder']);
 const UNSIGNABLE_STATUSES = new Set(['void', 'declined', 'rejected']);
 
 // The signer sees description and price only; labor hours/rate, catalog id, tools and notes stay internal.
-const publicEstimateLines = lines => (lines || []).map(({ description, material_amount, labor_amount, equipment_amount }) =>
-  ({ description, material_amount, labor_amount, equipment_amount }));
+const publicEstimateLines = lines => (lines || []).map(({ description, material_amount, labor_amount, equipment_amount, is_optional }) =>
+  ({ description, material_amount, labor_amount, equipment_amount, ...(is_optional ? { is_optional: true } : {}) }));
 const publicChangeOrderLines = lines => (lines || []).map(({ description, material_amount, labor_amount, equipment_amount, amount }) =>
   ({ description, material_amount, labor_amount, equipment_amount, amount }));
 
@@ -211,19 +217,69 @@ export async function acceptScopeDocument(tx, ownerId, entity, record, { signedA
     ? { signed_at: signedAt, accepted_manually: true }
     : { signed_at: signedAt, signer_name: signerName, signature_file_url: fileUrl };
   if (entity === 'Estimate') {
+    // Optional lines stay on the document for the customer to see, but are excluded from the
+    // binding total / WorkItems unless explicitly listed (v1: none — use a change order to add them).
+    const includedOptionalIds = Array.isArray(record.accepted_snapshot?.included_optional_line_ids)
+      ? record.accepted_snapshot.included_optional_line_ids
+      : [];
+    const binding = bindingEstimateTotals(record.lines || [], record.tax_rate, includedOptionalIds);
     const snapshot = {
       number: record.number,
       notes: record.notes,
       tax_rate: record.tax_rate,
       lines: record.lines || [],
-      subtotal: record.subtotal,
-      tax_amount: record.tax_amount,
-      total: record.total,
+      subtotal: binding.subtotal,
+      tax_amount: binding.tax_amount,
+      total: binding.total,
+      included_optional_line_ids: includedOptionalIds,
+      accepted_at: signedAt,
     };
-    const updated = await saveRecord(tx, ownerId, 'Estimate', { status: 'accepted', ...signMeta, accepted_snapshot: snapshot }, record.id);
-    if (snapshot.total != null) {
-      await saveRecord(tx, ownerId, 'Job', { estimate_amount: snapshot.total }, record.job_id);
+    // Preserve prior approvals so an accepted estimate is never silently overwritten.
+    const priorHistory = Array.isArray(record.version_history) ? [...record.version_history] : [];
+    if (record.accepted_snapshot) {
+      priorHistory.push({
+        accepted_at: record.accepted_snapshot.accepted_at || record.signed_at || signedAt,
+        accepted_manually: record.accepted_manually || undefined,
+        signer_name: record.signer_name || undefined,
+        snapshot: record.accepted_snapshot,
+      });
     }
+    const updated = await saveRecord(tx, ownerId, 'Estimate', {
+      status: 'accepted',
+      ...signMeta,
+      accepted_snapshot: snapshot,
+      version_history: priorHistory,
+      subtotal: binding.subtotal,
+      tax_amount: binding.tax_amount,
+      total: binding.total,
+    }, record.id);
+
+    const job = await getRecord(tx, ownerId, 'Job', record.job_id);
+    const trees = (await tx.all(
+      'SELECT * FROM records WHERE owner_id = ? AND entity = ? AND parent_id = ?',
+      [ownerId, 'TreeInventory', record.job_id],
+    )).map(decode);
+    const jobPatch = {
+      estimate_amount: snapshot.total,
+    };
+    if (!job.estimated_duration_hours) {
+      const hours = durationHoursFromEstimateLines(snapshot.lines, includedOptionalIds);
+      if (hours != null) jobPatch.estimated_duration_hours = hours;
+    }
+    if (!(job.required_capabilities || []).length) {
+      const caps = capabilitiesFromTrees(trees);
+      if (caps.length) jobPatch.required_capabilities = caps;
+    }
+    const queueFields = jobFieldsAfterEstimateAccept(job);
+    if (queueFields) {
+      Object.assign(jobPatch, {
+        status: queueFields.status,
+        phase: queueFields.phase,
+        working_status: queueFields.working_status,
+      });
+    }
+    await saveRecord(tx, ownerId, 'Job', jobPatch, record.job_id);
+
     await saveRecord(tx, ownerId, 'TimelineEntry', {
       job_id: record.job_id,
       type: 'estimate_signed',
@@ -231,7 +287,22 @@ export async function acceptScopeDocument(tx, ownerId, entity, record, { signedA
       text: `Estimate ${record.number || ''} ${by}`.replace(/\s+/g, ' ').trim(),
       ...(fileUrl && { photo_url: fileUrl }),
     });
-    await createWorkItemsForLines(tx, ownerId, { jobId: record.job_id, sourceType: 'Estimate', sourceId: record.id, lines: snapshot.lines });
+    if (queueFields) {
+      await saveRecord(tx, ownerId, 'TimelineEntry', {
+        job_id: record.job_id,
+        type: 'status_change',
+        category: 'note',
+        text: 'Moved to Ready to Schedule after estimate approval',
+        job_status: queueFields.status,
+      });
+    }
+    // Tasks only for binding lines — optionals need a change order (controlled scope change).
+    await createWorkItemsForLines(tx, ownerId, {
+      jobId: record.job_id,
+      sourceType: 'Estimate',
+      sourceId: record.id,
+      lines: binding.lines,
+    });
     return updated;
   }
   const { estimate: activeEstimate, baseline } = await acceptedEstimateBaseline(tx, ownerId, record.job_id);

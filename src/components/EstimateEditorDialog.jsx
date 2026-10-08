@@ -53,6 +53,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
   const [signResult, setSignResult] = useState(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [servicePresets, setServicePresets] = useState(DEFAULT_ARBORIST_SERVICE_PRESETS);
+  const [trees, setTrees] = useState([]);
   const cameraRef = useRef(null);
 
   useEffect(() => {
@@ -82,12 +83,20 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       if (Array.isArray(presets) && presets.length) setServicePresets(presets);
     }).catch(() => {});
 
+    if (jobId) {
+      api.entities.TreeInventory.filter({ job_id: jobId }, "-created_date", 200)
+        .then(setTrees)
+        .catch(() => setTrees([]));
+    } else {
+      setTrees([]);
+    }
+
     if (document.tax_rate == null || document.tax_rate === "") {
       loadAccountTaxRate(api).then((rate) => {
         setForm((f) => (f.tax_rate === "" ? { ...f, tax_rate: String(rate) } : f));
       });
     }
-  }, [open, document]);
+  }, [open, document, jobId]);
 
   const totals = useMemo(() => estimateTotals(lines.map(serializeEstimateLine), form.tax_rate), [lines, form.tax_rate]);
 
@@ -172,7 +181,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       line.description || line.labor_amount
     );
     const nextTotals = estimateTotals(serialized, form.tax_rate);
-    await api.entities.Estimate.update(document.id, {
+    const updated = await api.entities.Estimate.update(document.id, {
       number: form.number || undefined,
       date: form.date,
       valid_till: form.valid_till,
@@ -183,6 +192,18 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
       tax_amount: nextTotals.tax_amount,
       total: nextTotals.total,
     });
+    // Keep TreeInventory.estimate_line_id in sync with tree_id on lines.
+    if (jobId && Array.isArray(updated?.lines)) {
+      for (const line of updated.lines) {
+        if (!line.id || !line.tree_id) continue;
+        const tree = trees.find((t) => t.id === line.tree_id);
+        if (tree && tree.estimate_line_id !== line.id) {
+          try {
+            await api.entities.TreeInventory.update(tree.id, { estimate_line_id: line.id });
+          } catch { /* non-blocking */ }
+        }
+      }
+    }
     try {
       await api.entities.Job.update(jobId, { estimate_amount: nextTotals.total });
     } catch { /* non-blocking */ }
@@ -311,17 +332,25 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
         </DialogHeader>
 
         {(document.status === "accepted" || (document.accepted_snapshot && document.status !== "void")) && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-            {document.signer_name ? (
-              <>
-                Signed by <strong>{document.signer_name}</strong>
-                {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.{" "}
-              </>
-            ) : (
-              <>Accepted. </>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 space-y-1">
+            <div>
+              {document.signer_name ? (
+                <>
+                  Signed by <strong>{document.signer_name}</strong>
+                  {document.signed_at ? ` on ${shortDate(document.signed_at)}` : ""}.{" "}
+                </>
+              ) : (
+                <>Accepted. </>
+              )}
+              This estimate is <strong>print / view only</strong> — content cannot be edited.
+              Snapshot total {money(document.accepted_snapshot?.total ?? document.total)} carries to job tasks.
+              Scope changes require a scope add-on (change order).
+            </div>
+            {Array.isArray(document.version_history) && document.version_history.length > 0 && (
+              <div className="text-xs text-emerald-800/90" data-testid="estimate-version-history">
+                {document.version_history.length} prior approved version{document.version_history.length === 1 ? "" : "s"} preserved.
+              </div>
             )}
-            This estimate is <strong>print / view only</strong> — content cannot be edited.
-            Snapshot total {money(document.accepted_snapshot?.total ?? document.total)} carries to job tasks.
           </div>
         )}
 
@@ -384,7 +413,7 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
           </div>
           {!readOnly && (
             <p className="text-xs text-slate-500 mb-2">
-              Type in Description to search arborist service presets. Or add a whole preset below. Each line is one whole-line amount (labor + materials + equipment).
+              Type in Description to search arborist service presets. Link a tree/work area when quoting that spot. Mark optional add-ons (stump, haul) — they show separately and stay out of the binding total until added via a scope add-on.
             </p>
           )}
           {!readOnly && servicePresets.length > 0 && (
@@ -467,7 +496,48 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
                     />
                   </div>
                 </div>
-                <div className="text-xs text-slate-500 text-right">Row total {money(estimateLineAmount(line))}</div>
+                <div className="grid sm:grid-cols-2 gap-2 items-end">
+                  <div>
+                    <Label className="text-xs">Tree / work area</Label>
+                    {readOnly ? (
+                      <Input
+                        className="bg-slate-50"
+                        value={trees.find((t) => t.id === line.tree_id)?.label || line.tree_id || "—"}
+                        readOnly
+                      />
+                    ) : (
+                      <Select
+                        value={line.tree_id || "__none__"}
+                        onValueChange={(v) => setLine(index, { tree_id: v === "__none__" ? "" : v })}
+                      >
+                        <SelectTrigger className="h-9 bg-white" data-testid={`estimate-line-tree-${index}`}>
+                          <SelectValue placeholder="Not linked" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Not linked</SelectItem>
+                          {trees.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>{t.label}{t.species ? ` · ${t.species}` : ""}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-slate-700 h-9">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300"
+                      checked={Boolean(line.is_optional)}
+                      disabled={readOnly}
+                      onChange={(e) => setLine(index, { is_optional: e.target.checked })}
+                      data-testid={`estimate-line-optional-${index}`}
+                    />
+                    Optional (not in binding total)
+                  </label>
+                </div>
+                <div className="text-xs text-slate-500 text-right">
+                  Row total {money(estimateLineAmount(line))}
+                  {line.is_optional ? " · optional" : ""}
+                </div>
               </div>
             ))}
           </div>
@@ -492,8 +562,20 @@ export default function EstimateEditorDialog({ open, onOpenChange, document, job
             </div>
             <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm space-y-1">
               <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{money(totals.subtotal)}</span></div>
+              {totals.optional_subtotal > 0 && (
+                <div className="flex justify-between text-slate-500">
+                  <span>Optional (not binding)</span>
+                  <span>{money(totals.optional_subtotal)}</span>
+                </div>
+              )}
               <div className="flex justify-between"><span className="text-slate-500">Tax</span><span>{money(totals.tax_amount)}</span></div>
               <div className="flex justify-between font-semibold text-slate-900 border-t border-slate-100 pt-1"><span>Total</span><span>{money(totals.total)}</span></div>
+              {totals.optional_subtotal > 0 && (
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>If options added</span>
+                  <span>{money(totals.with_optional_total)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

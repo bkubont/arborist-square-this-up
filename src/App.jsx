@@ -25,6 +25,7 @@ import JobBoard from '@/pages/JobBoard';
 import CompanySettings from '@/pages/CompanySettings';
 import Team from '@/pages/Team';
 import Estimates from '@/pages/Estimates';
+import ReadyToSchedule from '@/pages/ReadyToSchedule';
 import { SchedulePage, ExpensesPage, ReceiptsPage, ReportsPage } from '@/pages/ShellPlaceholders';
 import SignEstimate from '@/pages/SignEstimate';
 import Privacy from '@/pages/Privacy';
@@ -65,6 +66,7 @@ const AuthenticatedApp = () => {
           <Route path="/jobs/outstanding" element={<Outstanding />} />
           <Route path="/jobs/action-items" element={<ActionItems />} />
           <Route path="/jobs/board" element={<JobBoard />} />
+          <Route path="/jobs/ready-to-schedule" element={<ReadyToSchedule />} />
           <Route path="/jobs/archive" element={<ArchiveJobs />} />
           <Route path="/jobs" element={<AllJobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />

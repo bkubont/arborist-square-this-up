@@ -52,17 +52,28 @@ export function laborAmountFromHours(hours, rate, fallbackRate = DEFAULT_LABOR_R
   return String(roundMoney(h * useRate));
 }
 
-/** @param {Array<{material_amount?: number, labor_amount?: number, equipment_amount?: number, line_amount?: number}>} lines
- *  @param {string|number} [taxRate] */
-export function estimateTotals(lines = [], taxRate = 0) {
-  const subtotal = lines.reduce((sum, line) => sum + estimateLineAmount(line), 0);
+/**
+ * @param {Array<{material_amount?: number, labor_amount?: number, equipment_amount?: number, line_amount?: number, is_optional?: boolean}>} lines
+ * @param {string|number} [taxRate]
+ * @param {{ includeOptional?: boolean }} [opts] binding total excludes optional lines by default
+ */
+export function estimateTotals(lines = [], taxRate = 0, opts = {}) {
+  const includeOptional = opts.includeOptional === true;
+  const counted = includeOptional ? lines : lines.filter((line) => !line.is_optional);
+  const optionalOnly = lines.filter((line) => line.is_optional);
+  const subtotal = counted.reduce((sum, line) => sum + estimateLineAmount(line), 0);
+  const optional_subtotal = optionalOnly.reduce((sum, line) => sum + estimateLineAmount(line), 0);
   const rate = Number(taxRate) || 0;
   const tax_amount = Math.round(subtotal * (rate / 100) * 100) / 100;
   const total = Math.round((subtotal + tax_amount) * 100) / 100;
+  const with_optional_subtotal = Math.round((subtotal + optional_subtotal) * 100) / 100;
+  const with_optional_tax = Math.round(with_optional_subtotal * (rate / 100) * 100) / 100;
   return {
     subtotal: Math.round(subtotal * 100) / 100,
     tax_amount,
     total,
+    optional_subtotal: Math.round(optional_subtotal * 100) / 100,
+    with_optional_total: Math.round((with_optional_subtotal + with_optional_tax) * 100) / 100,
   };
 }
 
@@ -76,6 +87,8 @@ export function emptyEstimateLine() {
     notes: "",
     tools: "",
     catalog_id: "",
+    is_optional: false,
+    tree_id: "",
   };
 }
 
@@ -124,6 +137,8 @@ export function fromApiEstimateLine(line = {}) {
     notes: line.notes || "",
     tools: line.tools || "",
     catalog_id: line.catalog_id || "",
+    is_optional: Boolean(line.is_optional),
+    tree_id: line.tree_id || "",
   };
 }
 
@@ -132,6 +147,9 @@ export function serializeEstimateLine(line) {
   const num = (v) => (v === "" || v == null ? undefined : Number(v));
   const amount = num(line.line_amount);
   return {
+    // Preserve stable ids / steps / tree links across editor saves (Phase 3).
+    ...(line.id ? { id: line.id } : {}),
+    ...(line.steps ? { steps: line.steps } : {}),
     description: line.description || "",
     material_amount: undefined,
     labor_amount: amount,
@@ -142,6 +160,8 @@ export function serializeEstimateLine(line) {
     notes: line.notes || undefined,
     tools: line.tools || undefined,
     catalog_id: line.catalog_id || undefined,
+    ...(line.is_optional ? { is_optional: true } : {}),
+    ...(line.tree_id ? { tree_id: line.tree_id } : {}),
   };
 }
 
@@ -172,13 +192,17 @@ export function scopeLineToForm(line = {}) {
     tools: line.tools || "",
     catalog_id: line.catalog_id || "",
     amount: line.amount ?? "",
+    is_optional: Boolean(line.is_optional),
+    tree_id: line.tree_id || "",
   };
 }
 
 /** Change order form row → API line. Keeps an older line's single amount until it is repriced. */
 export function serializeChangeOrderLine(line) {
   const out = serializeEstimateLine(line);
-  if (isPricedScopeLine(out) || line.amount === "" || line.amount == null) return out;
+  if (isPricedScopeLine(out) || line.amount === "" || line.amount == null) {
+    return { ...out, amount: line.amount === "" || line.amount == null ? undefined : Number(line.amount) };
+  }
   return { ...out, amount: Number(line.amount) };
 }
 
@@ -203,6 +227,8 @@ export function catalogItemToFormLine(item, fallbackRate = DEFAULT_LABOR_RATE) {
     notes: noteParts.join(" · "),
     tools: item.tools || "",
     catalog_id: item.id || "",
+    is_optional: false,
+    tree_id: "",
   };
 }
 
@@ -222,5 +248,7 @@ export function servicePresetToFormLine(preset, fallbackRate = DEFAULT_LABOR_RAT
     notes: preset.description || "",
     tools: "",
     catalog_id: preset.id || "",
+    is_optional: false,
+    tree_id: "",
   };
 }
