@@ -85,6 +85,7 @@ describe('job status model', () => {
       'Estimate sent',
       'Approved',
       'Ready to Schedule',
+      'Scheduled',
       'Prep',
       'In progress',
       'Waiting on',
@@ -99,8 +100,11 @@ describe('job status model', () => {
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on access'));
     assert.ok(JOB_PHASES.working.statuses.includes('Prep'));
     assert.ok(JOB_PHASES.working.statuses.includes('Ready to Schedule'));
+    assert.ok(JOB_PHASES.working.statuses.includes('Scheduled'));
     assert.ok(JOB_PHASES.working.statuses.includes('Blocked'));
     assert.ok(JOB_PHASES.working.statuses.includes('Waiting on'));
+    const scheduled = normalizeJobRecord({ phase: 'working', status: 'Scheduled' });
+    assert.equal(scheduled.status, 'Scheduled');
     assert.deepEqual(JOB_PHASES.payment.statuses, [
       INVOICE_GATE_STATUS,
       'Waiting on payment',

@@ -36,6 +36,11 @@ export function assertEntityPermission(entity, mode, role) {
     if (mode === 'edit' && can(role, 'manage_crews')) return;
     throw fail(403, 'You do not have permission for this action');
   }
+  if (entity === 'Equipment') {
+    if (mode === 'view' && (can(role, 'view_jobs') || can(role, 'manage_equipment'))) return;
+    if (mode === 'edit' && can(role, 'manage_equipment')) return;
+    throw fail(403, 'You do not have permission for this action');
+  }
   const spec = ENTITY_PERMISSIONS[entity];
   if (!spec) return;
   const needed = spec[mode];
@@ -72,6 +77,8 @@ export async function filterRecordsForRole(db, req, entity, records) {
     const allowed = new Set(crewIds);
     return records.filter((c) => allowed.has(c.id));
   }
+  // Equipment is company-wide; crew roles with view_jobs can see the machine roster.
+  if (entity === 'Equipment') return records;
   if (entity === 'Client' || entity === 'Property' || entity === 'CompanyProfile' || entity === 'Expense') {
     // Crew roles do not browse company-wide clients/properties/expenses/settings.
     if (entity === 'Expense' && !can(req.role, 'view_expenses')) return [];

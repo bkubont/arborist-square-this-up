@@ -147,6 +147,7 @@ export const STATUS_SEMANTIC_MAP = {
   "Waiting on approval": "attention-approval",
   Approved: "success",
   "Ready to Schedule": "attention-approval",
+  Scheduled: "sky",
   Declined: "danger",
   // Working
   Prep: "sky",
