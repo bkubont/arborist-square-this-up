@@ -36,10 +36,10 @@ function loadGoogleMaps(key) {
 }
 
 /**
- * Client address block: street autofill (Google Places when key set, else server Photon suggest),
- * line 2 optional, city/state/ZIP required.
+ * Address block: street autofill (Google Places when key set, else server Photon suggest),
+ * line 2 optional. City/state/ZIP are required unless `optional` (e.g. Property forms).
  */
-export default function AddressFields({ value, onChange, idPrefix = "client" }) {
+export default function AddressFields({ value, onChange, idPrefix = "client", optional = false }) {
   const form = value || {};
   const formRef = useRef(form);
   const onChangeRef = useRef(onChange);
@@ -148,7 +148,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
   return (
     <div className="space-y-3">
       <div className="relative">
-        <FieldLabel htmlFor={`${idPrefix}-address`} required>Address</FieldLabel>
+        <FieldLabel htmlFor={`${idPrefix}-address`} required={!optional}>Address</FieldLabel>
         <Input
           ref={streetRef}
           id={`${idPrefix}-address`}
@@ -192,7 +192,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         <div className="col-span-2 sm:col-span-3">
-          <FieldLabel htmlFor={`${idPrefix}-city`} required>City</FieldLabel>
+          <FieldLabel htmlFor={`${idPrefix}-city`} required={!optional}>City</FieldLabel>
           <Input
             id={`${idPrefix}-city`}
             autoComplete="address-level2"
@@ -202,7 +202,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
           />
         </div>
         <div className="col-span-1 sm:col-span-1">
-          <FieldLabel htmlFor={`${idPrefix}-state`} required>State</FieldLabel>
+          <FieldLabel htmlFor={`${idPrefix}-state`} required={!optional}>State</FieldLabel>
           <Input
             id={`${idPrefix}-state`}
             autoComplete="address-level1"
@@ -213,7 +213,7 @@ export default function AddressFields({ value, onChange, idPrefix = "client" }) 
           />
         </div>
         <div className="col-span-1 sm:col-span-2">
-          <FieldLabel htmlFor={`${idPrefix}-zip`} required>ZIP</FieldLabel>
+          <FieldLabel htmlFor={`${idPrefix}-zip`} required={!optional}>ZIP</FieldLabel>
           <Input
             id={`${idPrefix}-zip`}
             autoComplete="postal-code"

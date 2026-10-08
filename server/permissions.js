@@ -72,10 +72,10 @@ export async function filterRecordsForRole(db, req, entity, records) {
     const allowed = new Set(crewIds);
     return records.filter((c) => allowed.has(c.id));
   }
-  if (entity === 'Client' || entity === 'CompanyProfile' || entity === 'Expense') {
-    // Crew roles do not browse company-wide clients/expenses/settings.
+  if (entity === 'Client' || entity === 'Property' || entity === 'CompanyProfile' || entity === 'Expense') {
+    // Crew roles do not browse company-wide clients/properties/expenses/settings.
     if (entity === 'Expense' && !can(req.role, 'view_expenses')) return [];
-    if (entity === 'Client' && !can(req.role, 'view_clients')) return [];
+    if ((entity === 'Client' || entity === 'Property') && !can(req.role, 'view_clients')) return [];
     if (entity === 'CompanyProfile') return [];
   }
   // Job children: keep rows whose job is visible.

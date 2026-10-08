@@ -869,7 +869,24 @@ export async function createApp(db, env = process.env) {
         ]
         : (req.params.entity === 'TimelineEntry' || req.params.entity === 'Expense') ? [record] : [];
       if (req.params.entity === 'Client' && (await tx.all('SELECT id FROM records WHERE owner_id = ? AND parent_id = ?', [req.ownerId, record.id])).length)
-        throw fail(409, 'Delete this client’s jobs first');
+        throw fail(409, 'Delete this client’s jobs and properties first');
+      if (req.params.entity === 'Property') {
+        // Clear optional links so deleting a property does not strand jobs/estimates.
+        const linked = await tx.all(
+          "SELECT id, entity, data FROM records WHERE owner_id = ? AND entity IN ('Job', 'Estimate')",
+          [req.ownerId],
+        );
+        for (const row of linked) {
+          const data = JSON.parse(row.data);
+          if (data.property_id !== record.id) continue;
+          const next = { ...data, property_id: undefined };
+          delete next.property_id;
+          await tx.run(
+            'UPDATE records SET data = ?, updated_date = ? WHERE id = ? AND owner_id = ?',
+            [JSON.stringify(next), new Date().toISOString(), row.id, req.ownerId],
+          );
+        }
+      }
       if (req.params.entity === 'Job') {
         // 'WorkOrder' clears rows left from before the checklist replaced it (nothing else reads them).
         for (const child of [...JOB_CHILD_ENTITIES, ...JOB_DOCUMENT_ENTITIES]) {

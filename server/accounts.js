@@ -66,6 +66,13 @@ try {
       console.log(`    ${m.email} — ${ROLE_LABELS[m.role] || m.role}`);
     }
     console.log(`  Jobs newly assigned to crews: ${result.jobsAssigned}`);
+    if (result.phase2) {
+      console.log(
+        `  Phase 2 sample: client ${result.phase2.clientId}`
+        + (result.phase2.propertiesCreated ? ` (+${result.phase2.propertiesCreated} properties)` : ' (already present)')
+        + (result.phase2.leadCreated ? ', New inquiry lead' : ''),
+      );
+    }
     console.log(`  Demo member password: ${result.demoPassword}`);
     console.log('Did not wipe owner business data. Production requires --yes.');
   } else if (command === 'invite-member') {

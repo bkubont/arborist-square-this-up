@@ -113,6 +113,68 @@ export async function seedMultiCrew(db, ownerEmail, opts = {}) {
     assigned += 1;
   }
 
+  // Phase 2 sample: customer with two properties + a New inquiry lead (idempotent by client name).
+  const existingPhase2 = await db.all(
+    'SELECT id, data FROM records WHERE owner_id = ? AND entity = ?',
+    [owner.id, 'Client'],
+  );
+  let phase2Client = existingPhase2
+    .map((row) => ({ id: row.id, ...JSON.parse(row.data) }))
+    .find((c) => c.name === 'Multi-crew Demo Customer');
+  let propertiesCreated = 0;
+  let leadCreated = false;
+  if (!phase2Client) {
+    phase2Client = await saveRecord(db, owner.id, 'Client', {
+      name: 'Multi-crew Demo Customer',
+      address: '100 Demo Lane',
+      city: 'Springfield',
+      state: 'IL',
+      zip: '62701',
+      phone: '555-0100',
+      email: 'demo.customer@example.com',
+      status: 'Prospect',
+      preferred_contact_method: 'text',
+      referral_source: 'Neighbor',
+      contacts: [
+        { role: 'owner', name: 'Dana Owner', phone: '555-0101' },
+        { role: 'site', name: 'Sam Site', phone: '555-0102' },
+      ],
+    });
+    const main = await saveRecord(db, owner.id, 'Property', {
+      client_id: phase2Client.id,
+      name: 'Main residence',
+      address: '100 Demo Lane',
+      city: 'Springfield',
+      state: 'IL',
+      zip: '62701',
+      access_notes: 'Side gate unlocked after 8am',
+      hazard_notes: 'Overhead lines along east fence',
+      parking_notes: 'Chipper on driveway OK',
+      pets_notes: 'Friendly lab — keep in garage',
+    });
+    await saveRecord(db, owner.id, 'Property', {
+      client_id: phase2Client.id,
+      name: 'Rental cottage',
+      address: '102 Demo Lane',
+      city: 'Springfield',
+      state: 'IL',
+      zip: '62701',
+      access_notes: 'Tenant has key',
+      hazard_notes: 'Septic near rear oak',
+    });
+    propertiesCreated = 2;
+    await saveRecord(db, owner.id, 'Job', {
+      title: 'Front maple assessment',
+      client_id: phase2Client.id,
+      property_id: main.id,
+      status: 'New inquiry',
+      requested_work: 'Prune or remove leaning maple',
+      next_action: 'Schedule site visit',
+      referral_source: 'Neighbor',
+    });
+    leadCreated = true;
+  }
+
   const members = await listMembers(db, owner.id);
   return {
     ownerEmail,
@@ -123,6 +185,11 @@ export async function seedMultiCrew(db, ownerEmail, opts = {}) {
       { id: crewBeta.id, name: crewBeta.name },
     ],
     jobsAssigned: assigned,
+    phase2: {
+      clientId: phase2Client.id,
+      propertiesCreated,
+      leadCreated,
+    },
     database: target,
   };
 }

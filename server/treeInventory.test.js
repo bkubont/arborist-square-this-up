@@ -37,15 +37,21 @@ test('TreeInventory CRUD on a job', async () => {
       label: 'T-1',
       species: 'Oak',
       dbh_inches: 24,
+      height_ft: 40,
       condition: 'fair',
       location_note: 'Front yard',
       recommended_work: ['prune', 'monitor'],
+      method_needs: ['climbing', 'chipper'],
+      cleanup_notes: 'Chip on site',
       notes: 'Slight lean west',
     });
     assert.equal(tree.label, 'T-1');
     assert.equal(tree.species, 'Oak');
     assert.equal(tree.dbh_inches, 24);
+    assert.equal(tree.height_ft, 40);
     assert.deepEqual(tree.recommended_work, ['prune', 'monitor']);
+    assert.deepEqual(tree.method_needs, ['climbing', 'chipper']);
+    assert.equal(tree.cleanup_notes, 'Chip on site');
 
     const updated = await saveRecord(db, ownerId, 'TreeInventory', { condition: 'hazardous', dbh_inches: 26 }, tree.id);
     assert.equal(updated.condition, 'hazardous');

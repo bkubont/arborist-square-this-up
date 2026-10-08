@@ -9,6 +9,9 @@ import {
   JOB_TYPES,
   TREE_CONDITIONS,
   TREE_RECOMMENDED_WORK,
+  TREE_METHOD_NEEDS,
+  CLIENT_CONTACT_ROLES,
+  CLIENT_CONTACT_METHODS,
   defaultServicePresetsForProfile,
 } from '../shared/arboristServicePresets.js';
 
@@ -27,6 +30,12 @@ const [treeConditionHead, ...treeConditionTail] = TREE_CONDITIONS;
 const treeConditionEnum = z.enum(/** @type {[string, ...string[]]} */ ([treeConditionHead, ...treeConditionTail]));
 const [treeWorkHead, ...treeWorkTail] = TREE_RECOMMENDED_WORK;
 const treeRecommendedWorkEnum = z.enum(/** @type {[string, ...string[]]} */ ([treeWorkHead, ...treeWorkTail]));
+const [treeMethodHead, ...treeMethodTail] = TREE_METHOD_NEEDS;
+const treeMethodNeedsEnum = z.enum(/** @type {[string, ...string[]]} */ ([treeMethodHead, ...treeMethodTail]));
+const [contactRoleHead, ...contactRoleTail] = CLIENT_CONTACT_ROLES;
+const clientContactRoleEnum = z.enum(/** @type {[string, ...string[]]} */ ([contactRoleHead, ...contactRoleTail]));
+const [contactMethodHead, ...contactMethodTail] = CLIENT_CONTACT_METHODS;
+const clientContactMethodEnum = z.enum(/** @type {[string, ...string[]]} */ ([contactMethodHead, ...contactMethodTail]));
 const id = z.string().min(1).max(36);
 const money = z.number().finite().min(0).max(1e12);
 const signedMoney = z.number().finite().min(-1e12).max(1e12);
@@ -120,6 +129,15 @@ export function fileIdsOf(data) {
   return ids;
 }
 
+const clientContact = z.object({
+  id: z.string().max(64).optional(),
+  role: clientContactRoleEnum.default('other'),
+  name: z.string().trim().min(1).max(250),
+  phone: text.optional(),
+  email: text.optional(),
+  notes: text.optional(),
+});
+
 export const schemas = {
   Client: z.object({
     name: z.string().trim().min(1).max(250),
@@ -135,6 +153,39 @@ export const schemas = {
     status: clientLeadStatus.optional(),
     /** Set when status is Declined so the contact leaves the active customers list. */
     archived_at: date.optional(),
+    /** How the office prefers to reach this customer. */
+    preferred_contact_method: clientContactMethodEnum.optional(),
+    /** Where the inquiry came from (neighbor, Google, repeat, …). */
+    referral_source: text.optional(),
+    /**
+     * Extra contacts beyond the primary phone/email (owner, tenant, site, billing).
+     * Keep the primary fields for the usual day-to-day contact.
+     */
+    contacts: z.array(clientContact).max(20).optional(),
+  }),
+  /**
+   * Site under a customer. Access / hazard / parking / pets notes live here so they
+   * reuse across jobs and estimates (multi-crew Phase 2).
+   * parent_id = client_id.
+   */
+  Property: z.object({
+    client_id: id,
+    /** Short label — Main house, Rental on Oak, HOA common area. */
+    name: z.string().trim().min(1).max(250),
+    address: text.optional(),
+    address_line2: text.optional(),
+    city: text.optional(),
+    state: text.optional(),
+    zip: text.optional(),
+    /** Gate codes, locked yards, access windows. */
+    access_notes: text.optional(),
+    /** Septic, slopes, fences, structures, overhead lines. */
+    hazard_notes: text.optional(),
+    /** Parking, traffic, neighbors, equipment staging. */
+    parking_notes: text.optional(),
+    pets_notes: text.optional(),
+    special_instructions: text.optional(),
+    notes: text.optional(),
   }),
   Job: z.object({ title: z.string().trim().max(250).optional(), client_id: id, client_name: text.optional(), description: text.optional(),
     phase: z.enum(['working', 'payment']).default('working'),
@@ -152,6 +203,25 @@ export const schemas = {
      * crew_leader / crew_member only see jobs whose crew_id is one of theirs.
      */
     crew_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+    /**
+     * Property this job is for (Phase 2). Optional — older jobs stay client-only.
+     * When set, must belong to the same client_id.
+     */
+    property_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+    /** What the customer asked for at intake. */
+    requested_work: text.optional(),
+    /** Office next step (call back, schedule visit, send estimate, …). */
+    next_action: text.optional(),
+    /** Planned or completed site / estimate visit date. */
+    site_visit_date: date.optional(),
+    /** Company member assigned to walk the property / write the estimate. */
+    estimator_user_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+    /** Free-text log of outreach attempts. */
+    contact_attempts: text.optional(),
+    /** Why work was declined / lost when known. */
+    declined_reason: text.optional(),
+    /** Lead-level referral (falls back to Client.referral_source in the UI). */
+    referral_source: text.optional(),
     /** The job's only buy list. Optional task_id tags a line to a task; untagged lines stay on the job. */
     materials: z.array(z.object({
       id: z.string().max(64).optional(),
@@ -196,8 +266,8 @@ export const schemas = {
     notes: text.optional(),
   }),
   /**
-   * Trees on a job (inventory). parent_id = job_id.
-   * Label/tag + species + DBH + condition + location + optional photo + recommended work.
+   * Trees / work areas on a job (inventory). parent_id = job_id.
+   * Label/tag + species + dimensions + location + method needs + cleanup.
    */
   TreeInventory: z.object({
     job_id: id,
@@ -206,10 +276,16 @@ export const schemas = {
     species: text.optional(),
     /** Diameter at breast height in inches. */
     dbh_inches: money.optional(),
+    /** Approximate height in feet when useful. */
+    height_ft: money.optional(),
     condition: treeConditionEnum.default('unknown'),
     location_note: text.optional(),
     photo_url: z.string().max(200).optional(),
     recommended_work: z.array(treeRecommendedWorkEnum).max(20).default([]),
+    /** Climbing, lift, rigging, crane, chipper, … */
+    method_needs: z.array(treeMethodNeedsEnum).max(20).default([]),
+    /** Brush, logs, firewood, stump depth, hauling, restoration. */
+    cleanup_notes: text.optional(),
     notes: text.optional(),
     /** Optional link to an estimate line id when quoting that tree. */
     estimate_line_id: z.string().max(64).optional(),
@@ -339,6 +415,8 @@ export const schemas = {
   }),
   Estimate: z.object({
     job_id: id,
+    /** Optional property link (usually mirrors Job.property_id when known). */
+    property_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
     number: docNumber,
     date: date.optional(),
     valid_till: date.optional(),
@@ -485,12 +563,20 @@ export function assertClientAddressComplete(data = {}) {
 }
 
 function parentFor(entity, data) {
+  if (entity === 'Property') return { parentId: data.client_id, parentEntity: 'Client' };
   if (entity === 'Job') return { parentId: data.client_id, parentEntity: 'Client' };
   if (entity === 'TimelineEntry' || entity === 'Payment' || entity === 'WorkItem' || entity === 'TreeInventory' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
     return { parentId: data.job_id, parentEntity: 'Job' };
   }
   if (entity === 'Expense' && data.job_id) return { parentId: data.job_id, parentEntity: 'Job' };
   return { parentId: null, parentEntity: null };
+}
+
+/** Ensure property_id (when set) exists and belongs to the job's client. */
+async function assertPropertyForClient(db, owner, propertyId, clientId) {
+  if (!propertyId) return;
+  const property = await getRecord(db, owner, 'Property', propertyId);
+  if (property.client_id !== clientId) throw fail(400, 'Property belongs to a different client');
 }
 
 /** Default CompanyProfile payload for invite registration (sales tax + arborist presets). */
@@ -600,8 +686,18 @@ export async function saveRecord(db, owner, entity, input, recordId, opts = {}) 
     const touchingAddress = !recordId || CLIENT_ADDRESS_KEYS.some((key) => Object.prototype.hasOwnProperty.call(input || {}, key));
     if (touchingAddress) assertClientAddressComplete(data);
   }
+  if (entity === 'Client' && Array.isArray(data.contacts)) {
+    data.contacts = withIds(data.contacts);
+  }
   const { parentId, parentEntity } = parentFor(entity, data);
   if (parentId) await getRecord(db, owner, parentEntity, parentId);
+  if (entity === 'Job' && data.property_id) {
+    await assertPropertyForClient(db, owner, data.property_id, data.client_id);
+  }
+  if (entity === 'Estimate' && data.property_id) {
+    const job = await getRecord(db, owner, 'Job', data.job_id);
+    await assertPropertyForClient(db, owner, data.property_id, job.client_id);
+  }
   if (data.related_estimate_id) await getRecord(db, owner, 'Estimate', data.related_estimate_id);
   if (entity === 'WorkItem') {
     if (data.source_type) {
