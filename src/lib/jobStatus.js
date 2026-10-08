@@ -28,6 +28,8 @@ export const JOB_PHASES = {
   working: {
     label: 'Working',
     statuses: [
+      'New inquiry',
+      'Site visit',
       'Estimate sent',
       'Approved',
       'Prep',
@@ -49,8 +51,8 @@ export const JOB_PHASES = {
   },
 };
 
-/** Estimate pipeline on Working — cards open Overview; money is quote-only. */
-export const ESTIMATE_STAGE_STATUSES = ['Estimate sent', 'Approved'];
+/** Lead + estimate pipeline on Working — cards open Overview; money is quote-only. */
+export const ESTIMATE_STAGE_STATUSES = ['New inquiry', 'Site visit', 'Estimate sent', 'Approved'];
 
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
 
@@ -95,7 +97,13 @@ export function phaseForStatus(status) {
   return LEGACY_JOB_STATUS_MAP[status]?.phase || null;
 }
 
+/**
+ * Default board column when creating/moving to a phase.
+ * Working stays Estimate sent so existing create flows are unchanged;
+ * New inquiry / Site visit are opt-in lead columns (Phase 2).
+ */
 export function defaultStatusForPhase(phase) {
+  if (phase === 'working') return 'Estimate sent';
   return JOB_PHASES[phase]?.statuses[0] || 'Estimate sent';
 }
 

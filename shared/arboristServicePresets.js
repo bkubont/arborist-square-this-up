@@ -131,7 +131,26 @@ export const TREE_RECOMMENDED_WORK = [
   'storm_mitigation',
 ];
 
+/** Method / equipment needs for a tree or work area (PDF §2). */
+export const TREE_METHOD_NEEDS = [
+  'climbing',
+  'lift',
+  'rigging',
+  'crane',
+  'chipper',
+  'grinder',
+  'traffic_control',
+  'rental',
+  'subcontractor',
+];
+
 export const JOB_TYPES = ['residential', 'commercial', 'municipal', 'storm', 'other'];
+
+/** Contact roles on a customer (owner / tenant / site / billing). */
+export const CLIENT_CONTACT_ROLES = ['owner', 'tenant', 'site', 'billing', 'other'];
+
+/** Preferred ways to reach the customer. */
+export const CLIENT_CONTACT_METHODS = ['phone', 'email', 'text', 'any'];
 
 /**
  * Catalog-shaped rows so /api/catalog and CatalogTypeahead keep working.

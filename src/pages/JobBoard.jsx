@@ -41,7 +41,7 @@ function parseDroppableId(id) {
   return { phase, status: rest };
 }
 
-/** Estimate sent / Approved → Overview; Prep and later → Tasks; Payment → Overview. */
+/** New inquiry / Site visit / Estimate sent / Approved → Overview; Prep and later → Tasks; Payment → Overview. */
 function jobCardHref(job) {
   if (job.phase === "working" && !isEstimateStageStatus(job.status)) return `/jobs/${job.id}?tab=tasks`;
   return `/jobs/${job.id}`;

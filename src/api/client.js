@@ -107,6 +107,7 @@ const entity = name => ({
 export const api = {
   entities: {
     Client: entity('Client'),
+    Property: entity('Property'),
     Job: entity('Job'),
     TimelineEntry: entity('TimelineEntry'),
     CompanyProfile: entity('CompanyProfile'),

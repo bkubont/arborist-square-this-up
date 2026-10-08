@@ -141,6 +141,8 @@ export const STATUS_SEMANTIC_MAP = {
   Assessment: "sky",
   "Plan / draft estimate": "brand",
   Estimate: "brand",
+  "New inquiry": "brand",
+  "Site visit": "sky",
   "Estimate sent": "brand",
   "Waiting on approval": "attention-approval",
   Approved: "success",

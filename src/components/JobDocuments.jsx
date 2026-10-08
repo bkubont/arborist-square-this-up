@@ -26,6 +26,8 @@ export default function JobDocuments({
   jobId,
   jobTitle,
   client,
+  /** When set, new Estimates inherit this property link from the job. */
+  propertyId = null,
   documents,
   onChanged,
   /** Limit to these entity types (default: all document types). */
@@ -83,6 +85,7 @@ export default function JobDocuments({
           valid_till: addDaysIso(today, ESTIMATE_VALID_DAYS),
           lines: [],
           tax_rate,
+          ...(propertyId ? { property_id: propertyId } : {}),
         });
       }
 

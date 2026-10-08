@@ -200,5 +200,17 @@ test('seed-multi-crew creates two crews and mixed roles without wiping jobs', as
   assert.equal(result.crews.length, 2);
   assert.ok(result.members.some((m) => m.role === 'crew_leader'));
   const jobs = await db.all('SELECT id FROM records WHERE owner_id = ? AND entity = ?', [owner.data.id, 'Job']);
-  assert.equal(jobs.length, 1);
+  // Existing Keep job stays; Phase 2 seed adds one New inquiry lead.
+  assert.equal(jobs.length, 2);
+  const keep = await db.all(
+    "SELECT id FROM records WHERE owner_id = ? AND entity = ? AND id = ?",
+    [owner.data.id, 'Client', client.data.id],
+  );
+  assert.equal(keep.length, 1, 'existing client must not be wiped');
+  const properties = await db.all(
+    'SELECT id FROM records WHERE owner_id = ? AND entity = ?',
+    [owner.data.id, 'Property'],
+  );
+  assert.equal(properties.length, 2);
+  assert.equal(result.phase2?.propertiesCreated, 2);
 });

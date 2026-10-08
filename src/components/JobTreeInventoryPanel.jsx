@@ -9,15 +9,19 @@ import {
   COMMON_TREE_SPECIES,
   TREE_CONDITIONS,
   TREE_RECOMMENDED_WORK,
+  TREE_METHOD_NEEDS,
 } from "../../shared/arboristServicePresets.js";
 
 const blankTree = () => ({
   label: "",
   species: "",
   dbh_inches: "",
+  height_ft: "",
   condition: "unknown",
   location_note: "",
   recommended_work: [],
+  method_needs: [],
+  cleanup_notes: "",
   notes: "",
 });
 
@@ -30,7 +34,7 @@ function workLabel(value) {
 }
 
 /**
- * Per-job tree inventory — add / edit / remove trees on the property.
+ * Per-job tree / work-area inventory — species, location, method needs, cleanup.
  */
 export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) {
   const [rows, setRows] = useState([]);
@@ -43,7 +47,10 @@ export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) 
         ? trees.map((t) => ({
             ...t,
             dbh_inches: t.dbh_inches ?? "",
+            height_ft: t.height_ft ?? "",
             recommended_work: Array.isArray(t.recommended_work) ? t.recommended_work : [],
+            method_needs: Array.isArray(t.method_needs) ? t.method_needs : [],
+            cleanup_notes: t.cleanup_notes || "",
           }))
         : [],
     );
@@ -51,14 +58,14 @@ export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) 
 
   const setRow = (index, patch) => setRows((list) => list.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
-  const toggleWork = (index, work) => {
+  const toggleList = (index, field, value) => {
     setRows((list) =>
       list.map((row, i) => {
         if (i !== index) return row;
-        const current = new Set(row.recommended_work || []);
-        if (current.has(work)) current.delete(work);
-        else current.add(work);
-        return { ...row, recommended_work: [...current] };
+        const current = new Set(row[field] || []);
+        if (current.has(value)) current.delete(value);
+        else current.add(value);
+        return { ...row, [field]: [...current] };
       }),
     );
   };
@@ -77,9 +84,12 @@ export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) 
         label,
         species: String(row.species || "").trim() || undefined,
         dbh_inches: row.dbh_inches === "" || row.dbh_inches == null ? undefined : Number(row.dbh_inches),
+        height_ft: row.height_ft === "" || row.height_ft == null ? undefined : Number(row.height_ft),
         condition: row.condition || "unknown",
         location_note: String(row.location_note || "").trim() || undefined,
         recommended_work: row.recommended_work || [],
+        method_needs: row.method_needs || [],
+        cleanup_notes: String(row.cleanup_notes || "").trim() || undefined,
         notes: String(row.notes || "").trim() || undefined,
         photo_url: row.photo_url || undefined,
         estimate_line_id: row.estimate_line_id || undefined,
@@ -116,9 +126,9 @@ export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) 
     <div className="bg-card rounded-xl border border-border p-4" data-testid="job-tree-inventory">
       <div className="flex items-center justify-between gap-2 mb-3">
         <div>
-          <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tree inventory</div>
+          <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Trees / work areas</div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Tag trees on this property — species, DBH, condition, location, and recommended work. Attach to estimate lines when quoting.
+            Label each tree or area — species, location, method needs, and cleanup. Attach to estimate lines when quoting.
           </p>
         </div>
         <Button
@@ -148,7 +158,7 @@ export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) 
             data-testid={`tree-row-${i}`}
             className="rounded-lg border border-border/70 p-3 bg-muted/30 space-y-2"
           >
-            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_8rem_auto] gap-2 items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_5.5rem_8rem_auto] gap-2 items-center">
               <Input
                 value={row.label}
                 onChange={(e) => setRow(i, { label: e.target.value })}
@@ -177,6 +187,16 @@ export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) 
                 onChange={(e) => setRow(i, { dbh_inches: e.target.value })}
                 placeholder='DBH"'
                 aria-label="DBH inches"
+                className="h-8 text-sm"
+              />
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={row.height_ft}
+                onChange={(e) => setRow(i, { height_ft: e.target.value })}
+                placeholder="Ht ft"
+                aria-label="Height feet"
                 className="h-8 text-sm"
               />
               <Select value={row.condition || "unknown"} onValueChange={(v) => setRow(i, { condition: v })}>
@@ -215,25 +235,58 @@ export default function JobTreeInventoryPanel({ jobId, trees = [], onChanged }) 
               aria-label="Location"
               className="h-8 text-sm"
             />
-            <div className="flex flex-wrap gap-1.5">
-              {TREE_RECOMMENDED_WORK.map((work) => {
-                const on = (row.recommended_work || []).includes(work);
-                return (
-                  <button
-                    key={work}
-                    type="button"
-                    onClick={() => toggleWork(i, work)}
-                    className={`text-[11px] px-2 py-0.5 rounded-md border capitalize ${
-                      on
-                        ? "bg-primary/10 border-primary/40 text-primary"
-                        : "bg-background border-border text-muted-foreground"
-                    }`}
-                  >
-                    {workLabel(work)}
-                  </button>
-                );
-              })}
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Recommended work</div>
+              <div className="flex flex-wrap gap-1.5">
+                {TREE_RECOMMENDED_WORK.map((work) => {
+                  const on = (row.recommended_work || []).includes(work);
+                  return (
+                    <button
+                      key={work}
+                      type="button"
+                      onClick={() => toggleList(i, "recommended_work", work)}
+                      className={`text-[11px] px-2 py-0.5 rounded-md border capitalize ${
+                        on
+                          ? "bg-primary/10 border-primary/40 text-primary"
+                          : "bg-background border-border text-muted-foreground"
+                      }`}
+                    >
+                      {workLabel(work)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Method needs</div>
+              <div className="flex flex-wrap gap-1.5">
+                {TREE_METHOD_NEEDS.map((need) => {
+                  const on = (row.method_needs || []).includes(need);
+                  return (
+                    <button
+                      key={need}
+                      type="button"
+                      onClick={() => toggleList(i, "method_needs", need)}
+                      className={`text-[11px] px-2 py-0.5 rounded-md border capitalize ${
+                        on
+                          ? "bg-primary/10 border-primary/40 text-primary"
+                          : "bg-background border-border text-muted-foreground"
+                      }`}
+                    >
+                      {workLabel(need)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <Textarea
+              value={row.cleanup_notes || ""}
+              onChange={(e) => setRow(i, { cleanup_notes: e.target.value })}
+              placeholder="Cleanup (brush, logs, firewood, stump depth, hauling, restoration…)"
+              rows={2}
+              className="text-sm"
+              aria-label="Cleanup notes"
+            />
             <Textarea
               value={row.notes || ""}
               onChange={(e) => setRow(i, { notes: e.target.value })}

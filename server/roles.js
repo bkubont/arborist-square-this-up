@@ -121,6 +121,7 @@ export const NAV_PERMISSIONS = {
  */
 export const ENTITY_PERMISSIONS = {
   Client: { view: 'view_clients', edit: 'edit_clients' },
+  Property: { view: 'view_clients', edit: 'edit_clients' },
   Job: { view: 'view_jobs', edit: 'edit_jobs' },
   TimelineEntry: { view: 'view_jobs', edit: 'edit_jobs' },
   CompanyProfile: { view: 'manage_company_profile', edit: 'manage_company_profile' },

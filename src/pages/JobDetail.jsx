@@ -17,6 +17,7 @@ import FinancialPanel from "@/components/FinancialPanel";
 import JobFormDialog from "@/components/JobFormDialog";
 import JobDocuments from "@/components/JobDocuments";
 import JobTreeInventoryPanel from "@/components/JobTreeInventoryPanel";
+import PropertyNotesCard from "@/components/PropertyNotesCard";
 import TimelineFeed from "@/components/TimelineFeed";
 import { composeJobActivity } from "@/lib/jobActivity";
 import { statusCardClass } from "@/lib/statusColors";
@@ -63,6 +64,7 @@ export default function JobDetail() {
   const [workItems, setWorkItems] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [trees, setTrees] = useState([]);
+  const [property, setProperty] = useState(null);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
@@ -114,6 +116,17 @@ export default function JobDetail() {
       } catch {
         setClient(null);
       }
+    } else {
+      setClient(null);
+    }
+    if (j?.property_id) {
+      try {
+        setProperty(await api.entities.Property.get(j.property_id));
+      } catch {
+        setProperty(null);
+      }
+    } else {
+      setProperty(null);
     }
     setLoading(false);
   }, [id]);
@@ -310,6 +323,50 @@ export default function JobDetail() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-0">
+          {property && <PropertyNotesCard property={property} clientId={client?.id} />}
+
+          {(job.requested_work || job.next_action || job.site_visit_date || job.contact_attempts || job.referral_source) && (
+            <div className="bg-card rounded-xl border border-border p-4 space-y-2" data-testid="lead-intake-summary">
+              <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Lead / site visit</div>
+              {job.requested_work && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Requested work</div>
+                  <p className="text-sm whitespace-pre-wrap">{job.requested_work}</p>
+                </div>
+              )}
+              {job.next_action && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Next action</div>
+                  <p className="text-sm">{job.next_action}</p>
+                </div>
+              )}
+              {job.site_visit_date && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Site visit</div>
+                  <p className="text-sm">{job.site_visit_date}</p>
+                </div>
+              )}
+              {job.referral_source && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Referral</div>
+                  <p className="text-sm">{job.referral_source}</p>
+                </div>
+              )}
+              {job.contact_attempts && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Contact attempts</div>
+                  <p className="text-sm whitespace-pre-wrap">{job.contact_attempts}</p>
+                </div>
+              )}
+              {job.declined_reason && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Declined reason</div>
+                  <p className="text-sm">{job.declined_reason}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           <JobTreeInventoryPanel jobId={id} trees={trees} onChanged={load} />
 
           <div>
@@ -330,6 +387,7 @@ export default function JobDetail() {
             jobId={id}
             jobTitle={job.title}
             client={client}
+            propertyId={job.property_id || null}
             documents={documents}
             onChanged={load}
             entities={["Estimate"]}

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   applyJobStatusFields,
+  defaultStatusForPhase,
   ESTIMATE_STAGE_STATUSES,
   INVOICE_GATE_STATUS,
   JOB_PHASE_ORDER,
@@ -35,7 +36,7 @@ describe('job status model', () => {
     const approved = normalizeJobRecord({ phase: 'lead', status: 'Approved' });
     assert.equal(approved.phase, 'working');
     assert.equal(approved.status, 'Approved');
-    assert.deepEqual(ESTIMATE_STAGE_STATUSES, ['Estimate sent', 'Approved']);
+    assert.deepEqual(ESTIMATE_STAGE_STATUSES, ['New inquiry', 'Site visit', 'Estimate sent', 'Approved']);
     for (const status of ['Waiting on access', 'Waiting on weather', 'Waiting on utility', 'Waiting on materials']) {
       const waiting = normalizeJobRecord({ phase: 'working', status });
       assert.equal(waiting.status, 'Waiting on');
@@ -66,14 +67,21 @@ describe('job status model', () => {
 
   it('maps every status to a phase', () => {
     for (const status of [
-      'Estimate sent', 'Prep', INVOICE_GATE_STATUS, 'Paid', 'Completed',
+      'New inquiry', 'Site visit', 'Estimate sent', 'Prep', INVOICE_GATE_STATUS, 'Paid', 'Completed',
     ]) {
       assert.ok(phaseForStatus(status));
     }
   });
 
-  it('working phase is Estimate sent through Completed with one Waiting on column', () => {
+  it('keeps Estimate sent as the default create status for working', () => {
+    assert.equal(defaultStatusForPhase('working'), 'Estimate sent');
+    assert.equal(defaultStatusForPhase('payment'), INVOICE_GATE_STATUS);
+  });
+
+  it('working phase is New inquiry through Completed with one Waiting on column', () => {
     assert.deepEqual(JOB_PHASES.working.statuses, [
+      'New inquiry',
+      'Site visit',
       'Estimate sent',
       'Approved',
       'Prep',
