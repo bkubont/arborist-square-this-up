@@ -26,6 +26,8 @@ import CompanySettings from '@/pages/CompanySettings';
 import Team from '@/pages/Team';
 import Estimates from '@/pages/Estimates';
 import ReadyToSchedule from '@/pages/ReadyToSchedule';
+import Today from '@/pages/Today';
+import JobField from '@/pages/JobField';
 import { SchedulePage, ExpensesPage, ReceiptsPage, ReportsPage } from '@/pages/ShellPlaceholders';
 import SignEstimate from '@/pages/SignEstimate';
 import Privacy from '@/pages/Privacy';
@@ -69,8 +71,10 @@ const AuthenticatedApp = () => {
           <Route path="/jobs/ready-to-schedule" element={<ReadyToSchedule />} />
           <Route path="/jobs/archive" element={<ArchiveJobs />} />
           <Route path="/jobs" element={<AllJobs />} />
+          <Route path="/jobs/:id/field" element={<JobField />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/estimates" element={<Estimates />} />
+          <Route path="/today" element={<Today />} />
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/receipts" element={<ReceiptsPage />} />

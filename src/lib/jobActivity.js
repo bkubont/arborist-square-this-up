@@ -5,10 +5,10 @@ import { documentTypeLabel } from "@/lib/documents";
  * (create / sign / void) using real record timestamps when logged events are missing.
  *
  * @param {{ entries?: object[], documents?: object[] }} args
- * @returns {Array<{ id: string, at: string, type: string, text?: string, amount?: number, photo_url?: string, category?: string }>}
+ * @returns {Array<{ id: string, at: string, type: string, text?: string, amount?: number, photo_url?: string, category?: string, visibility?: string, payment_method?: string, job_status?: string }>}
  */
 export function composeJobActivity({ entries = [], documents = [] } = {}) {
-  /** @type {Array<{ id: string, at: string, type: string, text?: string, amount?: number, photo_url?: string, category?: string }>} */
+  /** @type {Array<{ id: string, at: string, type: string, text?: string, amount?: number, photo_url?: string, category?: string, visibility?: string, payment_method?: string, job_status?: string }>} */
   const items = (entries || []).map((e) => ({
     id: e.id,
     at: e.created_date || e.updated_date || "",
@@ -19,6 +19,7 @@ export function composeJobActivity({ entries = [], documents = [] } = {}) {
     category: e.category,
     payment_method: e.payment_method,
     job_status: e.job_status,
+    visibility: e.visibility,
   }));
 
   const textHas = (item, needle) => {

@@ -69,6 +69,7 @@ import {
   assertRecordVisible,
   assertWriteAllowed,
   filterRecordsForRole,
+  ensureCrewIds,
 } from './permissions.js';
 import { findScheduleConflicts, scheduleAssignmentChanged } from './scheduleConflicts.js';
 import {
@@ -76,6 +77,23 @@ import {
   jobFieldsForReschedule,
   schedulePrerequisiteFlags,
 } from './schedule.js';
+import {
+  fieldsForStartVisit,
+  fieldsForFinishVisit,
+  fieldsForCompleteJob,
+  appendFieldTimeline,
+  scheduleChangeTimelineText,
+} from './fieldVisit.js';
+import {
+  listTimeEntries,
+  flagMissingClockOuts,
+  prepareClockIn,
+  prepareClockOut,
+  saveClockIn,
+  saveClockOut,
+  calendarDayOf,
+} from './timeClock.js';
+import { buildTodayPayload } from './today.js';
 
 /** Saving these re-syncs the job's draft Material Order from the job buy list. */
 const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem', 'Job']);
@@ -665,9 +683,18 @@ export async function createApp(db, env = process.env) {
     };
     const conflicts = findScheduleConflicts(jobs, candidate, { crewsById, equipmentById });
 
-    const updated = await ownedTransaction(req.ownerId, async (tx) => (
-      saveRecord(tx, req.ownerId, 'Job', fields, job.id)
-    ));
+    const updated = await ownedTransaction(req.ownerId, async (tx) => {
+      const saved = await saveRecord(tx, req.ownerId, 'Job', fields, job.id);
+      await appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'schedule_change',
+        category: 'note',
+        visibility: body.customer_notified ? 'customer' : 'internal',
+        text: scheduleChangeTimelineText('initial', body.note || `Scheduled ${fields.start_date || ''}`),
+        job_status: saved.status,
+      });
+      return saved;
+    });
     const property = job.property_id
       ? await getRecord(db, req.ownerId, 'Property', job.property_id).catch(() => null)
       : null;
@@ -717,9 +744,18 @@ export async function createApp(db, env = process.env) {
     };
     const conflicts = findScheduleConflicts(jobs, candidate, { crewsById, equipmentById });
 
-    const updated = await ownedTransaction(req.ownerId, async (tx) => (
-      saveRecord(tx, req.ownerId, 'Job', fields, job.id)
-    ));
+    const updated = await ownedTransaction(req.ownerId, async (tx) => {
+      const saved = await saveRecord(tx, req.ownerId, 'Job', fields, job.id);
+      await appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'schedule_change',
+        category: 'note',
+        visibility: body.customer_notified ? 'customer' : 'internal',
+        text: scheduleChangeTimelineText(body.reason || 'weather', body.note),
+        job_status: saved.status,
+      });
+      return saved;
+    });
     res.json({
       ...normalizeJobRecord(updated),
       schedule_warnings: conflicts.warnings,
@@ -729,6 +765,203 @@ export async function createApp(db, env = process.env) {
         equipmentConflicts: conflicts.equipmentConflicts,
       },
     });
+  });
+
+  /** Today workspace — ordered jobs for a calendar day with crew / equipment / instructions. */
+  app.get('/api/today', async (req, res) => {
+    if (!can(req.role, 'view_jobs')) throw fail(403, 'You do not have permission for this action');
+    const crewIds = await ensureCrewIds(db, req);
+    const payload = await buildTodayPayload(db, {
+      ownerId: req.ownerId,
+      role: req.role,
+      userId: req.user.id,
+      crewIds,
+      date: String(req.query.date || '').trim() || undefined,
+    });
+    res.json(payload);
+  });
+
+  /** Start a production visit (marks In progress + timeline). */
+  app.post('/api/jobs/:id/visit/start', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const body = req.body || {};
+    const { fields, started_at } = fieldsForStartVisit(job, {
+      started_by: req.user?.email || req.user?.id,
+      started_by_user_id: req.user?.id,
+      note: body.note,
+    });
+    await assertWriteAllowed(db, req, 'Job', fields, job);
+    const updated = await ownedTransaction(req.ownerId, async (tx) => {
+      const saved = await saveRecord(tx, req.ownerId, 'Job', fields, job.id);
+      await appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'visit_started',
+        category: 'visit',
+        visibility: 'internal',
+        text: body.note ? `Visit started — ${body.note}` : 'Visit started',
+        job_status: saved.status,
+      });
+      return saved;
+    });
+    res.json({ ...normalizeJobRecord(updated), visit_started_at: started_at });
+  });
+
+  /** Finish today's visit without completing a multi-day job. */
+  app.post('/api/jobs/:id/visit/finish', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const body = req.body || {};
+    const { fields, finished_at, started_at } = fieldsForFinishVisit(job, { note: body.note });
+    await assertWriteAllowed(db, req, 'Job', fields, job);
+    const updated = await ownedTransaction(req.ownerId, async (tx) => {
+      const saved = await saveRecord(tx, req.ownerId, 'Job', fields, job.id);
+      await appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'visit_finished',
+        category: 'visit',
+        visibility: 'internal',
+        text: body.note
+          ? `Visit finished — ${body.note}`
+          : `Visit finished (started ${started_at})`,
+        job_status: saved.status,
+      });
+      return saved;
+    });
+    res.json({ ...normalizeJobRecord(updated), visit_finished_at: finished_at });
+  });
+
+  /** Complete job production (board → Completed). */
+  app.post('/api/jobs/:id/complete', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const body = req.body || {};
+    const fields = fieldsForCompleteJob(job, { note: body.note });
+    await assertWriteAllowed(db, req, 'Job', fields, job);
+    const updated = await ownedTransaction(req.ownerId, async (tx) => {
+      const saved = await saveRecord(tx, req.ownerId, 'Job', fields, job.id);
+      await appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'job_completed',
+        category: 'visit',
+        visibility: body.customer_visible ? 'customer' : 'internal',
+        text: body.note ? `Job completed — ${body.note}` : 'Job completed',
+        job_status: saved.status,
+      });
+      return saved;
+    });
+    res.json(normalizeJobRecord(updated));
+  });
+
+  /** Report a field problem (changed conditions, damage, delay, equipment). */
+  app.post('/api/jobs/:id/problem', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const text = String(req.body?.text || req.body?.note || '').trim();
+    if (!text) throw fail(400, 'Describe the problem');
+    const photo_url = req.body?.photo_url ? String(req.body.photo_url).slice(0, 200) : undefined;
+    const entry = await ownedTransaction(req.ownerId, async (tx) => (
+      appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'problem',
+        category: 'problem',
+        visibility: 'internal',
+        text,
+        photo_url,
+        job_status: job.status,
+      })
+    ));
+    res.status(201).json(entry);
+  });
+
+  /**
+   * Request a scope change from the field.
+   * Creates an internal timeline marker for the office (crew roles cannot edit ChangeOrders).
+   */
+  app.post('/api/jobs/:id/request-change', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const text = String(req.body?.text || req.body?.note || '').trim();
+    if (!text) throw fail(400, 'Describe the requested change');
+    const photo_url = req.body?.photo_url ? String(req.body.photo_url).slice(0, 200) : undefined;
+    const entry = await ownedTransaction(req.ownerId, async (tx) => (
+      appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'change_request',
+        category: 'note',
+        visibility: 'internal',
+        text: `Change requested: ${text}`,
+        photo_url,
+        job_status: job.status,
+      })
+    ));
+    res.status(201).json(entry);
+  });
+
+  /** Clock in against a job. */
+  app.post('/api/jobs/:id/clock-in', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const openEntries = await listTimeEntries(db, req.ownerId, {
+      user_id: req.user.id,
+      open_only: true,
+    });
+    const payload = prepareClockIn({
+      job_id: job.id,
+      user_id: req.user.id,
+      user_email: req.user.email,
+      kind: req.body?.kind,
+      note: req.body?.note,
+      openEntries,
+    });
+    const entry = await ownedTransaction(req.ownerId, async (tx) => saveClockIn(tx, req.ownerId, payload));
+    res.status(201).json(entry);
+  });
+
+  /** Clock out of an open time entry (by entry id or the caller's open entry on this job). */
+  app.post('/api/jobs/:id/clock-out', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const body = req.body || {};
+    let entry = null;
+    if (body.time_entry_id) {
+      entry = await getRecord(db, req.ownerId, 'TimeEntry', body.time_entry_id);
+      if (entry.job_id !== job.id) throw fail(400, 'Time entry belongs to a different job');
+    } else {
+      const open = await listTimeEntries(db, req.ownerId, { job_id: job.id, open_only: true });
+      entry = open.find((e) => e.user_id === req.user.id) || open[0] || null;
+      if (!entry) throw fail(404, 'No open time entry on this job');
+    }
+    const prepared = prepareClockOut(entry, {
+      note: body.note,
+      manually_edited: Boolean(body.manually_edited),
+      at: body.at,
+    });
+    const saved = await ownedTransaction(req.ownerId, async (tx) => saveClockOut(tx, req.ownerId, prepared));
+    res.json(flagMissingClockOuts([saved])[0]);
+  });
+
+  /** List time entries (optional job_id); open past-day entries are flagged. */
+  app.get('/api/time-entries', async (req, res) => {
+    if (!can(req.role, 'view_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job_id = String(req.query.job_id || '').trim() || undefined;
+    let entries = await listTimeEntries(db, req.ownerId, {
+      job_id,
+      user_id: req.query.mine === '1' ? req.user.id : undefined,
+      open_only: req.query.open === '1',
+    });
+    if (isCrewScopedRole(req.role)) {
+      entries = await filterRecordsForRole(db, req, 'TimeEntry', entries);
+    }
+    const today = String(req.query.date || '').trim() || calendarDayOf(null);
+    res.json(flagMissingClockOuts(entries, today));
   });
 
   app.get('/api/summaries', async (req, res) => {

@@ -114,7 +114,7 @@ export { TASK_STATUSES } from './taskStatus.js';
 /** Job-linked document entities (parent_id = job_id). */
 export const JOB_DOCUMENT_ENTITIES = ['Estimate', 'MaterialOrder', 'ChangeOrder', 'Invoice', 'PunchList'];
 /** Other job children wiped when a Job is deleted (not documents). */
-export const JOB_CHILD_ENTITIES = ['TimelineEntry', 'Expense', 'Payment', 'WorkItem', 'WorkOrder', 'TreeInventory'];
+export const JOB_CHILD_ENTITIES = ['TimelineEntry', 'Expense', 'Payment', 'WorkItem', 'WorkOrder', 'TreeInventory', 'TimeEntry'];
 /** Estimate/ChangeOrder statuses that mean "the customer decided" or "withdrawn" — the document is frozen. */
 export const SCOPE_TERMINAL_STATUSES = { Estimate: ['accepted', 'declined', 'void'], ChangeOrder: ['approved', 'rejected', 'void'] };
 /** The one status each reaches only through a real customer signature (see server/sign.js). */
@@ -287,7 +287,21 @@ export const schemas = {
     job_type: jobTypeEnum.optional(),
     // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
     // moves them into WorkItems and clears this.
-    checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
+    checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional(),
+    /**
+     * Open production visit (Phase 5). Finish visit clears this without completing multi-day jobs.
+     * Complete job clears it and moves status to Completed.
+     */
+    active_visit: z.preprocess(
+      (v) => (v == null || v === '' ? null : v),
+      z.object({
+        started_at: z.string().max(40),
+        started_by: text.optional(),
+        started_by_user_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+        note: text.optional(),
+      }).nullable().optional(),
+    ),
+  }),
   /**
    * Production unit under a company. Stored as records with owner_id = company_id.
    * Leaders/members reference company_members.user_id values.
@@ -340,9 +354,16 @@ export const schemas = {
   }),
   // 'checklist' and 'work_order_created' stay so timeline rows from before the WorkItem checklist
   // still decode; nothing writes them any more.
-  TimelineEntry: z.object({ job_id: id, type: z.enum(['note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received','invoice_sent','payment_received','status_change','checklist','work_order_created','change_order_sent','change_order_signed','document_created','document_voided','document_declined']),
+  // Phase 5 field types: visit_started, visit_finished, problem, change_request, time_clock,
+  // schedule_change, job_completed.
+  TimelineEntry: z.object({ job_id: id, type: z.enum([
+    'note','photo','receipt','document','estimate_sent','estimate_signed','deposit_received',
+    'invoice_sent','payment_received','status_change','checklist','work_order_created',
+    'change_order_sent','change_order_signed','document_created','document_voided','document_declined',
+    'visit_started','visit_finished','problem','change_request','time_clock','schedule_change','job_completed',
+  ]),
     text: text.optional(), photo_url: z.string().max(200).optional(),
-    category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery']).default('note'),
+    category: z.enum(['before','after','work','receipt','document','note','financial','addition','gallery','problem','visit','time']).default('note'),
     amount: money.optional(),
     /** How a payment or deposit was received. */
     payment_method: z.enum(['cash', 'check', 'card', 'transfer', 'other']).optional(),
@@ -350,6 +371,29 @@ export const schemas = {
     job_status: z.string().max(80).optional(),
     /** When set, ties a receipt/photo to a specific Material Order (same job). */
     related_material_order_id: id.optional(),
+    /**
+     * Customer-facing vs internal (Phase 5). Missing on legacy rows — UI treats unset as
+     * customer for photo/financial types and internal for notes/problems/time.
+     */
+    visibility: z.enum(['customer', 'internal']).optional(),
+  }),
+  /**
+   * Job-scoped time clock entry (Phase 5). Workers clock in/out against a job.
+   * Open entries (no clock_out) past the calendar day are flagged needs_review.
+   * parent_id = job_id.
+   */
+  TimeEntry: z.object({
+    job_id: id,
+    user_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+    user_email: text.optional(),
+    clock_in: z.string().max(40),
+    clock_out: z.string().max(40).optional(),
+    kind: z.enum(['work', 'travel', 'disposal', 'break', 'errand', 'yard', 'training', 'maintenance', 'other']).default('work'),
+    note: text.optional(),
+    /** True when clock_out was set/edited after the fact. */
+    manually_edited: z.boolean().optional(),
+    /** Forgotten clock-out or manual edit — flag for payroll review. */
+    needs_review: z.boolean().optional(),
   }),
   /** Account-owned spend — optional job link and receipt photo (unassigned inbox OK). */
   Expense: z.object({
@@ -636,7 +680,14 @@ export function assertClientAddressComplete(data = {}) {
 function parentFor(entity, data) {
   if (entity === 'Property') return { parentId: data.client_id, parentEntity: 'Client' };
   if (entity === 'Job') return { parentId: data.client_id, parentEntity: 'Client' };
-  if (entity === 'TimelineEntry' || entity === 'Payment' || entity === 'WorkItem' || entity === 'TreeInventory' || JOB_DOCUMENT_ENTITIES.includes(entity)) {
+  if (
+    entity === 'TimelineEntry'
+    || entity === 'Payment'
+    || entity === 'WorkItem'
+    || entity === 'TreeInventory'
+    || entity === 'TimeEntry'
+    || JOB_DOCUMENT_ENTITIES.includes(entity)
+  ) {
     return { parentId: data.job_id, parentEntity: 'Job' };
   }
   if (entity === 'Expense' && data.job_id) return { parentId: data.job_id, parentEntity: 'Job' };

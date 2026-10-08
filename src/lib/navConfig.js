@@ -13,6 +13,7 @@ export const NAV_GROUPS = [
     id: "work",
     label: "Work",
     items: [
+      { to: "/today", label: "Today", icon: NAV_ICONS.today },
       { to: "/jobs/active", label: "Jobs", icon: NAV_ICONS.jobs },
       { to: "/jobs/board", label: "Board", icon: NAV_ICONS.board },
       { to: "/jobs/ready-to-schedule", label: "Ready to Schedule", icon: NAV_ICONS.schedule },

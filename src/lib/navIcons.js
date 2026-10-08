@@ -9,6 +9,7 @@ import {
   Columns3,
   Archive,
   CalendarDays,
+  Sun,
   FileText,
   Receipt,
   Wallet,
@@ -30,6 +31,7 @@ export const NAV_ICONS = {
   /** @deprecated alias — prefer customers */
   clients: UsersRound,
   schedule: CalendarDays,
+  today: Sun,
   estimates: FileText,
   invoices: CircleDollarSign,
   /** @deprecated alias — prefer invoices */
