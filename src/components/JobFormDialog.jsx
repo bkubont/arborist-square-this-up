@@ -7,8 +7,14 @@ import FieldLabel from "@/components/FieldLabel";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import JobPhaseStatusSelect from "@/components/JobPhaseStatusSelect";
+import { api } from "@/api/client";
+import { useAuth } from "@/lib/AuthContext";
+import { userCan } from "@/lib/permissions";
 
 export default function JobFormDialog({ open, onOpenChange, onSave, job = null, clients, defaultClientId = "" }) {
+  const { user } = useAuth();
+  const canAssignCrew = userCan(user, "assign_crew");
+  const [crews, setCrews] = useState([]);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -18,6 +24,7 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
     start_date: "",
     end_date: "",
     notes: "",
+    crew_id: "",
   });
 
   useEffect(() => {
@@ -33,6 +40,7 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
               start_date: job.start_date || "",
               end_date: job.end_date || "",
               notes: job.notes || "",
+              crew_id: job.crew_id || "",
             }
           : {
               title: "",
@@ -43,19 +51,33 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
               start_date: "",
               end_date: "",
               notes: "",
+              crew_id: "",
             }
       );
+      if (canAssignCrew) {
+        api.entities.Crew.list("-created_date", 100)
+          .then(setCrews)
+          .catch(() => setCrews([]));
+      } else {
+        setCrews([]);
+      }
     }
-  }, [open, job, defaultClientId]);
+  }, [open, job, defaultClientId, canAssignCrew]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = () => {
     if (!form.client_id) return;
-    onSave({
+    const payload = {
       ...form,
       title: form.title?.trim() || undefined,
-    });
+    };
+    if (canAssignCrew) {
+      payload.crew_id = form.crew_id || null;
+    } else {
+      delete payload.crew_id;
+    }
+    onSave(payload);
   };
 
   return (
@@ -84,6 +106,25 @@ export default function JobFormDialog({ open, onOpenChange, onSave, job = null, 
               </SelectContent>
             </Select>
           </div>
+          {canAssignCrew ? (
+            <div>
+              <Label>Crew</Label>
+              <Select value={form.crew_id || "__none__"} onValueChange={(v) => set("crew_id", v === "__none__" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Unassigned</SelectItem>
+                  {crews.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Crew leaders and members only see jobs assigned to their crew.
+              </p>
+            </div>
+          ) : null}
           <div>
             <Label>Description</Label>
             <Textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} />

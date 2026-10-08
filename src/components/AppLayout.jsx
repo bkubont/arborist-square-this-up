@@ -5,10 +5,17 @@ import { cn } from "@/lib/utils";
 import { NAV_GROUPS } from "@/lib/navConfig";
 import AppTopBar from "@/components/AppTopBar";
 import BrokenSquareMark from "@/components/BrokenSquareMark";
+import { useAuth } from "@/lib/AuthContext";
+import { canAccessPath } from "@/lib/permissions";
 
 export default function AppLayout() {
   const location = useLocation();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
+  const visibleGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => canAccessPath(user, item.to)),
+  })).filter((group) => group.items.length > 0);
 
   const isActive = (item) => {
     if (item.end) return location.pathname === item.to;
@@ -69,7 +76,7 @@ export default function AppLayout() {
           </div>
 
           <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
-            {NAV_GROUPS.map((group) => (
+            {visibleGroups.map((group) => (
               <div key={group.id}>
                 {group.label ? (
                   <div className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">

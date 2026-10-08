@@ -14,6 +14,7 @@ import {
   Wallet,
   BarChart3,
   Settings,
+  Users,
 } from "lucide-react";
 
 /**
@@ -39,6 +40,7 @@ export const NAV_ICONS = {
   receipts: Receipt,
   reports: BarChart3,
   settings: Settings,
+  team: Users,
   /** @deprecated alias — prefer settings */
   company: Building2,
   allJobs: Layers,

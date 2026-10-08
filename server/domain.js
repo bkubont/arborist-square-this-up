@@ -147,6 +147,11 @@ export const schemas = {
     archived_at: date.optional(),
     estimate_amount: money.optional(), invoice_amount: money.optional(),
     deposit_amount: money.optional(), materials_cost: money.optional(),
+    /**
+     * Assigned production crew (multi-crew Phase 1). Nullable — office roles see all jobs;
+     * crew_leader / crew_member only see jobs whose crew_id is one of theirs.
+     */
+    crew_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
     /** The job's only buy list. Optional task_id tags a line to a task; untagged lines stay on the job. */
     materials: z.array(z.object({
       id: z.string().max(64).optional(),
@@ -178,6 +183,18 @@ export const schemas = {
     // Pre-checklist free-text tasks; only read by carryOverChecklists (server/workItems.js), which
     // moves them into WorkItems and clears this.
     checklist: z.array(z.object({ text, done: z.boolean() })).max(1000).optional() }),
+  /**
+   * Production unit under a company. Stored as records with owner_id = company_id.
+   * Leaders/members reference company_members.user_id values.
+   */
+  Crew: z.object({
+    name: z.string().trim().min(1).max(120),
+    leader_user_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+    member_user_ids: z.array(id).max(50).default([]),
+    /** Optional capability tags (e.g. stump_grinding, aerial) — cheap Phase 1 field. */
+    capability_tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+    notes: text.optional(),
+  }),
   /**
    * Trees on a job (inventory). parent_id = job_id.
    * Label/tag + species + DBH + condition + location + optional photo + recommended work.

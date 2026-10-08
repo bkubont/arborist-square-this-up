@@ -23,6 +23,7 @@ import Outstanding from '@/pages/Outstanding';
 import ActionItems from '@/pages/ActionItems';
 import JobBoard from '@/pages/JobBoard';
 import CompanySettings from '@/pages/CompanySettings';
+import Team from '@/pages/Team';
 import Estimates from '@/pages/Estimates';
 import { SchedulePage, ExpensesPage, ReceiptsPage, ReportsPage } from '@/pages/ShellPlaceholders';
 import SignEstimate from '@/pages/SignEstimate';
@@ -72,6 +73,7 @@ const AuthenticatedApp = () => {
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/receipts" element={<ReceiptsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/team" element={<Team />} />
           <Route path="/settings" element={<CompanySettings />} />
         </Route>
       </Route>

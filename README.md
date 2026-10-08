@@ -17,7 +17,24 @@ npm run dev
 
 Open the private invitation URL printed by the account command and choose a password (12–128 characters). The frontend runs at http://localhost:5173 and proxies API requests to port 3000. Local data persists in .data/job-tracker.sqlite. Keep the server port private; SQLite mode is for local development, not production. Do not commit .env, database files, exports, or invitation links.
 
-Each invited account has separate clients, jobs, timeline entries and files. Invitations are single-use and expire after 48 hours. Public registration is disabled. Accounts do not share business data. Google login and Base44 MCP authorization are not part of this version.
+Each company account has separate clients, jobs, timeline entries and files. Solo invitations create a new company (owner). Owners (and other roles with member permission) can invite additional users into the same company from **Team** in the app, or via CLI. Member invitations are single-use and expire after 48 hours. Public registration is disabled. Google login and Base44 MCP authorization are not part of this version.
+
+### Multi-crew (Phase 1)
+
+Roles: Owner, Operations manager, Office admin, Estimator, Crew leader, Crew member, Bookkeeper. Crew leaders/members only see jobs assigned to their crew (`crew_id` on the job).
+
+```sh
+# Local: invite a company owner, then seed demo members + two crews (does not wipe jobs)
+npm run account -- invite owner@example.com
+# open the printed /register link, set a password
+npm run account -- seed-multi-crew owner@example.com
+# demo member password printed by the command (multi-crew-demo-12)
+
+# Or invite one member into an existing company
+npm run account -- invite-member owner@example.com leader@example.com crew_leader
+```
+
+Prefer local SQLite / tests. Do **not** run `seed-multi-crew` against Hostinger production without explicit confirmation (`--yes` only after asking).
 
 ## Hostinger deployment
 

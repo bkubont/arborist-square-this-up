@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import { useAuth } from "@/lib/AuthContext";
+import { userCan } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +15,8 @@ import { DEFAULT_ARBORIST_SERVICE_PRESETS } from "../../shared/arboristServicePr
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
 export default function CompanySettings() {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const isOwner = userCan(user, "delete_account");
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     name: "",
@@ -273,11 +275,22 @@ export default function CompanySettings() {
         </ul>
       </div>
 
-      <div className="mt-8 bg-white rounded-xl border border-destructive/30 p-5 space-y-3">
-        <h2 className="text-base font-semibold text-destructive">Delete account</h2>
+      <div className="mt-8 bg-white rounded-xl border border-slate-200 p-5 space-y-2">
+        <h2 className="text-base font-semibold text-slate-900">Team</h2>
         <p className="text-sm text-slate-600">
-          Permanently removes this login and all owned jobs, customers, documents, and photos. Invitation-only
-          registration is unchanged — a new invite is required to create another account.
+          Invite members and manage crews under{" "}
+          <Link to="/team" className="text-primary hover:underline">Team</Link>.
+        </p>
+      </div>
+
+      <div className="mt-8 bg-white rounded-xl border border-destructive/30 p-5 space-y-3">
+        <h2 className="text-base font-semibold text-destructive">
+          {isOwner ? "Delete company account" : "Leave / delete login"}
+        </h2>
+        <p className="text-sm text-slate-600">
+          {isOwner
+            ? "Permanently removes this company, all members, jobs, customers, documents, and photos. Invitation-only registration is unchanged."
+            : "Removes your login from this company. Company data stays with the owner."}
         </p>
         <div>
           <Label htmlFor="delete-password">Confirm with password</Label>
