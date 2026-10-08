@@ -19,8 +19,11 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
   working: {
     label: 'Working',
     statuses: [
+      'New inquiry',
+      'Site visit',
       'Estimate sent',
       'Approved',
+      'Ready to Schedule',
       'Prep',
       'In progress',
       'Waiting on',
@@ -34,7 +37,9 @@ export const JOB_PHASES: Record<JobPhase, { label: string; statuses: string[] }>
   },
 };
 
-export const ESTIMATE_STAGE_STATUSES = ['Estimate sent', 'Approved'] as const;
+export const ESTIMATE_STAGE_STATUSES = ['New inquiry', 'Site visit', 'Estimate sent', 'Approved'] as const;
+
+export const READY_TO_SCHEDULE_STATUS = 'Ready to Schedule';
 
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap(phase => JOB_PHASES[phase].statuses);
 

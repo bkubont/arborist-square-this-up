@@ -68,6 +68,10 @@ const estimateLine = z.object({
   catalog_id: z.string().max(200).optional(),
   /** Internal task breakdown; customer never sees this. */
   steps: z.array(lineStep).max(200).optional(),
+  /** Optional add-on (stump, haul, …) — excluded from the binding total unless included at approval. */
+  is_optional: z.boolean().optional(),
+  /** TreeInventory id this line quotes (tree / work-area line estimate). */
+  tree_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
 });
 
 const invoiceMaterialLine = z.object({
@@ -222,6 +226,14 @@ export const schemas = {
     declined_reason: text.optional(),
     /** Lead-level referral (falls back to Client.referral_source in the UI). */
     referral_source: text.optional(),
+    /** Dispatch urgency for Ready to Schedule filters. */
+    urgency: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
+    /** Estimated production duration in hours (queue filter). */
+    estimated_duration_hours: money.optional(),
+    /** Geographic / service area label (city, zip, zone) for dispatch filters. */
+    service_area: text.optional(),
+    /** Capability tags required (climbing, crane, …) — often mirrored from tree method_needs. */
+    required_capabilities: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     /** The job's only buy list. Optional task_id tags a line to a task; untagged lines stay on the job. */
     materials: z.array(z.object({
       id: z.string().max(64).optional(),
@@ -436,7 +448,30 @@ export const schemas = {
       subtotal: money.optional(),
       tax_amount: money.optional(),
       total: money.optional(),
+      /** Optional line ids that were part of the approved binding total. */
+      included_optional_line_ids: z.array(z.string().max(64)).max(2000).optional(),
+      accepted_at: z.string().max(40).optional(),
     }).optional(),
+    /**
+     * Prior accepted snapshots (dated). Appended on each approval so reopen/void cannot
+     * silently erase which version and options the customer approved.
+     */
+    version_history: z.array(z.object({
+      accepted_at: z.string().max(40),
+      accepted_manually: z.boolean().optional(),
+      signer_name: text.optional(),
+      snapshot: z.object({
+        number: docNumber,
+        notes: text.optional(),
+        tax_rate: rate.optional(),
+        lines: z.array(estimateLine).max(2000).default([]),
+        subtotal: money.optional(),
+        tax_amount: money.optional(),
+        total: money.optional(),
+        included_optional_line_ids: z.array(z.string().max(64)).max(2000).optional(),
+        accepted_at: z.string().max(40).optional(),
+      }),
+    })).max(50).optional(),
     ...signMeta,
   }),
   MaterialOrder: z.object({

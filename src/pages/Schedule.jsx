@@ -193,7 +193,19 @@ function SchedulePage() {
 
   return (
     <div className="p-4 lg:p-8 max-w-5xl mx-auto">
-      <PageHeader title="Schedule" description={description} primaryAction={viewToggle} secondary={navControls} />
+      <PageHeader
+        title="Schedule"
+        description={description}
+        primaryAction={viewToggle}
+        secondary={(
+          <div className="flex flex-wrap items-center gap-2">
+            {navControls}
+            <Button asChild variant="outline" size="sm">
+              <Link to="/jobs/ready-to-schedule">Ready to Schedule</Link>
+            </Button>
+          </div>
+        )}
+      />
 
       {loading ? (
         <p className="text-muted-foreground flex items-center gap-2">

@@ -42,6 +42,9 @@ export default function JobFormDialog({
     referral_source: "",
     contact_attempts: "",
     declined_reason: "",
+    urgency: "normal",
+    estimated_duration_hours: "",
+    service_area: "",
   });
 
   useEffect(() => {
@@ -66,6 +69,9 @@ export default function JobFormDialog({
               referral_source: job.referral_source || "",
               contact_attempts: job.contact_attempts || "",
               declined_reason: job.declined_reason || "",
+              urgency: job.urgency || "normal",
+              estimated_duration_hours: job.estimated_duration_hours ?? "",
+              service_area: job.service_area || "",
             }
           : {
               title: "",
@@ -84,6 +90,9 @@ export default function JobFormDialog({
               referral_source: "",
               contact_attempts: "",
               declined_reason: "",
+              urgency: "normal",
+              estimated_duration_hours: "",
+              service_area: "",
             }
       );
       if (canAssignCrew) {
@@ -125,6 +134,11 @@ export default function JobFormDialog({
       referral_source: form.referral_source?.trim() || undefined,
       contact_attempts: form.contact_attempts?.trim() || undefined,
       declined_reason: form.declined_reason?.trim() || undefined,
+      urgency: form.urgency || "normal",
+      estimated_duration_hours: form.estimated_duration_hours === "" || form.estimated_duration_hours == null
+        ? undefined
+        : Number(form.estimated_duration_hours),
+      service_area: form.service_area?.trim() || undefined,
     };
     if (canAssignCrew) {
       payload.crew_id = form.crew_id || null;
@@ -274,6 +288,41 @@ export default function JobFormDialog({
               <Label>End date</Label>
               <Input type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Urgency</Label>
+              <Select value={form.urgency || "normal"} onValueChange={(v) => set("urgency", v)}>
+                <SelectTrigger data-testid="job-urgency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Est. duration (hrs)</Label>
+              <Input
+                type="number"
+                value={form.estimated_duration_hours}
+                onChange={(e) => set("estimated_duration_hours", e.target.value)}
+                placeholder="—"
+                data-testid="job-duration-hours"
+              />
+            </div>
+          </div>
+          <div>
+            <Label>Service area</Label>
+            <Input
+              value={form.service_area}
+              onChange={(e) => set("service_area", e.target.value)}
+              placeholder="City, zip, or zone for dispatch filters"
+              data-testid="job-service-area"
+            />
           </div>
           <p className="text-xs text-slate-500">
             Money figures live on the Financials panel (from estimate, invoices, materials, and logged payments).

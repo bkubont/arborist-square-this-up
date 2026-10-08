@@ -4,10 +4,11 @@
  *
  * - Accepting / approving this way does everything a signature does (acceptScopeDocument): the
  *   snapshot freezes, the job's totals update and a task is made per line. The record is flagged
- *   accepted_manually.
- * - Reopening an accepted / approved one (back to draft, sent or declined) is only allowed while
- *   nothing is built on it: no active invoice on the job, and for an estimate no live change
- *   orders. Its tasks that were never started go; started ones stay and are kept on re-accepting.
+ *   accepted_manually. Prior approvals are appended to version_history.
+ * - Accepted estimates cannot be reopened (Phase 3 / PDF): the original approved version is never
+ *   silently overwritten. Void it and create a new estimate, or add a change order for scope changes.
+ * - Reopening an approved change order (back to draft, sent or rejected) is only allowed while
+ *   nothing is built on it: no active invoice on the job. Unstarted tasks go; started ones stay.
  * - Void stays its own action (a void document is retired; revise it instead).
  */
 import { fail, getRecord, saveRecord, SCOPE_SIGNED_STATUS } from './domain.js';
@@ -62,6 +63,10 @@ export async function overrideScopeStatus(tx, ownerId, entity, recordId, status)
   }
 
   const reopening = record.status === signed || !!record.accepted_snapshot;
+  // PDF controlled changes: never clear an accepted estimate's approved snapshot in place.
+  if (entity === 'Estimate' && reopening) {
+    throw fail(409, 'Accepted estimates cannot be reopened. Void this estimate and create a new one, or add a scope add-on for changes.');
+  }
   if (reopening) {
     await assertNothingBuiltOn(tx, ownerId, entity, record);
     const job = await getRecord(tx, ownerId, 'Job', record.job_id);

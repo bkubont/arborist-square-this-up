@@ -78,12 +78,13 @@ describe('job status model', () => {
     assert.equal(defaultStatusForPhase('payment'), INVOICE_GATE_STATUS);
   });
 
-  it('working phase is New inquiry through Completed with one Waiting on column', () => {
+  it('working phase is New inquiry through Completed with Ready to Schedule and one Waiting on column', () => {
     assert.deepEqual(JOB_PHASES.working.statuses, [
       'New inquiry',
       'Site visit',
       'Estimate sent',
       'Approved',
+      'Ready to Schedule',
       'Prep',
       'In progress',
       'Waiting on',
@@ -97,6 +98,7 @@ describe('job status model', () => {
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on materials'));
     assert.ok(!JOB_PHASES.working.statuses.includes('Waiting on access'));
     assert.ok(JOB_PHASES.working.statuses.includes('Prep'));
+    assert.ok(JOB_PHASES.working.statuses.includes('Ready to Schedule'));
     assert.ok(JOB_PHASES.working.statuses.includes('Blocked'));
     assert.ok(JOB_PHASES.working.statuses.includes('Waiting on'));
     assert.deepEqual(JOB_PHASES.payment.statuses, [
@@ -114,6 +116,8 @@ describe('job status model', () => {
     assert.equal(legacy.phase, 'working');
     const prep = normalizeJobRecord({ phase: 'working', status: 'Prep' });
     assert.equal(prep.status, 'Prep');
+    const ready = normalizeJobRecord({ phase: 'working', status: 'Ready to Schedule' });
+    assert.equal(ready.status, 'Ready to Schedule');
   });
 
   it('migrates status_notes colors onto the collapsed Waiting on label', () => {

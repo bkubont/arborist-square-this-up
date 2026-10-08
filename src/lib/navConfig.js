@@ -15,6 +15,7 @@ export const NAV_GROUPS = [
     items: [
       { to: "/jobs/active", label: "Jobs", icon: NAV_ICONS.jobs },
       { to: "/jobs/board", label: "Board", icon: NAV_ICONS.board },
+      { to: "/jobs/ready-to-schedule", label: "Ready to Schedule", icon: NAV_ICONS.schedule },
       { to: "/jobs/archive", label: "Archive", icon: NAV_ICONS.archive },
       { to: "/clients", label: "Customers", icon: NAV_ICONS.customers },
       { to: "/schedule", label: "Schedule", icon: NAV_ICONS.schedule },

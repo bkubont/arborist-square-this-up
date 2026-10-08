@@ -13,7 +13,7 @@ import {
   JOB_PHASES,
   JOB_PHASE_ORDER,
 } from "@/lib/jobFilters";
-import { applyInvoicedGate, isEstimateStageStatus, statusesForPhase } from "@/lib/jobStatus";
+import { applyInvoicedGate, isOverviewBoardStatus, statusesForPhase } from "@/lib/jobStatus";
 import { statusColors } from "@/lib/statusColors";
 import { useWorkTypes } from "@/hooks/useWorkTypes";
 import {
@@ -41,9 +41,9 @@ function parseDroppableId(id) {
   return { phase, status: rest };
 }
 
-/** New inquiry / Site visit / Estimate sent / Approved → Overview; Prep and later → Tasks; Payment → Overview. */
+/** Estimate pipeline + Ready to Schedule → Overview; Prep and later → Tasks; Payment → Overview. */
 function jobCardHref(job) {
-  if (job.phase === "working" && !isEstimateStageStatus(job.status)) return `/jobs/${job.id}?tab=tasks`;
+  if (job.phase === "working" && !isOverviewBoardStatus(job.status)) return `/jobs/${job.id}?tab=tasks`;
   return `/jobs/${job.id}`;
 }
 

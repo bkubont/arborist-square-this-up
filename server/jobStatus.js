@@ -14,6 +14,7 @@ export const JOB_PHASES = {
       'Site visit',
       'Estimate sent',
       'Approved',
+      'Ready to Schedule',
       'Prep',
       'In progress',
       'Waiting on',
@@ -35,6 +36,9 @@ export const JOB_PHASES = {
 
 /** Lead + estimate pipeline on Working — cards open Overview; money is quote-only. */
 export const ESTIMATE_STAGE_STATUSES = ['New inquiry', 'Site visit', 'Estimate sent', 'Approved'];
+
+/** Approved work waiting for crew/date — dedicated dispatch queue (Phase 3). */
+export const READY_TO_SCHEDULE_STATUS = 'Ready to Schedule';
 
 /** Statuses that may appear on stored jobs. Invoiced is a real Payment status. */
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
