@@ -33,6 +33,7 @@ export const JOB_PHASES = {
       'Estimate sent',
       'Approved',
       'Ready to Schedule',
+      'Scheduled',
       'Prep',
       'In progress',
       'Waiting on',
@@ -58,6 +59,9 @@ export const ESTIMATE_STAGE_STATUSES = ['New inquiry', 'Site visit', 'Estimate s
 /** Approved work waiting for crew/date — dedicated dispatch queue (Phase 3). */
 export const READY_TO_SCHEDULE_STATUS = 'Ready to Schedule';
 
+/** Crew/date/equipment reserved (Phase 4). */
+export const SCHEDULED_STATUS = 'Scheduled';
+
 export const STORED_JOB_STATUSES = JOB_PHASE_ORDER.flatMap((phase) => JOB_PHASES[phase].statuses);
 
 export const ALL_JOB_STATUSES = STORED_JOB_STATUSES;
@@ -70,7 +74,7 @@ export const LEGACY_JOB_STATUS_MAP = {
   'Waiting on approval': { phase: 'working', status: 'Estimate sent' },
   Declined: { phase: 'working', status: 'Completed' },
   Cancelled: { phase: 'working', status: 'Completed' },
-  Scheduled: { phase: 'working', status: 'Prep' },
+  // 'Scheduled' is a live board status (Phase 4).
   'In Progress': { phase: 'working', status: 'In progress' },
   'Waiting on Materials': { phase: 'working', status: 'Waiting on' },
   'Waiting on materials': { phase: 'working', status: 'Waiting on' },

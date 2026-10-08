@@ -234,6 +234,29 @@ export const schemas = {
     service_area: text.optional(),
     /** Capability tags required (climbing, crane, …) — often mirrored from tree method_needs. */
     required_capabilities: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+    /** Reserved major machines / vehicles (Equipment record ids) for production dates. */
+    equipment_ids: z.array(id).max(20).optional(),
+    /**
+     * Schedule change history (weather moves, reassignments). Newest last.
+     * Retains previous dates and customer-notification flag after reschedule.
+     */
+    schedule_history: z.array(z.object({
+      at: z.string().max(40),
+      reason: z.enum(['initial', 'weather', 'customer_request', 'crew_availability', 'equipment', 'other']).default('other'),
+      previous_start_date: date.optional(),
+      previous_end_date: date.optional(),
+      previous_crew_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+      new_start_date: date.optional(),
+      new_end_date: date.optional(),
+      new_crew_id: z.preprocess((v) => (v === '' || v == null ? undefined : v), id.optional()),
+      note: text.optional(),
+      customer_notified: z.boolean().optional(),
+      changed_by: text.optional(),
+    })).max(100).optional(),
+    /** Explicit schedule prerequisite flags (approval / deposit / access). */
+    prereq_approval: z.boolean().optional(),
+    prereq_deposit: z.boolean().optional(),
+    prereq_access: z.boolean().optional(),
     /** The job's only buy list. Optional task_id tags a line to a task; untagged lines stay on the job. */
     materials: z.array(z.object({
       id: z.string().max(64).optional(),
@@ -276,6 +299,19 @@ export const schemas = {
     /** Optional capability tags (e.g. stump_grinding, aerial) — cheap Phase 1 field. */
     capability_tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
     notes: text.optional(),
+  }),
+  /**
+   * Major machines / vehicles / rentals as reservable production resources (Phase 4).
+   * Soft-booked via Job.equipment_ids on overlapping dates.
+   */
+  Equipment: z.object({
+    name: z.string().trim().min(1).max(120),
+    kind: z.enum(['vehicle', 'machine', 'rental', 'other']).default('machine'),
+    /** Capability tags this unit covers (crane, chipper, aerial, …). */
+    capability_tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+    notes: text.optional(),
+    /** Soft-delete / hide from pickers without removing history. */
+    active: z.boolean().default(true),
   }),
   /**
    * Trees / work areas on a job (inventory). parent_id = job_id.

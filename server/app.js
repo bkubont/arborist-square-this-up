@@ -70,6 +70,12 @@ import {
   assertWriteAllowed,
   filterRecordsForRole,
 } from './permissions.js';
+import { findScheduleConflicts, scheduleAssignmentChanged } from './scheduleConflicts.js';
+import {
+  jobFieldsForScheduleAssign,
+  jobFieldsForReschedule,
+  schedulePrerequisiteFlags,
+} from './schedule.js';
 
 /** Saving these re-syncs the job's draft Material Order from the job buy list. */
 const MATERIAL_SYNC_ENTITIES = new Set(['WorkItem', 'Job']);
@@ -568,6 +574,163 @@ export async function createApp(db, env = process.env) {
     await assertRecordVisible(db, req, 'Job', job);
     res.json(await jobSummary(db, req.ownerId, req.params.id));
   });
+
+  /** Load company jobs + crew/equipment lookups for conflict checks. */
+  async function loadScheduleContext(ownerId) {
+    const jobRows = await db.all(
+      "SELECT id, data FROM records WHERE owner_id = ? AND entity = 'Job'",
+      [ownerId],
+    );
+    const jobs = jobRows.map((row) => ({ id: row.id, ...JSON.parse(row.data) }));
+    const crewRows = await db.all(
+      "SELECT id, data FROM records WHERE owner_id = ? AND entity = 'Crew'",
+      [ownerId],
+    );
+    const equipRows = await db.all(
+      "SELECT id, data FROM records WHERE owner_id = ? AND entity = 'Equipment'",
+      [ownerId],
+    );
+    const crewsById = Object.fromEntries(
+      crewRows.map((row) => [row.id, { id: row.id, ...JSON.parse(row.data) }]),
+    );
+    const equipmentById = Object.fromEntries(
+      equipRows.map((row) => [row.id, { id: row.id, ...JSON.parse(row.data) }]),
+    );
+    return { jobs, crewsById, equipmentById };
+  }
+
+  async function assertEquipmentIds(ownerId, equipmentIds = []) {
+    for (const eid of equipmentIds || []) {
+      if (!eid) continue;
+      await getRecord(db, ownerId, 'Equipment', eid);
+    }
+  }
+
+  /** Preview crew/equipment overlap warnings (read-only). */
+  app.get('/api/schedule/conflicts', async (req, res) => {
+    if (!can(req.role, 'view_jobs')) throw fail(403, 'You do not have permission for this action');
+    const start_date = String(req.query.start_date || '').trim();
+    const end_date = String(req.query.end_date || '').trim() || start_date;
+    const crew_id = String(req.query.crew_id || '').trim() || undefined;
+    const exclude_job_id = String(req.query.exclude_job_id || '').trim() || undefined;
+    const equipment_ids = String(req.query.equipment_ids || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const { jobs, crewsById, equipmentById } = await loadScheduleContext(req.ownerId);
+    const conflicts = findScheduleConflicts(
+      jobs,
+      { id: exclude_job_id, start_date, end_date, crew_id, equipment_ids },
+      { crewsById, equipmentById },
+    );
+    res.json(conflicts);
+  });
+
+  /** Assign crew / date / duration / equipment; soft-warns on double-book. */
+  app.post('/api/jobs/:id/schedule', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    if (!can(req.role, 'assign_crew') && req.body?.crew_id) {
+      throw fail(403, 'You do not have permission to assign crews');
+    }
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const body = req.body || {};
+    const equipment_ids = Array.isArray(body.equipment_ids) ? body.equipment_ids.filter(Boolean) : [];
+    await assertEquipmentIds(req.ownerId, equipment_ids);
+    if (body.crew_id) await getRecord(db, req.ownerId, 'Crew', body.crew_id);
+
+    let fields = jobFieldsForScheduleAssign(job, {
+      start_date: body.start_date,
+      end_date: body.end_date,
+      crew_id: body.crew_id,
+      equipment_ids,
+      estimated_duration_hours: body.estimated_duration_hours,
+      prereq_approval: body.prereq_approval,
+      prereq_deposit: body.prereq_deposit,
+      prereq_access: body.prereq_access,
+      customer_notified: body.customer_notified,
+      note: body.note,
+      changed_by: req.user?.email || req.user?.id,
+    });
+    fields = applyJobStatusFields(fields, job);
+    await assertWriteAllowed(db, req, 'Job', fields, job);
+
+    const { jobs, crewsById, equipmentById } = await loadScheduleContext(req.ownerId);
+    const candidate = {
+      id: job.id,
+      start_date: fields.start_date,
+      end_date: fields.end_date,
+      crew_id: fields.crew_id !== undefined ? fields.crew_id : job.crew_id,
+      equipment_ids: fields.equipment_ids || [],
+    };
+    const conflicts = findScheduleConflicts(jobs, candidate, { crewsById, equipmentById });
+
+    const updated = await ownedTransaction(req.ownerId, async (tx) => (
+      saveRecord(tx, req.ownerId, 'Job', fields, job.id)
+    ));
+    const property = job.property_id
+      ? await getRecord(db, req.ownerId, 'Property', job.property_id).catch(() => null)
+      : null;
+    const prerequisites = schedulePrerequisiteFlags(updated, { property });
+    res.json({
+      ...normalizeJobRecord(updated),
+      schedule_warnings: conflicts.warnings,
+      schedule_conflicts: {
+        ok: conflicts.ok,
+        crewConflicts: conflicts.crewConflicts,
+        equipmentConflicts: conflicts.equipmentConflicts,
+      },
+      schedule_prerequisites: prerequisites,
+    });
+  });
+
+  /** Weather / move reschedule — retains prior dates in schedule_history. */
+  app.post('/api/jobs/:id/reschedule', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const body = req.body || {};
+    if (body.crew_id && !can(req.role, 'assign_crew')) {
+      throw fail(403, 'You do not have permission to assign crews');
+    }
+    if (body.crew_id) await getRecord(db, req.ownerId, 'Crew', body.crew_id);
+
+    let fields = jobFieldsForReschedule(job, {
+      start_date: body.start_date,
+      end_date: body.end_date,
+      reason: body.reason || 'weather',
+      note: body.note,
+      customer_notified: body.customer_notified,
+      changed_by: req.user?.email || req.user?.id,
+      crew_id: body.crew_id,
+    });
+    fields = applyJobStatusFields(fields, job);
+    await assertWriteAllowed(db, req, 'Job', fields, job);
+
+    const { jobs, crewsById, equipmentById } = await loadScheduleContext(req.ownerId);
+    const candidate = {
+      id: job.id,
+      start_date: fields.start_date,
+      end_date: fields.end_date,
+      crew_id: fields.crew_id !== undefined ? fields.crew_id : job.crew_id,
+      equipment_ids: job.equipment_ids || [],
+    };
+    const conflicts = findScheduleConflicts(jobs, candidate, { crewsById, equipmentById });
+
+    const updated = await ownedTransaction(req.ownerId, async (tx) => (
+      saveRecord(tx, req.ownerId, 'Job', fields, job.id)
+    ));
+    res.json({
+      ...normalizeJobRecord(updated),
+      schedule_warnings: conflicts.warnings,
+      schedule_conflicts: {
+        ok: conflicts.ok,
+        crewConflicts: conflicts.crewConflicts,
+        equipmentConflicts: conflicts.equipmentConflicts,
+      },
+    });
+  });
+
   app.get('/api/summaries', async (req, res) => {
     if (!can(req.role, 'view_money') && !can(req.role, 'view_reports')) {
       throw fail(403, 'You do not have permission for this action');
@@ -843,7 +1006,29 @@ export async function createApp(db, env = process.env) {
         await ownedTransaction(req.ownerId, tx => refreshJobDocumentRollups(tx, req.ownerId, updated.job_id, { saveRecord, sumActiveInvoiceTotals }));
       }
     }
-    res.json(normalizeEntityRecord(entity, updated));
+    const normalized = normalizeEntityRecord(entity, updated);
+    if (entity === 'Job' && scheduleAssignmentChanged(previous, updated)) {
+      const { jobs, crewsById, equipmentById } = await loadScheduleContext(req.ownerId);
+      const conflicts = findScheduleConflicts(jobs, {
+        id: updated.id,
+        start_date: updated.start_date,
+        end_date: updated.end_date,
+        crew_id: updated.crew_id,
+        equipment_ids: updated.equipment_ids || [],
+      }, { crewsById, equipmentById });
+      if (conflicts.warnings.length) {
+        return res.json({
+          ...normalized,
+          schedule_warnings: conflicts.warnings,
+          schedule_conflicts: {
+            ok: conflicts.ok,
+            crewConflicts: conflicts.crewConflicts,
+            equipmentConflicts: conflicts.equipmentConflicts,
+          },
+        });
+      }
+    }
+    res.json(normalized);
   });
   app.delete('/api/entities/:entity/:id', async (req, res) => {
     let financialTimelineJobId = null;

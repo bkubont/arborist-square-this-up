@@ -32,6 +32,7 @@ export const NAV_PERMISSIONS = {
   '/jobs/action-items': 'view_jobs',
   '/estimates': 'view_estimates',
   '/schedule': 'view_jobs',
+  '/jobs/ready-to-schedule': 'view_jobs',
   '/expenses': 'view_expenses',
   '/receipts': 'view_expenses',
   '/reports': 'view_reports',

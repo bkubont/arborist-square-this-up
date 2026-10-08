@@ -31,27 +31,27 @@ export const INVITABLE_ROLES = ROLES.filter((r) => r !== 'owner');
 
 /**
  * Permission keys used by API middleware and UI gating.
- * @typedef {'manage_members'|'manage_crews'|'manage_settings'|'manage_company_profile'|'view_clients'|'edit_clients'|'view_jobs'|'edit_jobs'|'assign_crew'|'view_estimates'|'edit_estimates'|'view_money'|'edit_money'|'view_expenses'|'edit_expenses'|'view_reports'|'export_backup'|'delete_account'|'view_all_crews'} Permission
+ * @typedef {'manage_members'|'manage_crews'|'manage_equipment'|'manage_settings'|'manage_company_profile'|'view_clients'|'edit_clients'|'view_jobs'|'edit_jobs'|'assign_crew'|'view_estimates'|'edit_estimates'|'view_money'|'edit_money'|'view_expenses'|'edit_expenses'|'view_reports'|'export_backup'|'delete_account'|'view_all_crews'} Permission
  */
 
 /** @type {Record<Role, Set<Permission>>} */
 const MATRIX = {
   owner: new Set([
-    'manage_members', 'manage_crews', 'manage_settings', 'manage_company_profile',
+    'manage_members', 'manage_crews', 'manage_equipment', 'manage_settings', 'manage_company_profile',
     'view_clients', 'edit_clients', 'view_jobs', 'edit_jobs', 'assign_crew',
     'view_estimates', 'edit_estimates', 'view_money', 'edit_money',
     'view_expenses', 'edit_expenses', 'view_reports', 'export_backup',
     'delete_account', 'view_all_crews',
   ]),
   operations_manager: new Set([
-    'manage_members', 'manage_crews', 'manage_settings',
+    'manage_members', 'manage_crews', 'manage_equipment', 'manage_settings',
     'view_clients', 'edit_clients', 'view_jobs', 'edit_jobs', 'assign_crew',
     'view_estimates', 'edit_estimates', 'view_money', 'edit_money',
     'view_expenses', 'edit_expenses', 'view_reports', 'export_backup',
     'view_all_crews',
   ]),
   office_admin: new Set([
-    'manage_members', 'manage_crews',
+    'manage_members', 'manage_crews', 'manage_equipment',
     'view_clients', 'edit_clients', 'view_jobs', 'edit_jobs', 'assign_crew',
     'view_estimates', 'edit_estimates', 'view_money', 'edit_money',
     'view_expenses', 'edit_expenses', 'view_reports', 'view_all_crews',
@@ -107,6 +107,7 @@ export const NAV_PERMISSIONS = {
   '/jobs/action-items': 'view_jobs',
   '/estimates': 'view_estimates',
   '/schedule': 'view_jobs',
+  '/jobs/ready-to-schedule': 'view_jobs',
   '/expenses': 'view_expenses',
   '/receipts': 'view_expenses',
   '/reports': 'view_reports',
@@ -135,6 +136,7 @@ export const ENTITY_PERMISSIONS = {
   TreeInventory: { view: 'view_jobs', edit: 'edit_jobs' },
   Payment: { view: 'view_money', edit: 'edit_money' },
   Crew: { view: 'manage_crews', edit: 'manage_crews' },
+  Equipment: { view: 'view_jobs', edit: 'manage_equipment' },
 };
 
 /** Roles that can view Crew records without manage_crews (read-only roster). */
@@ -142,10 +144,15 @@ export function canViewCrewRoster(role) {
   return can(role, 'manage_crews') || can(role, 'view_all_crews') || isCrewScopedRole(role);
 }
 
+/** Equipment roster is readable by anyone who can view jobs; edits need manage_equipment. */
+export function canViewEquipment(role) {
+  return can(role, 'view_jobs') || can(role, 'manage_equipment');
+}
+
 /** Stable permission list for a role (for /auth/me). */
 export function permissionsForRole(role) {
   const keys = [
-    'manage_members', 'manage_crews', 'manage_settings', 'manage_company_profile',
+    'manage_members', 'manage_crews', 'manage_equipment', 'manage_settings', 'manage_company_profile',
     'view_clients', 'edit_clients', 'view_jobs', 'edit_jobs', 'assign_crew',
     'view_estimates', 'edit_estimates', 'view_money', 'edit_money',
     'view_expenses', 'edit_expenses', 'view_reports', 'export_backup',

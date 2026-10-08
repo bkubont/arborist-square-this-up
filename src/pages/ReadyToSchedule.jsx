@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Filter, ListChecks } from "lucide-react";
+import { ArrowRight, CalendarPlus, Filter, ListChecks } from "lucide-react";
 import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
+import ScheduleJobDialog from "@/components/ScheduleJobDialog";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { money } from "@/lib/format";
 import { READY_TO_SCHEDULE_STATUS } from "@/lib/jobStatus";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/AuthContext";
+import { userCan } from "@/lib/permissions";
 
 const URGENCY_OPTIONS = [
   { value: "all", label: "Any urgency" },
@@ -20,22 +23,64 @@ const URGENCY_OPTIONS = [
   { value: "urgent", label: "Urgent" },
 ];
 
+function PrereqFlags({ job, property }) {
+  const approval = job.prereq_approval !== false; // Ready queue implies approved estimate
+  const deposit = job.prereq_deposit != null
+    ? Boolean(job.prereq_deposit)
+    : Number(job.deposit_amount) > 0;
+  const access = job.prereq_access != null
+    ? Boolean(job.prereq_access)
+    : Boolean(String(property?.access_notes || "").trim());
+  const items = [
+    { key: "approval", label: "Approval", ok: approval },
+    { key: "deposit", label: "Deposit", ok: deposit },
+    { key: "access", label: "Access", ok: access },
+  ];
+  return (
+    <div className="flex flex-wrap gap-1.5" data-testid={`rts-prereqs-${job.id}`}>
+      {items.map((p) => (
+        <span
+          key={p.key}
+          className={cn(
+            "text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 border",
+            p.ok
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : "bg-amber-50 text-amber-900 border-amber-200",
+          )}
+        >
+          {p.label}{p.ok ? "" : "?"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Ready to Schedule queue — approved jobs waiting for crew/date assignment.
- * Filters: area, capability, duration, urgency (Phase 3).
+ * Filters: area, capability, duration, urgency (Phase 3). Schedule action (Phase 4).
  */
 export default function ReadyToSchedule() {
+  const { user } = useAuth();
+  const canSchedule = userCan(user, "edit_jobs");
   const [jobs, setJobs] = useState([]);
+  const [properties, setProperties] = useState({});
   const [loading, setLoading] = useState(true);
   const [area, setArea] = useState("");
   const [capability, setCapability] = useState("");
   const [durationMax, setDurationMax] = useState("");
   const [urgency, setUrgency] = useState("all");
+  const [scheduleJob, setScheduleJob] = useState(null);
 
   const load = () => {
     setLoading(true);
-    api.entities.Job.listAll("-updated_date")
-      .then((rows) => setJobs(rows.filter((j) => !j.archived_at && j.status === READY_TO_SCHEDULE_STATUS)))
+    Promise.all([
+      api.entities.Job.listAll("-updated_date"),
+      api.entities.Property.listAll("-updated_date").catch(() => []),
+    ])
+      .then(([rows, props]) => {
+        setJobs(rows.filter((j) => !j.archived_at && j.status === READY_TO_SCHEDULE_STATUS));
+        setProperties(Object.fromEntries((props || []).map((p) => [p.id, p])));
+      })
       .finally(() => setLoading(false));
   };
 
@@ -67,11 +112,16 @@ export default function ReadyToSchedule() {
     <div className="space-y-6" data-testid="ready-to-schedule-page">
       <PageHeader
         title="Ready to Schedule"
-        description="Approved work waiting for a crew and date. Filter by area, capability, duration, or urgency."
+        description="Approved work waiting for a crew, date, and equipment. Filter by area, capability, duration, or urgency."
         secondary={(
-          <Button asChild variant="outline" size="sm">
-            <Link to="/jobs/board">Board</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link to="/schedule">Master schedule</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/jobs/board">Board</Link>
+            </Button>
+          </div>
         )}
       />
 
@@ -135,17 +185,18 @@ export default function ReadyToSchedule() {
         <ul className="space-y-2">
           {filtered.map((job) => (
             <li key={job.id}>
-              <Link
-                to={`/jobs/${job.id}`}
+              <div
                 className={cn(
-                  "group flex items-start gap-3 rounded-xl border border-border bg-card p-4",
+                  "flex items-start gap-3 rounded-xl border border-border bg-card p-4",
                   "hover:border-primary/40 transition-colors",
                 )}
                 data-testid={`rts-job-${job.id}`}
               >
-                <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex-1 min-w-0 space-y-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-foreground truncate">{job.title || "Untitled job"}</span>
+                    <Link to={`/jobs/${job.id}`} className="font-semibold text-foreground truncate hover:underline">
+                      {job.title || "Untitled job"}
+                    </Link>
                     <StatusBadge status={job.status} />
                     {job.urgency && job.urgency !== "normal" && (
                       <span className="text-[11px] uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
@@ -154,6 +205,7 @@ export default function ReadyToSchedule() {
                     )}
                   </div>
                   <div className="text-sm text-muted-foreground truncate">{job.client_name || "—"}</div>
+                  <PrereqFlags job={job} property={job.property_id ? properties[job.property_id] : null} />
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     {job.service_area && <span>Area: {job.service_area}</span>}
                     {job.estimated_duration_hours != null && (
@@ -165,14 +217,38 @@ export default function ReadyToSchedule() {
                     {job.estimate_amount != null && <span>Value: {money(job.estimate_amount)}</span>}
                   </div>
                 </div>
-                <span className="text-xs font-medium text-primary inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1">
-                  Open <ArrowRight className="w-3.5 h-3.5" />
-                </span>
-              </Link>
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  {canSchedule ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setScheduleJob(job)}
+                      data-testid={`rts-schedule-${job.id}`}
+                    >
+                      <CalendarPlus className="w-4 h-4 mr-1" /> Schedule
+                    </Button>
+                  ) : (
+                    <Link
+                      to={`/jobs/${job.id}`}
+                      className="text-xs font-medium text-primary inline-flex items-center gap-0.5"
+                    >
+                      Open <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  )}
+                </div>
+              </div>
             </li>
           ))}
         </ul>
       )}
+
+      <ScheduleJobDialog
+        open={Boolean(scheduleJob)}
+        onOpenChange={(open) => { if (!open) setScheduleJob(null); }}
+        job={scheduleJob}
+        mode="schedule"
+        onScheduled={() => load()}
+      />
     </div>
   );
 }

@@ -175,6 +175,38 @@ export async function seedMultiCrew(db, ownerEmail, opts = {}) {
     leadCreated = true;
   }
 
+  // Phase 4 sample: major machines as reservable resources (idempotent by name).
+  const existingEquip = await db.all(
+    'SELECT id, data FROM records WHERE owner_id = ? AND entity = ?',
+    [owner.id, 'Equipment'],
+  );
+  const equipByName = new Map(
+    existingEquip.map((row) => {
+      const data = JSON.parse(row.data);
+      return [data.name, { id: row.id, ...data }];
+    }),
+  );
+  let crane = equipByName.get('80t Crane');
+  let chipper = equipByName.get('Bandit Chipper');
+  let equipmentCreated = 0;
+  if (!crane) {
+    crane = await saveRecord(db, owner.id, 'Equipment', {
+      name: '80t Crane',
+      kind: 'machine',
+      capability_tags: ['crane', 'aerial'],
+      notes: 'Requires certified operator',
+    });
+    equipmentCreated += 1;
+  }
+  if (!chipper) {
+    chipper = await saveRecord(db, owner.id, 'Equipment', {
+      name: 'Bandit Chipper',
+      kind: 'machine',
+      capability_tags: ['chipper'],
+    });
+    equipmentCreated += 1;
+  }
+
   const members = await listMembers(db, owner.id);
   return {
     ownerEmail,
@@ -184,6 +216,11 @@ export async function seedMultiCrew(db, ownerEmail, opts = {}) {
       { id: crewAlpha.id, name: crewAlpha.name },
       { id: crewBeta.id, name: crewBeta.name },
     ],
+    equipment: [
+      { id: crane.id, name: crane.name },
+      { id: chipper.id, name: chipper.name },
+    ],
+    equipmentCreated,
     jobsAssigned: assigned,
     phase2: {
       clientId: phase2Client.id,

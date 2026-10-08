@@ -9,16 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import PageHeader from "@/components/PageHeader";
 import { Navigate } from "react-router-dom";
 
-/** Company members, invites, and crews (multi-crew Phase 1). */
+/** Company members, invites, crews, and equipment (Phases 1 + 4). */
 export default function Team() {
   const { user } = useAuth();
   const canMembers = userCan(user, "manage_members");
   const canCrews = userCan(user, "manage_crews");
+  const canEquipment = userCan(user, "manage_equipment");
 
   const [members, setMembers] = useState([]);
   const [invites, setInvites] = useState([]);
   const [roles, setRoles] = useState([]);
   const [crews, setCrews] = useState([]);
+  const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -32,6 +34,11 @@ export default function Team() {
   const [crewTags, setCrewTags] = useState("");
   const [editingCrewId, setEditingCrewId] = useState(null);
 
+  const [equipName, setEquipName] = useState("");
+  const [equipKind, setEquipKind] = useState("machine");
+  const [equipTags, setEquipTags] = useState("");
+  const [editingEquipId, setEditingEquipId] = useState(null);
+
   const load = useCallback(async () => {
     setError("");
     try {
@@ -43,25 +50,31 @@ export default function Team() {
       } else {
         tasks.push(Promise.resolve([]));
       }
-      const [memberPayload, crewRows] = await Promise.all(tasks);
+      if (canEquipment || userCan(user, "view_jobs")) {
+        tasks.push(api.entities.Equipment.list("-created_date", 100));
+      } else {
+        tasks.push(Promise.resolve([]));
+      }
+      const [memberPayload, crewRows, equipRows] = await Promise.all(tasks);
       if (memberPayload) {
         setMembers(memberPayload.members || []);
         setInvites(memberPayload.invites || []);
         setRoles(memberPayload.roles || []);
       }
       setCrews(crewRows || []);
+      setEquipment(equipRows || []);
     } catch (err) {
       setError(err.message || "Could not load team");
     } finally {
       setLoading(false);
     }
-  }, [canMembers, canCrews, user]);
+  }, [canMembers, canCrews, canEquipment, user]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  if (!canMembers && !canCrews) {
+  if (!canMembers && !canCrews && !canEquipment) {
     return <Navigate to="/" replace />;
   }
 
@@ -167,6 +180,59 @@ export default function Team() {
     setCrewMembers((ids) => (ids.includes(userId) ? ids.filter((id) => id !== userId) : [...ids, userId]));
   };
 
+  const resetEquipForm = () => {
+    setEquipName("");
+    setEquipKind("machine");
+    setEquipTags("");
+    setEditingEquipId(null);
+  };
+
+  const startEditEquip = (eq) => {
+    setEditingEquipId(eq.id);
+    setEquipName(eq.name || "");
+    setEquipKind(eq.kind || "machine");
+    setEquipTags(Array.isArray(eq.capability_tags) ? eq.capability_tags.join(", ") : "");
+  };
+
+  const saveEquipment = async (event) => {
+    event.preventDefault();
+    if (!equipName.trim()) return;
+    setBusy(true);
+    setError("");
+    const payload = {
+      name: equipName.trim(),
+      kind: equipKind,
+      capability_tags: equipTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      active: true,
+    };
+    try {
+      if (editingEquipId) await api.entities.Equipment.update(editingEquipId, payload);
+      else await api.entities.Equipment.create(payload);
+      resetEquipForm();
+      await load();
+    } catch (err) {
+      setError(err.message || "Could not save equipment");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteEquipment = async (eq) => {
+    if (!window.confirm(`Remove “${eq.name}” from the equipment list?`)) return;
+    setBusy(true);
+    try {
+      await api.entities.Equipment.delete(eq.id);
+      await load();
+    } catch (err) {
+      setError(err.message || "Could not delete equipment");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const memberLabel = (id) => {
     const m = members.find((row) => row.user_id === id);
     return m ? `${m.email} (${ROLE_LABELS[m.role] || m.role})` : id;
@@ -175,7 +241,7 @@ export default function Team() {
   if (loading) {
     return (
       <div className="p-6">
-        <PageHeader title="Team" description="Members and crews" />
+        <PageHeader title="Team" description="Members, crews, and equipment" />
         <p className="text-sm text-muted-foreground">Loading…</p>
       </div>
     );
@@ -185,7 +251,7 @@ export default function Team() {
     <div className="p-6 space-y-10 max-w-3xl">
       <PageHeader
         title="Team"
-        description="Invite people into this company account and organize production crews."
+        description="Invite people, organize production crews, and list major machines for the schedule."
       />
 
       {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
@@ -348,6 +414,70 @@ export default function Team() {
               <Button type="submit" disabled={busy}>{editingCrewId ? "Save crew" : "Create crew"}</Button>
               {editingCrewId ? (
                 <Button type="button" variant="outline" onClick={resetCrewForm}>Cancel</Button>
+              ) : null}
+            </div>
+          </form>
+        </section>
+      ) : null}
+
+      {canEquipment ? (
+        <section className="space-y-4" data-testid="equipment-section">
+          <h2 className="text-base font-semibold">Equipment</h2>
+          <p className="text-xs text-muted-foreground">
+            Major machines and vehicles are reservable resources on the master schedule. Overlapping bookings warn on double-book.
+          </p>
+          <ul className="divide-y border rounded-md">
+            {equipment.map((eq) => (
+              <li key={eq.id} className="px-3 py-3 text-sm space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium flex-1">{eq.name}</span>
+                  <span className="text-xs text-muted-foreground capitalize">{eq.kind}</span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => startEditEquip(eq)} disabled={busy}>Edit</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => deleteEquipment(eq)} disabled={busy}>Delete</Button>
+                </div>
+                {eq.capability_tags?.length ? (
+                  <div className="text-xs text-muted-foreground">Tags: {eq.capability_tags.join(", ")}</div>
+                ) : null}
+              </li>
+            ))}
+            {!equipment.length ? <li className="px-3 py-2 text-sm text-muted-foreground">No equipment yet.</li> : null}
+          </ul>
+
+          <form onSubmit={saveEquipment} className="space-y-3 border rounded-md p-4">
+            <h3 className="text-sm font-semibold">{editingEquipId ? "Edit equipment" : "New equipment"}</h3>
+            <div>
+              <Label htmlFor="equip-name">Name</Label>
+              <Input id="equip-name" required value={equipName} onChange={(e) => setEquipName(e.target.value)} data-testid="equip-name" />
+            </div>
+            <div>
+              <Label>Kind</Label>
+              <Select value={equipKind} onValueChange={setEquipKind}>
+                <SelectTrigger data-testid="equip-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="machine">Machine</SelectItem>
+                  <SelectItem value="vehicle">Vehicle</SelectItem>
+                  <SelectItem value="rental">Rental</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="equip-tags">Capability tags (comma-separated)</Label>
+              <Input
+                id="equip-tags"
+                value={equipTags}
+                onChange={(e) => setEquipTags(e.target.value)}
+                placeholder="crane, chipper, aerial"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={busy} data-testid="equip-save">
+                {editingEquipId ? "Save equipment" : "Add equipment"}
+              </Button>
+              {editingEquipId ? (
+                <Button type="button" variant="outline" onClick={resetEquipForm}>Cancel</Button>
               ) : null}
             </div>
           </form>

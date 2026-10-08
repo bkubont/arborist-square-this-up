@@ -120,6 +120,27 @@ export const api = {
     Expense: entity('Expense'),
     TreeInventory: entity('TreeInventory'),
     Crew: entity('Crew'),
+    Equipment: entity('Equipment'),
+  },
+  schedule: {
+    /** Assign crew/date/duration/equipment; returns job + schedule_warnings. */
+    assign(jobId, data) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/schedule`, data);
+    },
+    /** Weather / move with history. */
+    reschedule(jobId, data) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/reschedule`, data);
+    },
+    /** Preview overlap warnings without saving. */
+    conflicts(params = {}) {
+      const q = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) {
+        if (v == null || v === '') continue;
+        if (Array.isArray(v)) q.set(k, v.join(','));
+        else q.set(k, String(v));
+      }
+      return request(`/schedule/conflicts?${q}`);
+    },
   },
   members: {
     list() { return request('/members'); },
