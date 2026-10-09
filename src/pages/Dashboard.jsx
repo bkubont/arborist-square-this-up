@@ -41,6 +41,13 @@ const ACTIVITY_LABELS = {
   change_order_signed: "Change order signed",
   document_created: "Document created",
   document_voided: "Document voided",
+  visit_started: "Visit started",
+  visit_finished: "Visit finished",
+  problem: "Problem",
+  change_request: "Change requested",
+  time_clock: "Time clock",
+  schedule_change: "Schedule change",
+  job_completed: "Job completed",
 };
 
 const ACTIVE_PREVIEW = 8;

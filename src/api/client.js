@@ -121,6 +121,46 @@ export const api = {
     TreeInventory: entity('TreeInventory'),
     Crew: entity('Crew'),
     Equipment: entity('Equipment'),
+    TimeEntry: entity('TimeEntry'),
+  },
+  /** Today workspace + field visit / time clock (Phase 5). */
+  today(params = {}) {
+    const q = new URLSearchParams();
+    if (params.date) q.set('date', params.date);
+    const qs = q.toString();
+    return request(`/today${qs ? `?${qs}` : ''}`);
+  },
+  field: {
+    startVisit(jobId, data = {}) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/visit/start`, data);
+    },
+    finishVisit(jobId, data = {}) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/visit/finish`, data);
+    },
+    completeJob(jobId, data = {}) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/complete`, data);
+    },
+    reportProblem(jobId, data) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/problem`, data);
+    },
+    requestChange(jobId, data) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/request-change`, data);
+    },
+    clockIn(jobId, data = {}) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/clock-in`, data);
+    },
+    clockOut(jobId, data = {}) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/clock-out`, data);
+    },
+    timeEntries(params = {}) {
+      const q = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) {
+        if (v == null || v === '') continue;
+        q.set(k, String(v));
+      }
+      const qs = q.toString();
+      return request(`/time-entries${qs ? `?${qs}` : ''}`);
+    },
   },
   schedule: {
     /** Assign crew/date/duration/equipment; returns job + schedule_warnings. */

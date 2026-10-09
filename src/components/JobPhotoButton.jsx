@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  * Compact job photos: camera icon → camera/library → category dropdown.
  * Gallery sheet for viewing (does not dominate the job page).
  */
-export default function JobPhotoButton({ jobId, entries = [], onUploaded, onChanged }) {
+export default function JobPhotoButton({ jobId, entries = [], onUploaded, onChanged, fieldTrigger = false }) {
   const cameraRef = useRef(null);
   const libraryRef = useRef(null);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -62,6 +62,7 @@ export default function JobPhotoButton({ jobId, entries = [], onUploaded, onChan
           text: `${meta.label}: ${file.name || "photo"}`,
           photo_url: file_url,
           category: meta.key,
+          visibility: meta.key === "before" || meta.key === "after" || meta.key === "work" ? "customer" : "internal",
         });
       }
       setCategoryOpen(false);
@@ -83,30 +84,45 @@ export default function JobPhotoButton({ jobId, entries = [], onUploaded, onChan
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0"
-        onClick={() => setSourceOpen(true)}
-        title="Add photo"
-      >
-        <Camera className="w-3.5 h-3.5 mr-1.5" />
-        Photo
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0"
-        onClick={() => setGalleryOpen(true)}
-        title="View photos"
-      >
-        <Images className="w-3.5 h-3.5 mr-1.5" />
-        {photos.length > 0 && (
-          <span className="text-[10px] font-semibold text-slate-500 tabular-nums">{photos.length}</span>
-        )}
-      </Button>
+      {fieldTrigger ? (
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-14 h-auto py-3 px-3 flex flex-col items-center justify-center gap-1 text-xs font-semibold whitespace-normal leading-tight w-full"
+          onClick={() => setSourceOpen(true)}
+          title="Add photo"
+        >
+          <Camera className="w-5 h-5 shrink-0" aria-hidden />
+          <span>Add photo</span>
+        </Button>
+      ) : (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setSourceOpen(true)}
+            title="Add photo"
+          >
+            <Camera className="w-3.5 h-3.5 mr-1.5" />
+            Photo
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setGalleryOpen(true)}
+            title="View photos"
+          >
+            <Images className="w-3.5 h-3.5 mr-1.5" />
+            {photos.length > 0 && (
+              <span className="text-[10px] font-semibold text-slate-500 tabular-nums">{photos.length}</span>
+            )}
+          </Button>
+        </>
+      )}
 
       <input
         ref={cameraRef}

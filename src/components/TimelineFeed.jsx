@@ -1,5 +1,5 @@
 import React from "react";
-import { Image as ImageIcon, Receipt, FileText, DollarSign, StickyNote, CheckSquare, RefreshCw, PenLine, Wrench, Send, PlusCircle, Ban } from "lucide-react";
+import { Image as ImageIcon, Receipt, FileText, DollarSign, StickyNote, CheckSquare, RefreshCw, PenLine, Wrench, Send, PlusCircle, Ban, Flag, AlertTriangle, Clock, CalendarDays, CheckCircle2, FilePlus2 } from "lucide-react";
 import { Image } from "@/components/ui/image";
 import { dateTime, money, timeAgo } from "@/lib/format";
 import { paymentMethodLabel } from "@/lib/paymentMethods";
@@ -23,6 +23,13 @@ const ICONS = {
   change_order_signed: PenLine,
   document_created: PlusCircle,
   document_voided: Ban,
+  visit_started: Flag,
+  visit_finished: CheckCircle2,
+  problem: AlertTriangle,
+  change_request: FilePlus2,
+  time_clock: Clock,
+  schedule_change: CalendarDays,
+  job_completed: CheckCircle2,
 };
 
 const TINT = {
@@ -42,6 +49,13 @@ const TINT = {
   change_order_signed: "bg-emerald-100 text-emerald-700",
   document_created: "bg-slate-100 text-slate-700",
   document_voided: "bg-red-50 text-red-700",
+  visit_started: "bg-sky-100 text-sky-700",
+  visit_finished: "bg-emerald-100 text-emerald-700",
+  problem: "bg-red-50 text-red-700",
+  change_request: "bg-attention-approval-muted text-attention-approval-foreground",
+  time_clock: "bg-slate-100 text-slate-700",
+  schedule_change: "bg-sky-100 text-sky-700",
+  job_completed: "bg-emerald-100 text-emerald-700",
 };
 
 const LABELS = {
@@ -61,6 +75,13 @@ const LABELS = {
   change_order_signed: "Scope add-on signed",
   document_created: "Document created",
   document_voided: "Document voided",
+  visit_started: "Visit started",
+  visit_finished: "Visit finished",
+  problem: "Problem",
+  change_request: "Change requested",
+  time_clock: "Time clock",
+  schedule_change: "Schedule change",
+  job_completed: "Job completed",
 };
 
 function statusOnEntry(entry) {
@@ -69,7 +90,7 @@ function statusOnEntry(entry) {
   return match?.[1] || "";
 }
 
-/** @param {{ entries: Array<{ id: string, at?: string, created_date?: string, type: string, text?: string, amount?: number, photo_url?: string, payment_method?: string, job_status?: string }> }} props */
+/** @param {{ entries: Array<{ id: string, at?: string, created_date?: string, type: string, text?: string, amount?: number, photo_url?: string, payment_method?: string, job_status?: string, visibility?: string }> }} props */
 export default function TimelineFeed({ entries }) {
   if (!entries?.length) {
     return (
@@ -88,6 +109,7 @@ export default function TimelineFeed({ entries }) {
         const status = statusOnEntry(e);
         const colors = status ? statusColors(status) : null;
         const method = paymentMethodLabel(e.payment_method);
+        const visibility = e.visibility;
         return (
           <div key={e.id} className="flex gap-3">
             <div className={cn(
@@ -101,6 +123,11 @@ export default function TimelineFeed({ entries }) {
                 <span className="text-sm font-medium text-slate-800">
                   {LABELS[e.type] || String(e.type || "note").replace(/_/g, " ")}
                   {method ? <span className="font-normal text-muted-foreground"> · {method}</span> : null}
+                  {visibility === "internal" ? (
+                    <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Internal</span>
+                  ) : visibility === "customer" ? (
+                    <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Customer</span>
+                  ) : null}
                 </span>
                 <div className="text-right shrink-0">
                   <div className="text-xs text-slate-600 whitespace-nowrap" title={at || undefined}>

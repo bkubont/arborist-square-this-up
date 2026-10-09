@@ -255,6 +255,9 @@ export default function JobDetail() {
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
         <div className="flex gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link to={`/jobs/${id}/field`}>Field</Link>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setEditJob(true)}>
             <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
           </Button>

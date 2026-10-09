@@ -39,6 +39,12 @@ const SECTIONS = [
     linkLabel: "Open Jobs",
   },
   {
+    title: "Today & field",
+    body: "Today lists ordered jobs for the crew with equipment and site instructions. Open the field screen to start/finish a visit, clock time, add photos, report problems, or complete the job.",
+    to: "/today",
+    linkLabel: "Open Today",
+  },
+  {
     title: "Schedule",
     body: "Day, week, and agenda views from job start dates. Jump into a job from a chip.",
     to: "/schedule",
