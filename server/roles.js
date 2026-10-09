@@ -115,6 +115,8 @@ export const NAV_PERMISSIONS = {
   '/settings': 'manage_company_profile',
   '/team': 'manage_members',
   '/crews': 'manage_crews',
+  /** Crew production dashboard lives under Reports (Phase 6). */
+  '/reports/crews': 'view_reports',
 };
 
 /**

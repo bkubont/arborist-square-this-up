@@ -12,11 +12,13 @@ import { DEFAULT_SALES_TAX_RATE } from "@/lib/salesTax";
 import { assignAppPath } from "@/lib/desktopSession";
 import { SUPPORT_EMAIL, PRODUCT_EDITION } from "@/lib/brand";
 import { DEFAULT_ARBORIST_SERVICE_PRESETS } from "../../shared/arboristServicePresets.js";
+import { defaultReviewGateRules } from "../../shared/completionChecklist.js";
 
 /** Account-level company identity for customer-facing forms (Phase 0). */
 export default function CompanySettings() {
   const { logout, user } = useAuth();
   const isOwner = userCan(user, "delete_account");
+  const canExport = userCan(user, "export_backup");
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     name: "",
@@ -27,10 +29,21 @@ export default function CompanySettings() {
     default_tax_rate: String(DEFAULT_SALES_TAX_RATE),
     default_payment_terms: "",
   });
+  const [reviewGate, setReviewGate] = useState(() => {
+    const d = defaultReviewGateRules();
+    return {
+      enabled: d.enabled,
+      min_price: String(d.min_price),
+      job_types: d.job_types.join(", "),
+      require_on_problem: d.require_on_problem,
+    };
+  });
   const [presets, setPresets] = useState(DEFAULT_ARBORIST_SERVICE_PRESETS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -54,9 +67,23 @@ export default function CompanySettings() {
           ? existing.service_presets
           : DEFAULT_ARBORIST_SERVICE_PRESETS.map((p) => ({ ...p })),
       );
+      const gate = existing.review_gate || defaultReviewGateRules();
+      setReviewGate({
+        enabled: gate.enabled !== false,
+        min_price: String(gate.min_price ?? 5000),
+        job_types: Array.isArray(gate.job_types) ? gate.job_types.join(", ") : "commercial, municipal, storm",
+        require_on_problem: gate.require_on_problem !== false,
+      });
     } else {
       setForm((f) => ({ ...f, default_tax_rate: String(DEFAULT_SALES_TAX_RATE) }));
       setPresets(DEFAULT_ARBORIST_SERVICE_PRESETS.map((p) => ({ ...p })));
+      const d = defaultReviewGateRules();
+      setReviewGate({
+        enabled: d.enabled,
+        min_price: String(d.min_price),
+        job_types: d.job_types.join(", "),
+        require_on_problem: d.require_on_problem,
+      });
     }
     setLoading(false);
   }, []);
@@ -83,6 +110,15 @@ export default function CompanySettings() {
         website: form.website,
         default_payment_terms: form.default_payment_terms,
         default_tax_rate: form.default_tax_rate === "" ? DEFAULT_SALES_TAX_RATE : Number(form.default_tax_rate),
+        review_gate: {
+          enabled: Boolean(reviewGate.enabled),
+          min_price: Number(reviewGate.min_price) || 0,
+          job_types: String(reviewGate.job_types || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          require_on_problem: Boolean(reviewGate.require_on_problem),
+        },
         service_presets: presets.map((p) => {
           const numOrUndef = (v) => {
             if (v === "" || v == null) return undefined;
@@ -275,6 +311,51 @@ export default function CompanySettings() {
         </ul>
       </div>
 
+      <div className="mt-6 bg-white rounded-xl border border-slate-200 p-5 space-y-3" data-testid="review-gate">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Completion review gate</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Routine jobs can invoice after a complete checklist. Large, typed, or problem jobs need office approval first.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={Boolean(reviewGate.enabled)}
+            onChange={(e) => setReviewGate((g) => ({ ...g, enabled: e.target.checked }))}
+          />
+          Enable review gate
+        </label>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <Label>Min price requiring review ($)</Label>
+            <Input
+              type="number"
+              min={0}
+              step="1"
+              value={reviewGate.min_price}
+              onChange={(e) => setReviewGate((g) => ({ ...g, min_price: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label>Job types (comma-separated)</Label>
+            <Input
+              value={reviewGate.job_types}
+              onChange={(e) => setReviewGate((g) => ({ ...g, job_types: e.target.value }))}
+              placeholder="commercial, municipal, storm"
+            />
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={Boolean(reviewGate.require_on_problem)}
+            onChange={(e) => setReviewGate((g) => ({ ...g, require_on_problem: e.target.checked }))}
+          />
+          Require review when a field problem is reported
+        </label>
+      </div>
+
       <div className="mt-8 bg-white rounded-xl border border-slate-200 p-5 space-y-2">
         <h2 className="text-base font-semibold text-slate-900">Team</h2>
         <p className="text-sm text-slate-600">
@@ -282,6 +363,42 @@ export default function CompanySettings() {
           <Link to="/team" className="text-primary hover:underline">Team</Link>.
         </p>
       </div>
+
+      {canExport ? (
+        <div className="mt-8 bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+          <h2 className="text-base font-semibold text-slate-900">Export / backup</h2>
+          <p className="text-sm text-slate-600">
+            Download a JSON backup of this company&apos;s records and photos. Opens independently of the app.
+          </p>
+          {exportMsg ? <p className="text-sm text-emerald-700">{exportMsg}</p> : null}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              setExportMsg("");
+              try {
+                const data = await api.exportBackup();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `arborist-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                setExportMsg(`Exported ${data.records?.length || 0} records.`);
+              } catch (err) {
+                setExportMsg(err?.message || "Export failed");
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            {exporting ? "Exporting…" : "Download backup JSON"}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="mt-8 bg-white rounded-xl border border-destructive/30 p-5 space-y-3">
         <h2 className="text-base font-semibold text-destructive">

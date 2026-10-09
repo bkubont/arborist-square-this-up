@@ -239,11 +239,11 @@ test('Phase 5: crew member Today → start visit → clock → photo → finish 
   assert.ok(customerish.some((e) => e.type === 'photo'));
   assert.ok(internalish.some((e) => e.type === 'problem'));
 
-  // Complete job.
+  // Complete job (Phase 6 checklist can be bypassed with allow_incomplete for this visit path).
   const complete = await request(`/jobs/${job.id}/complete`, {
     method: 'POST',
     cookie: memberCookie,
-    data: { note: 'All work done' },
+    data: { note: 'All work done', allow_incomplete: true },
   });
   assert.equal(complete.status, 200, complete.data?.message);
   assert.equal(complete.data.status, 'Completed');

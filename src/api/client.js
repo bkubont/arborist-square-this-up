@@ -161,6 +161,32 @@ export const api = {
       const qs = q.toString();
       return request(`/time-entries${qs ? `?${qs}` : ''}`);
     },
+    completion(jobId) {
+      return request(`/jobs/${encodeURIComponent(jobId)}/completion`);
+    },
+    updateCompletion(jobId, data) {
+      return request(`/jobs/${encodeURIComponent(jobId)}/completion`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+    approveReview(jobId) {
+      return post(`/jobs/${encodeURIComponent(jobId)}/review/approve`, {});
+    },
+  },
+  production: {
+    job(jobId) {
+      return request(`/jobs/${encodeURIComponent(jobId)}/production`);
+    },
+    crews(params = {}) {
+      const q = new URLSearchParams();
+      if (params.crew_id) q.set('crew_id', params.crew_id);
+      const qs = q.toString();
+      return request(`/production/crews${qs ? `?${qs}` : ''}`);
+    },
+  },
+  exportBackup() {
+    return request('/export');
   },
   schedule: {
     /** Assign crew/date/duration/equipment; returns job + schedule_warnings. */

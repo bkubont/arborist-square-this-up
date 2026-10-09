@@ -18,6 +18,7 @@ const ReportsIcon = NAV_ICONS.reports;
 
 /**
  * Reports — lean read-only rollups from jobs / docs / financials (no BI).
+ * Phase 6 adds crew production comparisons (est vs actual hours/costs/gross).
  */
 export default function Reports() {
   const [jobs, setJobs] = useState([]);
@@ -25,6 +26,7 @@ export default function Reports() {
   const [invoices, setInvoices] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [crewDash, setCrewDash] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,13 +36,15 @@ export default function Reports() {
       api.entities.Invoice.list("-updated_date", 300),
       api.entities.TimelineEntry.list("-created_date", 500),
       api.entities.Expense.list("-created_date", 400),
+      api.production.crews().catch(() => null),
     ])
-      .then(([j, e, inv, tl, ex]) => {
+      .then(([j, e, inv, tl, ex, prod]) => {
         setJobs(j);
         setEstimates(e);
         setInvoices(inv);
         setTimeline(tl);
         setExpenses(ex);
+        setCrewDash(prod);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -149,7 +153,7 @@ export default function Reports() {
             )}
           </section>
 
-          <section>
+          <section className="mb-8">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Materials cost</h2>
             <div className="rounded-xl border border-border bg-card p-4">
               <div className="text-xs text-muted-foreground mb-1">From job material order rollups</div>
@@ -161,8 +165,73 @@ export default function Reports() {
               </p>
             </div>
           </section>
+
+          {crewDash?.crews?.length ? (
+            <section>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                Crew production
+              </h2>
+              <p className="text-xs text-muted-foreground mb-3">
+                Estimated vs actual hours, direct costs, and crew gross profit (company overhead excluded).
+              </p>
+              <div className="space-y-3">
+                {crewDash.crews.map((crew) => (
+                  <div
+                    key={crew.crew_id || "unassigned"}
+                    className="rounded-xl border border-border bg-card p-4"
+                  >
+                    <div className="flex items-baseline justify-between gap-2 mb-3">
+                      <h3 className="font-semibold text-foreground">{crew.crew_name || "Crew"}</h3>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {crew.jobs_completed}/{crew.jobs_total} completed
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <MiniStat label="Revenue" value={money(crew.production_revenue)} />
+                      <MiniStat label="Direct costs" value={money(crew.direct_costs)} />
+                      <MiniStat label="Gross profit" value={money(crew.gross_profit)} />
+                      <MiniStat
+                        label="Hours est → act"
+                        value={`${crew.estimated_hours ?? 0} → ${crew.actual_hours ?? 0}`}
+                      />
+                    </div>
+                    {crew.average_job_duration_days != null ? (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Avg job duration {crew.average_job_duration_days} day
+                        {crew.average_job_duration_days === 1 ? "" : "s"}
+                        {crew.problem_count ? ` · ${crew.problem_count} problem(s)` : ""}
+                      </p>
+                    ) : null}
+                    {crew.jobs?.length ? (
+                      <ul className="mt-3 space-y-1.5 border-t border-border pt-3">
+                        {crew.jobs.slice(0, 6).map((row) => (
+                          <li key={row.job_id} className="text-xs flex justify-between gap-2">
+                            <Link to={`/jobs/${row.job_id}`} className="text-primary hover:underline truncate">
+                              {row.title || "Job"}
+                            </Link>
+                            <span className="shrink-0 text-muted-foreground tabular-nums">
+                              {row.estimated_hours}h / {row.actual_hours}h · {money(row.actual_gross_profit)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold tabular-nums text-foreground">{value}</div>
     </div>
   );
 }

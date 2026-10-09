@@ -98,7 +98,7 @@ export async function accountSummaries(db, ownerId) {
     totals.outstanding_cents += summary.balance_cents;
     waitingApproval.push(...summary.awaiting_approval);
     waitingPayment.push(...summary.invoices
-      .filter(invoice => invoice.status === 'sent' && invoice.balance_cents > 0)
+      .filter(invoice => (invoice.status === 'sent' || invoice.status === 'partial') && invoice.balance_cents > 0)
       .map(invoice => ({ id: invoice.id, job_id: invoice.job_id, number: invoice.number, status: invoice.status, payment_status: invoice.payment_status, balance_cents: invoice.balance_cents })));
   }
   totals.waiting_approval_cents = waitingApproval.reduce((sum, item) => sum + item.amount_cents, 0);
