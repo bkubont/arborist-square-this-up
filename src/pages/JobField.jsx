@@ -72,16 +72,19 @@ export default function JobField() {
   const [timelineFilter, setTimelineFilter] = useState("all"); // all | customer | internal
   const [prompt, setPrompt] = useState(null); // { kind, title, placeholder }
   const [promptText, setPromptText] = useState("");
+  const [checklist, setChecklist] = useState(null);
+  const [reviewInfo, setReviewInfo] = useState(null);
   const noteRef = useRef(null);
 
   const load = useCallback(async () => {
     setError("");
     try {
-      const [j, e, treeRows, times, ...docLists] = await Promise.all([
+      const [j, e, treeRows, times, completion, ...docLists] = await Promise.all([
         api.entities.Job.get(id),
         api.entities.TimelineEntry.filter({ job_id: id }, "-created_date", 500),
         api.entities.TreeInventory.filter({ job_id: id }, "created_date", 200),
         api.field.timeEntries({ job_id: id }),
+        api.field.completion(id).catch(() => null),
         ...DOC_ENTITIES.map((entity) => api.entities[entity].filter({ job_id: id }, "-created_date", 50)),
       ]);
       setJob(j);
@@ -89,6 +92,12 @@ export default function JobField() {
       setTrees(treeRows);
       setTimeEntries(times);
       setDocuments(docLists.flatMap((list, i) => list.map((doc) => ({ ...doc, entity: DOC_ENTITIES[i] }))));
+      if (completion?.checklist) setChecklist(completion.checklist);
+      setReviewInfo(completion ? {
+        review_status: completion.review_status || j.review_status,
+        review_reasons: completion.review_reasons || j.review_reasons,
+        review_gate: completion.review_gate,
+      } : null);
       if (j?.client_id) {
         try {
           setClient(await api.entities.Client.get(j.client_id));
@@ -200,6 +209,15 @@ export default function JobField() {
     }
   };
 
+  const toggleChecklistItem = async (key, done) => {
+    await run("checklist", async () => {
+      const updated = await api.field.updateCompletion(id, {
+        items: [{ key, done }],
+      });
+      if (updated?.checklist) setChecklist(updated.checklist);
+    });
+  };
+
   if (loading && !job) {
     return (
       <div className="max-w-lg mx-auto py-20 text-center text-muted-foreground text-sm">
@@ -296,6 +314,47 @@ export default function JobField() {
           </Link>
         </div>
       </section>
+
+      {/* Completion checklist (Phase 6) */}
+      {checklist?.items?.length ? (
+        <section className="rounded-xl border border-border bg-card p-4 mb-4">
+          <h2 className="text-sm font-bold mb-2">Completion checklist</h2>
+          {job.review_status === "pending" || reviewInfo?.review_status === "pending" ? (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mb-2">
+              Pending office review before invoicing
+              {(job.review_reasons || reviewInfo?.review_reasons || []).length
+                ? ` (${(job.review_reasons || reviewInfo?.review_reasons || []).join(", ")})`
+                : ""}
+            </p>
+          ) : null}
+          {job.review_status === "approved" ? (
+            <p className="text-xs text-emerald-800 mb-2">Completion review approved — ready to invoice.</p>
+          ) : null}
+          <ul className="space-y-2">
+            {checklist.items.map((item) => (
+              <li key={item.key} className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4"
+                  checked={Boolean(item.done)}
+                  disabled={Boolean(busy) || job.status === "Completed"}
+                  onChange={(e) => toggleChecklistItem(item.key, e.target.checked)}
+                  aria-label={item.label}
+                />
+                <span className={item.done ? "text-muted-foreground line-through" : "text-foreground"}>
+                  {item.label}
+                  {item.auto ? <span className="text-[10px] uppercase ml-1 text-muted-foreground">auto</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!checklist.complete && job.status !== "Completed" ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Check every item before completing the job (or office can force-complete).
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       {/* Primary field actions — large touch targets */}
       <section className="mb-4">

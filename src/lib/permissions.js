@@ -37,6 +37,7 @@ export const NAV_PERMISSIONS = {
   '/expenses': 'view_expenses',
   '/receipts': 'view_expenses',
   '/reports': 'view_reports',
+  '/reports/crews': 'view_reports',
   '/settings': 'manage_company_profile',
   '/team': 'manage_members',
 };

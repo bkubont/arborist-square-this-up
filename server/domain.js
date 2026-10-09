@@ -301,6 +301,26 @@ export const schemas = {
         note: text.optional(),
       }).nullable().optional(),
     ),
+    /**
+     * PDF §6 completion checklist (Phase 6). Items mirror DEFAULT_COMPLETION_CHECKLIST;
+     * auto flags are recomputed on complete from photos/tasks.
+     */
+    completion_checklist: z.object({
+      items: z.array(z.object({
+        key: z.string().trim().min(1).max(64),
+        label: text.optional(),
+        done: z.boolean().default(false),
+        auto: z.boolean().optional(),
+      })).max(40).default([]),
+      completed_at: z.string().max(40).optional(),
+      submitted_by: text.optional(),
+      customer_informed_at: z.string().max(40).optional(),
+    }).optional(),
+    /** Quality review after completion: not_required | pending | approved. */
+    review_status: z.enum(['not_required', 'pending', 'approved']).optional(),
+    review_reasons: z.array(z.string().max(120)).max(20).optional(),
+    review_approved_at: z.string().max(40).optional(),
+    review_approved_by: text.optional(),
   }),
   /**
    * Production unit under a company. Stored as records with owner_id = company_id.
@@ -504,6 +524,19 @@ export const schemas = {
       labor_hours: money.optional(),
       labor_rate: money.optional(),
     })).max(100).optional(),
+    /**
+     * Configurable completion review gate (Phase 6 / PDF §6).
+     * Routine jobs skip review; large / typed / problem jobs need office approval before invoice.
+     */
+    review_gate: z.object({
+      enabled: z.boolean().default(true),
+      /** Authorized job total at or above this dollar amount requires review. */
+      min_price: money.default(5000),
+      /** Job types that always require review when set. */
+      job_types: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+      /** Any TimelineEntry type=problem forces review. */
+      require_on_problem: z.boolean().default(true),
+    }).optional(),
   }),
   Estimate: z.object({
     job_id: id,
@@ -707,6 +740,12 @@ export function defaultCompanyProfileSeed(defaultTaxRate = DEFAULT_SALES_TAX_RAT
     name: '',
     default_tax_rate: defaultTaxRate,
     service_presets: defaultServicePresetsForProfile(),
+    review_gate: {
+      enabled: true,
+      min_price: 5000,
+      job_types: ['commercial', 'municipal', 'storm'],
+      require_on_problem: true,
+    },
   };
 }
 

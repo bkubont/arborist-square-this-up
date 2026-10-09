@@ -30,7 +30,19 @@ import {
   isFinancialTimelineEntry,
   prepareInvoicePatch,
   refreshInvoicePaymentSync,
+  applyPaymentRecordToInvoice,
 } from './invoiceSync.js';
+import {
+  fieldsForCompleteWithChecklist,
+  fieldsForApproveReview,
+  prepareChecklistUpdate,
+  mergeCompletionChecklist,
+  autoChecklistFlags,
+  loadCompletionContext,
+  assertInvoiceAllowedAfterReview,
+  evaluateReviewGate,
+} from './completion.js';
+import { loadJobProduction, loadCrewDashboards } from './production.js';
 import {
   applyClientPipelineFields,
   normalizeClientRecord,
@@ -80,7 +92,6 @@ import {
 import {
   fieldsForStartVisit,
   fieldsForFinishVisit,
-  fieldsForCompleteJob,
   appendFieldTimeline,
   scheduleChangeTimelineText,
 } from './fieldVisit.js';
@@ -833,27 +844,144 @@ export async function createApp(db, env = process.env) {
     res.json({ ...normalizeJobRecord(updated), visit_finished_at: finished_at });
   });
 
-  /** Complete job production (board → Completed). */
+  /** Completion checklist for a job (PDF §6 + auto flags). */
+  app.get('/api/jobs/:id/completion', async (req, res) => {
+    if (!can(req.role, 'view_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const ctx = await loadCompletionContext(db, req.ownerId, job.id);
+    const auto = autoChecklistFlags({ job, ...ctx });
+    const checklist = mergeCompletionChecklist(job.completion_checklist, auto);
+    const company = await loadCompany(req.ownerId);
+    const gate = evaluateReviewGate(job, company, {
+      timeline: ctx.timeline,
+      authorizedTotal: Number(job.estimate_amount) || 0,
+    });
+    res.json({
+      checklist,
+      review_status: job.review_status || null,
+      review_reasons: job.review_reasons || [],
+      review_gate: gate,
+    });
+  });
+
+  /** Update manual completion checklist items. */
+  app.patch('/api/jobs/:id/completion', async (req, res) => {
+    if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const ctx = await loadCompletionContext(db, req.ownerId, job.id);
+    const auto = autoChecklistFlags({ job, ...ctx });
+    const base = mergeCompletionChecklist(job.completion_checklist, auto);
+    const next = prepareChecklistUpdate(base, req.body || {}, {
+      submitted_by: req.user?.email,
+    });
+    await assertWriteAllowed(db, req, 'Job', { completion_checklist: next }, job);
+    const saved = await ownedTransaction(req.ownerId, (tx) => (
+      saveRecord(tx, req.ownerId, 'Job', { completion_checklist: next }, job.id)
+    ));
+    res.json({
+      ...normalizeJobRecord(saved),
+      checklist: mergeCompletionChecklist(saved.completion_checklist, auto),
+    });
+  });
+
+  /**
+   * Complete job production (board → Completed) with checklist + review gate (Phase 6).
+   * Body: { note?, allow_incomplete?, force?, customer_visible?, checklist? }
+   */
   app.post('/api/jobs/:id/complete', async (req, res) => {
     if (!can(req.role, 'edit_jobs')) throw fail(403, 'You do not have permission for this action');
     const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
     await assertRecordVisible(db, req, 'Job', job);
     const body = req.body || {};
-    const fields = fieldsForCompleteJob(job, { note: body.note });
-    await assertWriteAllowed(db, req, 'Job', fields, job);
+    const company = await loadCompany(req.ownerId);
+    const ctx = await loadCompletionContext(db, req.ownerId, job.id);
+    const prepared = fieldsForCompleteWithChecklist(job, {
+      note: body.note,
+      checklist: body.checklist || job.completion_checklist,
+      company,
+      timeline: ctx.timeline,
+      workItems: ctx.workItems,
+      changeOrders: ctx.changeOrders,
+      estimates: ctx.estimates,
+      allow_incomplete: Boolean(body.allow_incomplete),
+      force: Boolean(body.force),
+      submitted_by: req.user?.email,
+    });
+    await assertWriteAllowed(db, req, 'Job', prepared.fields, job);
     const updated = await ownedTransaction(req.ownerId, async (tx) => {
-      const saved = await saveRecord(tx, req.ownerId, 'Job', fields, job.id);
+      const saved = await saveRecord(tx, req.ownerId, 'Job', prepared.fields, job.id);
+      const reviewNote = prepared.review.required
+        ? ' — pending office review'
+        : '';
       await appendFieldTimeline(tx, req.ownerId, {
         job_id: job.id,
         type: 'job_completed',
         category: 'visit',
         visibility: body.customer_visible ? 'customer' : 'internal',
-        text: body.note ? `Job completed — ${body.note}` : 'Job completed',
+        text: body.note
+          ? `Job completed — ${body.note}${reviewNote}`
+          : `Job completed${reviewNote}`,
+        job_status: saved.status,
+      });
+      return saved;
+    });
+    res.json({
+      ...normalizeJobRecord(updated),
+      checklist: prepared.checklist,
+      review: prepared.review,
+    });
+  });
+
+  /** Office approves a pending completion review (unlocks invoicing). */
+  app.post('/api/jobs/:id/review/approve', async (req, res) => {
+    if (!can(req.role, 'edit_jobs') || isCrewScopedRole(req.role)) {
+      throw fail(403, 'You do not have permission for this action');
+    }
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    const fields = fieldsForApproveReview(job, { approved_by: req.user?.email });
+    const updated = await ownedTransaction(req.ownerId, async (tx) => {
+      const saved = await saveRecord(tx, req.ownerId, 'Job', fields, job.id);
+      await appendFieldTimeline(tx, req.ownerId, {
+        job_id: job.id,
+        type: 'note',
+        category: 'note',
+        visibility: 'internal',
+        text: 'Completion review approved — ready to invoice',
         job_status: saved.status,
       });
       return saved;
     });
     res.json(normalizeJobRecord(updated));
+  });
+
+  /** Job production comparison (est vs actual hours/costs/gross). */
+  app.get('/api/jobs/:id/production', async (req, res) => {
+    if (!can(req.role, 'view_reports') && !can(req.role, 'view_money')) {
+      throw fail(403, 'You do not have permission for this action');
+    }
+    const job = await getRecord(db, req.ownerId, 'Job', req.params.id);
+    await assertRecordVisible(db, req, 'Job', job);
+    res.json(await loadJobProduction(db, req.ownerId, job));
+  });
+
+  /** Crew production dashboards (company-wide or ?crew_id=). */
+  app.get('/api/production/crews', async (req, res) => {
+    if (!can(req.role, 'view_reports') && !can(req.role, 'view_money')) {
+      throw fail(403, 'You do not have permission for this action');
+    }
+    let jobs = (await db.all('SELECT * FROM records WHERE owner_id = ? AND entity = ?', [req.ownerId, 'Job'])).map(decode);
+    if (isCrewScopedRole(req.role)) {
+      jobs = await filterRecordsForRole(db, req, 'Job', jobs);
+    }
+    const crew_id = String(req.query.crew_id || '').trim() || undefined;
+    if (crew_id && isCrewScopedRole(req.role)) {
+      const ids = await ensureCrewIds(db, req);
+      if (!ids.includes(crew_id)) throw fail(403, 'You do not have access to this crew');
+    }
+    res.json(await loadCrewDashboards(db, req.ownerId, { jobs, crew_id }));
   });
 
   /** Report a field problem (changed conditions, damage, delay, equipment). */
@@ -977,8 +1105,10 @@ export async function createApp(db, env = process.env) {
         job_id: payment.job_id,
         type: 'note',
         category: 'financial',
-        text: `Payment of $${fromCents(payment.amount_cents).toFixed(2)} logged`,
+        text: `${payment.kind === 'deposit' ? 'Deposit' : 'Payment'} of $${fromCents(payment.amount_cents).toFixed(2)} logged`,
       });
+      // Apply cents onto the active invoice balance (no payment_received row — avoids double-count).
+      await applyPaymentRecordToInvoice(tx, req.ownerId, payment);
       return payment;
     });
     res.status(201).json(created);
@@ -1027,9 +1157,11 @@ export async function createApp(db, env = process.env) {
     await saveRecord(tx, ownerId, 'Job', { invoice_amount: invoicedRollup }, job.id);
     return { ...inv, authorized_total: built.authorized_total, prior_invoiced: built.prior_invoiced };
   }
-  app.post('/api/invoices/from-job', async (req, res) => {
+  app.post('/api/invoices/from-job', requirePermission('edit_money'), async (req, res) => {
     const jobId = z.string().min(1).max(36).parse(req.body.job_id);
     const job = await getRecord(db, req.ownerId, 'Job', jobId);
+    await assertRecordVisible(db, req, 'Job', job);
+    assertInvoiceAllowedAfterReview(job);
     const company = await loadCompany(req.ownerId);
     const result = await ownedTransaction(req.ownerId, async tx => {
       await assertInvoiceHasAuthorizedScope(tx, req.ownerId, jobId);

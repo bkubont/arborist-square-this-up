@@ -2,7 +2,7 @@
  * Keep job money, timeline payments, and the active invoice aligned.
  * Marking paid totals the invoice — no synthetic payments or job-status side effects.
  */
-import { saveRecord, getRecord } from './domain.js';
+import { saveRecord, getRecord, fail } from './domain.js';
 import { listJobDocuments, findActiveJobDocument, sumDepositsApplied } from './documentRules.js';
 import { deriveInvoiceStatus, invoiceTotals } from './mapping.js';
 
@@ -94,6 +94,51 @@ export async function refreshInvoicePaymentSync(tx, ownerId, jobId) {
   const timeline = await listJobDocuments(tx, ownerId, 'TimelineEntry', jobId);
   const normalized = normalizeInvoicePayments(invoice, { job, timeline });
   return saveRecord(tx, ownerId, 'Invoice', normalized, invoice.id);
+}
+
+/**
+ * Apply a Payment entity (cents) onto the active invoice without a payment_received
+ * timeline row (avoids double-count with FinancialPanel). Deposits bump deposits_applied;
+ * payments bump payments_applied. Recomputes balance/status.
+ * @param {any} tx
+ * @param {string} ownerId
+ * @param {object} payment decoded Payment record
+ */
+export async function applyPaymentRecordToInvoice(tx, ownerId, payment) {
+  if (!payment?.job_id || !payment.amount_cents) return null;
+  const invoice = payment.invoice_id
+    ? await getRecord(tx, ownerId, 'Invoice', payment.invoice_id)
+    : await findActiveJobDocument(tx, ownerId, 'Invoice', payment.job_id);
+  if (!invoice || invoice.status === 'void' || invoice.status === 'paid') return invoice || null;
+  if (invoice.job_id !== payment.job_id) throw fail(400, 'Payment invoice does not belong to this job');
+
+  const dollars = round2((Number(payment.amount_cents) || 0) / 100);
+  const isDeposit = payment.kind === 'deposit';
+  const deposits_applied = round2((Number(invoice.deposits_applied) || 0) + (isDeposit ? dollars : 0));
+  const payments_applied = round2((Number(invoice.payments_applied) || 0) + (isDeposit ? 0 : dollars));
+  const totals = invoiceTotals({
+    material_lines: invoice.material_lines || [],
+    labor_lines: invoice.labor_lines || [],
+    misc_lines: invoice.misc_lines || [],
+    tax_rate: invoice.tax_rate,
+    deposits_applied: 0,
+    payments_applied: 0,
+  });
+  const total = Number(invoice.total) > 0 ? Number(invoice.total) : totals.total;
+  const balance_due = round2(Math.max(0, total - deposits_applied - payments_applied));
+  const status = deriveInvoiceStatus({
+    balance_due,
+    payments_applied,
+    deposits_applied,
+    status: invoice.status || 'draft',
+  });
+  return saveRecord(tx, ownerId, 'Invoice', {
+    deposits_applied,
+    payments_applied,
+    balance_due,
+    status,
+    total,
+  }, invoice.id);
 }
 
 /**
